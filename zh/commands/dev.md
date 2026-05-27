@@ -56,8 +56,10 @@
 
 **进入此 Phase 前，先读取详细规则：**
 `~/.claude/commands/dev/phase1.md`
+**原型化子流程详细规则：**
+`~/.claude/commands/dev/phase1-prototyping.md`
 
-核心原则：有用户文档则直接用，只确认歧义；无文档则两轮追问生成 PRD；用户明确确认范围后才进入 Phase 2。
+核心原则：模块化渐进对齐（每模块走 Big Picture → 行为 → 细节），一次一问且 AI 给推荐答案，词语精度 inline 写入 `docs/glossary.md`，低保真问题派 sub-agent 做原型，无上限提问由用户掌控模块切换闸门，最终输出冻结 PRD 作为 Phase 2 输入。
 
 ---
 

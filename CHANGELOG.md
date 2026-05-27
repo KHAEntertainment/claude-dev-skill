@@ -7,6 +7,31 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.0] — 2026-05-27
+
+### Added
+- **`phase1-prototyping.md`**：Phase 1 原型化子流程独立文件。检测低保真信号（用户连续 ≥2 次"我不确定/你做一个我看看"）后，主对话派发原型 sub-agent 把决策点具象化，再基于 readout 重提决策点。包含信号检测规则、类型/Mode 决策树、默认升级路径（Viz → Shape → Spike）、派发参数模板、回流契约、`prototypes/YYYY-MM-DD-NNN-<slug>/` 命名规范
+- **`worker-prototype-frontend.md`**：前端原型 sub-agent prompt。镜像 QA Agent 风格（Phase 级、只读、不产 PR），产出单 HTML + Tailwind CDN 可交互原型 + ≤200 字 readout
+- **`worker-prototype-backend.md`**：后端原型 sub-agent prompt，单文件三模式由派发方注入。**Viz**（Mermaid sequence/state/ER/flow）/ **Shape**（Pydantic / SQL / OpenAPI 草图 + 示例数据）/ **Spike**（≤50 行可运行 Python 脚本，Phase 1 慎用）。严禁跨 Mode 越权
+- **`docs/glossary.md`** 子文档加入 `PROJECT_CONTEXT_TEMPLATE.md`：领域术语规范表（规范词 + `_Avoid_` 近义词 + 关系 + 已标记歧义），Phase 1 词语精度 pass 时 inline 写入
+
+### Changed
+- **`phase1.md`** 重写为模块化渐进对齐流程：
+  - 顶部锚定原则：一次只问一个问题、每个问题附 AI 推荐答案 + 一句理由、不设提问上限（由用户在闸门主动按"满意"才推进）、每轮显示进度面包屑（`[模块 N/M: 名] · 当前层级: X · 已锁定: K · 待决策: J`，K/J 为非负整数）
+  - **Step A** — 产品全貌 + 模块切分草案（不预设模板，AI 现场判断）+ 锁定握手必经
+  - **Step B** — 模块内三层渐进提问（Big Picture → 行为 → 细节）+ 词语精度 inline 写入 `docs/glossary.md` + 场景压测（编 2-3 个边界场景）+ 低保真触发原型化
+  - **Step C** — 模块切换闸门，每锁定一个模块前先写入 `PRD-draft.md`
+  - **Step D** — 全模块完成后输出冻结 PRD（`PRD.md`），人类可读不强制 schema
+  - 跨会话状态恢复协议（PRD-draft 顶部嵌入进度元信息）+ 术语重审规则 + Phase 2 回流增量更新
+  - 用户主动 opt-out B.3 场景压测时，必须 surface 该 opt-out 为已锁定决策，不静默跳过
+- **`PROJECT_CONTEXT_TEMPLATE.md`**：子文档目录新增 `docs/glossary.md`，新增 `prototypes/` 与 `PRD-draft.md` 的 `.gitignore` 指引
+- **`dev.md`** Phase 1 一行描述：模块化渐进对齐 + 词语精度沉淀 + 必要时原型驱动，无上限提问由用户掌控闸门，冻结 PRD 作为 Phase 2 输入
+
+### Tested
+- 4 个场景模拟对话（冷启动 AI Agent / 原型触发 / 已有 PRD 情况 A / 后端 Viz→Shape 升级）+ 1 个真实文件系统 case（CLI markdown summarizer）。经过 5 轮迭代修复后所有场景 PASS
+
+---
+
 ## [1.2.0] — 2026-03-30
 
 ### Added
