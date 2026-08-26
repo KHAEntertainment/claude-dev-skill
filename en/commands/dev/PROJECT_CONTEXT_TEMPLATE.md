@@ -1,50 +1,151 @@
-# PROJECT_CONTEXT.md Template
+# PROJECT_CONTEXT.md — Index File
 
-> Copy the content below into `PROJECT_CONTEXT.md` at your project root and fill in the actual values.
+> This is the master index — it only routes, it does not pile up content.
+> Detailed content is spread across sub-documents in `docs/`, each kept to 100–200 lines.
 > The `/dev` skill reads this file at every Phase to restore context.
 
 ---
 
-```markdown
-# PROJECT_CONTEXT
-
 ## Repository Info
+
 - **Repo URL**: https://github.com/[owner]/[repo]
 - **Main branch**: main
 - **Created**: YYYY-MM-DD
 
-## Tech Stack
-- **Language**: Python 3.11 / Node.js 20 / ...
-- **Framework**: FastAPI / Express / ...
-- **Database**: PostgreSQL / SQLite / ...
-- **Test framework**: pytest / Jest / None
+---
 
-## Architecture Decisions
-- **Auth scheme**: JWT, stored in HttpOnly Cookie / localStorage
-- **API spec**: RESTful, error format `{"error_code": "...", "message": "..."}`, pagination via `?page=&size=`
-- **Database migration framework**: Alembic (has existing data) / None (brand new project)
-- **API Contract doc**: `API_CONTRACT.md` (exists for full-stack projects)
+## Sub-document Index
 
-## Code Style Conventions
-- **Naming**: Python snake_case, class names PascalCase
-- **Directory structure**:
-  ```
-  src/
-    routers/    # API routing layer
-    services/   # Business logic layer
-    models/     # Data models
-    utils/      # Utility functions
-  tests/
-  ```
-- **Error handling convention**: always raise HTTPException, no business logic in the routing layer
+| File | Content | Update timing |
+|------|---------|---------------|
+| `docs/glossary.md` | Canonical domain terminology table (with avoid words) | Append item by item during Phase 1 word-precision pass; correct in later Phases when term drift is detected |
+| `docs/tech-stack.md` | Language, framework, database, test framework, dependency versions | When tech choices change |
+| `docs/architecture.md` | Architecture Decision Records (ADRs), auth scheme, API conventions, migration plan | Update immediately when an architecture decision is made |
+| `docs/api-contracts.md` | Endpoint list, request/response formats, error codes (for frontend-backend split projects) | When endpoints are added/modified |
+| `docs/style-guide.md` | Naming conventions, directory structure, error handling conventions, comment conventions | When conventions change |
+| `docs/feature-log.md` | List of completed features (PR number, merge date) | Update every Phase 5 round |
 
-## Completed Features
-- [ ] Example: user registration/login (PR #3, merged 2024-01-15)
-- [ ] Example: product listing API (PR #5, merged 2024-01-20)
+---
 
-## Current Status
+## Current Status (the only part of this file that needs frequent updates)
+
 - **Last updated**: YYYY-MM-DD
 - **Current iteration goal**: [description of features to complete this round]
-- **Known tech debt**: [if any]
 - **Open PRs**: #N [description], #M [description]
+- **Known tech debt**: see the bottom of `docs/feature-log.md`
+
+---
+
+## .gitignore Guidance at Init
+
+Prototype artifacts produced during Phase 1 do not enter git by default. Add to `.gitignore`:
+```
+prototypes/
+PRD-draft.md
+```
+
+`PRD-draft.md` is the draft used while Phase 1 is in progress; it is renamed to `PRD.md` only after the Step D freeze, and only then enters git. The user can selectively `git add` individual high-value prototypes from `prototypes/`.
+
+---
+
+## Sub-document Templates
+
+When initializing a new project, create the following files under the `docs/` directory:
+
+**`docs/glossary.md`**
+```markdown
+# Glossary
+
+> Canonical domain terminology locked during Phase 1 word-precision.
+> The main conversation and all Phases must use the canonical terms; do not use the near-synonyms listed under _Avoid_.
+
+## Terms
+
+**<term>**: <one-line definition; describe "what it is," not "what it does">
+_Avoid_: <replaced near-synonyms, comma separated>
+
+**<term>**: <definition>
+_Avoid_: <near-synonyms>
+
+## Relations
+
+- One <term A> is associated with multiple <term B>
+- <term C> belongs to <term A>
+
+## Flagged Ambiguities
+
+- "<original wording>" was once used to refer to both <term X> and <term Y> — resolution: they are distinct concepts.
+```
+
+
+
+**`docs/tech-stack.md`**
+```markdown
+# Tech Stack
+
+## Language & Runtime
+- Python 3.11 / Node.js 20 / ...
+
+## Framework
+- FastAPI / Express / ...
+
+## Database
+- PostgreSQL / SQLite / ...
+
+## Test Framework
+- pytest / Jest / None
+
+## Key Dependency Versions
+- [package]: [version]
+```
+
+**`docs/architecture.md`**
+```markdown
+# Architecture Decisions
+
+## Auth Scheme
+- Scheme: JWT, stored in HttpOnly Cookie
+- Decision time: YYYY-MM-DD, PR #N
+
+## API Design Conventions
+- Error format: `{"error_code": "...", "message": "..."}`
+- Pagination: `?page=&size=`
+
+## Database Migration
+- Framework: Alembic (existing data) / None (brand new project)
+
+## [Append new decisions in this format]
+- Scheme: ...
+- Decision time: ..., PR #N
+- Background: ...
+```
+
+**`docs/style-guide.md`**
+```markdown
+# Style Guide
+
+## Naming Conventions
+- Python: snake_case for variables/functions, PascalCase for class names
+
+## Directory Structure
+src/
+  routers/    # API routing layer
+  services/   # Business logic layer
+  models/     # Data models
+  utils/      # Utility functions
+tests/
+
+## Error Handling Conventions
+- Always raise HTTPException; no business logic in the routing layer
+```
+
+**`docs/feature-log.md`**
+```markdown
+# Feature Log
+
+## Completed
+- [feature name] (PR #N, merged YYYY-MM-DD)
+
+## Known Tech Debt
+- [description] (source: PR #N, recorded: YYYY-MM-DD)
 ```

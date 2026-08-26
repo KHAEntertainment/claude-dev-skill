@@ -91,8 +91,10 @@ Classify the request, explain your reasoning to the user, get confirmation, then
 
 **Before entering this Phase, read the detailed rules:**
 `~/.claude/commands/dev/phase1.md`
+**Detailed rules for the prototyping sub-flow:**
+`~/.claude/commands/dev/phase1-prototyping.md`
 
-Core principle: if the user provides a document, use it directly and only clarify ambiguities; if no document, generate a PRD in two rounds of questions; proceed to Phase 2 only after the user explicitly confirms scope.
+Core principle: module-progressive alignment (each module goes Big Picture → Behavior → Detail), one question at a time with an AI recommended answer, word precision inline-written into `docs/glossary.md`, low-fidelity questions dispatched to a sub-agent for a prototype, uncapped questioning with the user controlling the module-switch gate, and a frozen PRD as the final output that becomes Phase 2's input.
 
 ---
 

@@ -1,5 +1,7 @@
 # /dev — Claude Code 多 Agent 开发 SOP
 
+<a href="https://www.producthunt.com/posts/dev-for-claude-code?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-dev-for-claude-code" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=dev-for-claude-code&theme=light" alt="/dev for Claude Code - Claude Code as a Tech Lead with parallel Worker Agents | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+
 [English](./README.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
