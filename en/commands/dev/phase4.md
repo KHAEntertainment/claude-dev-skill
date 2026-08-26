@@ -15,6 +15,13 @@
 
 Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions and architecture decisions to use as the review baseline.
 
+For large or risky PRs, the Tech Lead may use Agent Teams for focused review lanes before making the final rating:
+- `review-security`: security implications, secrets, auth, injection, unsafe shell/database calls
+- `review-performance`: obvious performance regressions, query loops, concurrency risks
+- `review-tests`: acceptance criteria coverage, regression coverage, test output quality
+
+Review teammates are advisory only. They must report findings to the Tech Lead and leave PR comments when instructed, but the Tech Lead owns APPROVE / REQUEST CHANGES / COMMENT and all merge decisions.
+
 ---
 
 ## Static Analysis Gate (run before human review)

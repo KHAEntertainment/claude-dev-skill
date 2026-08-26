@@ -33,6 +33,22 @@ Compact reassessment sequence:
 4. `rtk gh issue list --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
 5. Stop, summarize likely state in 5 bullets, and ask before deep-reading more than one PR/Issue.
 
+## Agent Teams Execution Policy
+
+Agent Teams are an optional Phase 3 / Phase 3.5 execution mode, not a replacement for this SOP:
+- Use Agent Teams only for genuinely parallel work with clear file ownership: independent feature slices, frontend/backend/tests split, multi-lens QA/review, or competing debugging hypotheses.
+- Do not use Agent Teams for small fixes, same-file edits, tightly coupled refactors, sequential migrations, or work where one task blocks the next.
+- GitHub Issues and PRs remain the canonical task system. Claude's Agent Teams task list is runtime coordination only, not the source of truth.
+- Every teammate must map to exactly one GitHub Issue or one explicit QA/review lane before it starts work.
+- Teammates must not self-claim arbitrary tasks. Self-claiming is allowed only after the Tech Lead has mapped available tasks to GitHub Issues and file ownership.
+- RTK-first command rules apply to the Tech Lead and all teammates.
+- If Agent Teams are requested but cannot start because the feature is disabled, tmux/iTerm support is missing, or another dependency is blocked, attempt the obvious fix first. If not possible, stop and ask; never silently fall back to ordinary subagents.
+- After teams finish or PRs are created, the Tech Lead must shut down teammates and clean up the team before retro or standby.
+
+Recovery state: `.agent/dev-state.md` must include active team name, teammate names, Issue/PR mapping, branch/worktree names, file ownership, blockers, and next action when Agent Teams are active.
+
+Rollback snapshot for these command prompts: `/Users/bbrenner/Documents/Codex/2026-05-02/can-this-be-installed-globally-or/dev-command-backups`.
+
 ---
 
 ## Iron Rules (never violate at any phase)
@@ -94,7 +110,7 @@ Core principle: run the architecture decision checkpoint first to lock in tech c
 **Before entering this Phase, read the detailed rules:**
 `~/.claude/commands/dev/phase3.md`
 
-Core principle: launch multiple Worker Agents simultaneously for parallelizable tasks, each using `isolation: "worktree"`. Report only at key milestones: after all agents are launched, and after each PR is created.
+Core principle: for 2+ independent Issues with clear file ownership, create an Agent Team with named teammates mapped to Issues. For a single small Issue or tightly coupled work, use the existing single Worker Agent path. In both modes, every code change still happens outside the main conversation and returns through PR review.
 
 Worker Agent prompt files:
 - New feature: `~/.claude/commands/dev/worker-new.md`
@@ -110,7 +126,9 @@ Worker Agent prompt files:
 
 QA Agent prompt file: `~/.claude/commands/dev/qa-agent.md`
 
-**When dispatching a QA Agent, pass the full content of that file and fill in the specific PR and Issue numbers.**
+For large/new-feature PRs, use a QA teammate when Agent Teams are active. For larger reviews, optionally spawn focused reviewer teammates for security, performance, and test coverage. The Tech Lead synthesizes results and still owns the final Phase 4 review and merge decision.
+
+**When dispatching a QA Agent or QA teammate, pass the full content of that file and fill in the specific PR and Issue numbers.**
 
 Entry condition for Phase 4: QA Agent comments "QA ✓", and if a test framework exists, all tests pass.
 
@@ -154,4 +172,6 @@ New requirements from user → back to Phase 0.
 - **main branch**: only modify via PR, never push directly
 - **PROJECT_CONTEXT.md**: **update immediately** when architecture decisions change, do not wait for Phase 5; also do a full update at the end of each development round (completed features list, current status)
 - **Hotfix post-merge**: scan all open PRs, list PRs with file overlap with the hotfix changes, notify corresponding Worker Agents to rebase
+- **Agent Teams cleanup**: after team-based work completes, shut down teammates, clean up the team, and update `.agent/dev-state.md` before Phase 5 or standby
+- **Rollback reference**: the RTK-modified pre-Agent-Teams prompt backup is stored in `/Users/bbrenner/Documents/Codex/2026-05-02/can-this-be-installed-globally-or/dev-command-backups`
 - **After REQUEST CHANGES**: once Worker Agent finishes fixes, must re-run Phase 3.5 + Phase 4
