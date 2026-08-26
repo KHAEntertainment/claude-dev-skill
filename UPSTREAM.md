@@ -6,6 +6,8 @@ This fork maintains a customized English personal Skill while retaining upstream
 
 - `origin`: `https://github.com/KHAEntertainment/claude-dev-skill.git`
 - `upstream`: `https://github.com/hnaymyh123-henry/claude-dev-skill.git`
+- `main`: maintained customized distribution
+- `master`: upstream mirror retained for comparison
 
 ## Provenance
 
@@ -16,7 +18,7 @@ This fork maintains a customized English personal Skill while retaining upstream
 
 ## Sync Procedure
 
-1. Fetch `upstream` and inspect new tags/commits.
+1. Check out `main`, fetch `upstream`, and inspect new tags/commits.
 2. Compare both upstream language trees; do not assume English parity.
 3. Update `docs/AUDIT.md` with newly discovered behavior and conflicts.
 4. Merge the upstream commit with `--no-ff` to preserve ancestry.
