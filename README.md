@@ -1,188 +1,109 @@
-# /dev — AI-Assisted Multi-Agent Development SOP for Claude Code
+# `/dev` — RTK + Agent Teams Development Workflow
 
-<a href="https://www.producthunt.com/posts/dev-for-claude-code?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-dev-for-claude-code" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=dev-for-claude-code&theme=light" alt="/dev for Claude Code - Claude Code as a Tech Lead with parallel Worker Agents | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+KHA Entertainment's maintained English fork of [`hnaymyh123-henry/claude-dev-skill`](https://github.com/hnaymyh123-henry/claude-dev-skill).
 
-[中文版](./README.zh.md)
+`/dev` turns the active Claude Code session into a Tech Lead that coordinates requirements, GitHub Issues, pre-created worktrees, coding workers, Agent Teams, QA, review, merge order, recovery state, and retrospectives.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-blue)](https://claude.com/claude-code)
-[![Skill Type](https://img.shields.io/badge/type-slash%20command-purple)](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
+The canonical artifact is a user-invoked personal Skill at `skills/dev/`. The upstream `en/` and `zh/` command trees remain historical references and are not installed.
 
-A custom skill for [Claude Code](https://claude.com/claude-code) that turns Claude into a **Tech Lead** coordinating multiple AI Worker Agents through a complete software development workflow — from requirements alignment to PR merge.
+## Customized Guarantees
 
----
+- Never let the lead modify implementation or test code directly.
+- Allow the lead to maintain tracked PRDs/context documents, using docs-only or related PRs after repository initialization.
+- Use RTK wrappers and compact output for shell, Git, GitHub, tests, and linting.
+- Persist recoverable runtime state in `.agent/dev-state.md`.
+- Pre-create and verify one branch/worktree per coding teammate; assign explicit file ownership.
+- Use Agent Teams only for genuinely parallel work. Keep GitHub Issues and PRs canonical.
+- Run quantitative QA, health scoring, scope-drift detection, two-pass review, coverage-path audit, and specialist review lanes.
+- Ask teammates to shut down gracefully, then have the lead clean up the team.
 
-## Why /dev?
-
-Most AI coding tools give you a smart autocomplete. `/dev` gives you an **engineering process**.
-
-| Without /dev | With /dev |
-|---|---|
-| Claude writes code directly in chat | Claude acts as Tech Lead — never writes code itself |
-| No structure, easy to lose track | 6-phase SOP from PRD to merge |
-| Single-threaded, one thing at a time | Multiple Worker Agents develop in **parallel** worktrees |
-| You catch conflicts at merge time | Pre-coding conflict scan catches overlaps before they start |
-| Security review is manual | `bandit` + `pip-audit` / `npm audit` run mandatorily before every Review |
-
----
-
-## How It Works
-
-```
-You: /dev I want to build a Todo app with user auth and task management
-
-Claude (Tech Lead)
-  │
-  ├─ Phase 0 ── Classify request → New Project
-  ├─ Phase 1 ── Align on PRD (2-round confirmation)
-  ├─ Phase 2 ── Architecture decisions + GitHub Issues
-  │
-  ├─ Phase 3 ── Spawn Worker Agents (parallel worktrees)
-  │              ├─ Worker A: Auth module
-  │              ├─ Worker B: Task CRUD API
-  │              └─ Worker C: Frontend components
-  │
-  ├─ Phase 3.5 ── QA Agent static verification
-  ├─ Phase 4 ── Code Review + merge (7-item checklist)
-  └─ Phase 5 ── Retro + next iteration loop
-```
-
----
-
-## What It Does
-
-`/dev` is a **multi-agent software development SOP** covering:
-
-- **Phase 0** — Request classification & routing (New Project / New Feature / Bug Fix / Emergency Hotfix / Architectural Change / Refactoring)
-- **Phase 1** — Product alignment (uses your existing PRD, or generates one in two rounds)
-- **Phase 2** — Architecture decisions + task decomposition + GitHub Issue creation
-- **Phase 3** — Multiple Worker Agents developing **in parallel** (each in an isolated worktree)
-- **Phase 3.5** — QA Agent static verification
-- **Phase 4** — Code Review + merge (7-item structured checklist with mandatory veto conditions)
-- **Phase 5** — Retro + next iteration loop
-
-### Key Features
-
-- **Tech Lead iron rule**: main conversation never writes code directly — all changes go through Worker Agent → PR → Review
-- **6-category counterexample self-check**: Worker Agents must cover Null / Empty / Boundary / External failure / Concurrency / Malicious input before submitting
-- **Pre-coding conflict check**: Worker Agents scan other open Issues for file overlap before starting
-- **Post-merge PR coordination**: after every merge, scans open PRs and notifies branches that need rebase
-- **Security gate**: `bandit` + `pip-audit` / `npm audit` run mandatorily before Review
-- **Database migration guard**: direct DDL operations (ALTER TABLE / DROP COLUMN) trigger mandatory veto
-
----
+See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.md), and [custom changelog](CHANGELOG.custom.md).
 
 ## Requirements
 
-| Tool | Notes |
-|------|-------|
-| [Claude Code](https://claude.com/claude-code) | Anthropic official CLI, login required |
-| [GitHub CLI (`gh`)](https://cli.github.com/) | For Issues, PRs, repos — run `gh auth login` first |
-| Git | Version control |
+- Claude Code with personal Skills and Agent Teams support
+- Git and authenticated GitHub CLI (`gh`)
+- [RTK](https://github.com/rtk-ai/rtk)
+- Python 3 for installer preflight validation
+- Agent Teams enabled when team mode is desired; in-process mode does not require tmux or iTerm
 
----
-
-## Installation
-
-**Option 1: Script (recommended)**
+## Validate Before Installing
 
 ```bash
-# macOS / Linux — English version
-bash install.sh --lang en
-
-# macOS / Linux — Chinese version
-bash install.sh --lang zh
-
-# Windows PowerShell — English
-.\install.ps1 -Lang en
-
-# Windows PowerShell — Chinese
-.\install.ps1 -Lang zh
+python3 scripts/validate_skill.py
+bash -n install.sh
+shellcheck install.sh tests/test-install.sh
+bash tests/test-install.sh
+./install.sh --dry-run
 ```
 
-**Option 2: Manual**
+## Isolated Installation
 
-Copy all files from `en/commands/` (or `zh/commands/`) into `~/.claude/commands/`, keeping the directory structure:
+Use an explicit target while another Claude Code session is active or while evaluating the Skill:
 
-```
-~/.claude/commands/
-  dev.md
-  dev/
-    phase1.md
-    phase2.md
-    phase3.md
-    phase4.md
-    worker-new.md
-    worker-fix.md
-    qa-agent.md
-    PROJECT_CONTEXT_TEMPLATE.md
+```bash
+./install.sh --target "/tmp/claude-dev-test/skills/dev"
 ```
 
----
+An explicit target does not migrate `~/.claude/commands/dev.md` or `~/.claude/commands/dev/` unless `--migrate-legacy` is also supplied.
 
-## Usage
+## Live Installation
 
-In Claude Code, type:
+When ready to swap the global `/dev` implementation:
 
-```
-/dev [optional description]
-```
-
-Examples:
-```
-/dev I want to build a Todo app with user registration and task management
-/dev
+```bash
+./install.sh --dry-run
+./install.sh
 ```
 
-Claude will automatically classify the request type and enter the corresponding flow.
+The default installation:
 
----
+1. Validates every required Skill file and reference before mutation.
+2. Stages the new Skill beside the destination.
+3. Moves an existing `~/.claude/skills/dev` and legacy command paths into `~/.claude/backups/dev/<timestamp>/`.
+4. Atomically renames the staged Skill into `~/.claude/skills/dev`.
+5. Restores the previous Skill and command paths if installation fails.
 
-## Repository Structure
+Restart Claude Code after the swap, then invoke:
 
-```
-claude-dev-skill/
-├── README.md               # This file (English)
-├── README.zh.md            # Chinese version
-├── LICENSE
-├── install.sh              # macOS/Linux installer
-├── install.ps1             # Windows installer
-├── en/                     # English skill files
-│   └── commands/
-│       ├── dev.md
-│       └── dev/
-│           ├── phase1.md ~ phase5.md
-│           ├── worker-new.md
-│           ├── worker-fix.md
-│           ├── qa-agent.md
-│           └── PROJECT_CONTEXT_TEMPLATE.md
-└── zh/                     # Chinese skill files
-    └── commands/
-        └── dev/ ...
+```text
+/dev [optional project or feature description]
 ```
 
----
+Compatibility forms `--lang en` and `--lang=en` are accepted. Chinese installation is intentionally rejected before any filesystem mutation.
 
-## Scope
+### Windows PowerShell
 
-**Best suited for:**
-- New small-to-medium web backend / API projects
-- Feature modules with an existing PRD that need systematic development
-- Parallel multi-feature development where you want to avoid merge conflicts
+```powershell
+.\install.ps1 -DryRun
+.\install.ps1
+```
 
-**Not suited for:**
-- Projects requiring production deployment (no DevOps/deployment capability)
-- Complex database migrations with large amounts of existing data
-- High compliance security requirements (finance, healthcare)
+Use `-Target C:\path\to\skills\dev` for an isolated target.
 
----
+## Structure
 
-## Contributing
-
-Issues and PRs are welcome. If you have ideas for new phases, agent roles, or language support, open an Issue first to discuss.
-
----
+```text
+skills/dev/
+├── SKILL.md
+├── phases/
+│   ├── phase1.md
+│   ├── phase1-prototyping.md
+│   ├── phase2.md
+│   ├── phase3.md
+│   ├── phase3.5.md
+│   ├── phase4.md
+│   └── phase5.md
+├── agents/
+│   ├── worker-new.md
+│   ├── worker-fix.md
+│   ├── qa-agent.md
+│   ├── worker-prototype-frontend.md
+│   └── worker-prototype-backend.md
+└── templates/
+    └── PROJECT_CONTEXT_TEMPLATE.md
+```
 
 ## License
 
-MIT — see [LICENSE](./LICENSE)
+MIT — see [LICENSE](LICENSE).
