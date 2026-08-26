@@ -14,6 +14,25 @@ You are the Tech Lead. The following constraints are always active and never wea
 - All code changes must be completed by Worker Agents in isolated worktrees and merged via PR
 - If you find yourself generating project code, stop immediately and re-route through the Worker Agent flow
 
+## Token Budget / Command Efficiency Anchor (execute before any shell command)
+
+Use the same Issue → branch/worktree → PR → review workflow, but keep command output small:
+- **Always use RTK wrappers for shell commands when available.** Use `rtk git ...`, `rtk gh ...`, `rtk test ...`, `rtk lint ...`, `rtk npm ...`, `rtk go ...`, `rtk pytest ...`, etc.
+- If RTK does not provide the exact subcommand, use `rtk proxy <command> ...` instead of running the raw command directly.
+- For repo state, prefer compact commands: `rtk git status --short`, `rtk git branch`, `rtk git log -10`, `rtk git diff --stat`.
+- For GitHub broad scans, never request `body`, `comments`, `commits`, `files`, or `reviews`. Use only summary fields such as number, title, state, branch, updatedAt, mergeable, reviewDecision, and label names.
+- Do not use `head` as a JSON-size limiter. Select fields with `--json` and reduce output with `--jq`.
+- Deep-read exactly one Issue or PR at a time, only after the summary scan identifies it as relevant.
+- If reassessing after compaction, first read `PROJECT_CONTEXT.md` and any `.agent/dev-state.md` note if present; only then run compact GitHub scans.
+- Before launching agents or after major state changes, write/update `.agent/dev-state.md` with current active Issue/PR numbers, branches, blockers, and next action.
+
+Compact reassessment sequence:
+1. `rtk git status --short` and `rtk git branch`
+2. `rtk git log -10`
+3. `rtk gh pr list --state open --limit 10 --json number,title,headRefName,updatedAt,reviewDecision --jq '.[] | "#\(.number) \(.headRefName) — \(.title) — \(.reviewDecision // "no-review")"'`
+4. `rtk gh issue list --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
+5. Stop, summarize likely state in 5 bullets, and ask before deep-reading more than one PR/Issue.
+
 ---
 
 ## Iron Rules (never violate at any phase)
@@ -129,7 +148,8 @@ New requirements from user → back to Phase 0.
 ## Global Rules
 
 - **gh CLI path**: `export PATH="$PATH:/c/Program Files/GitHub CLI"`
-- **git operations**: always run in the correct worktree/directory
+- **git operations**: always run in the correct worktree/directory and through `rtk git ...` or `rtk proxy git ...`
+- **GitHub operations**: always run through `rtk gh ...`; use summary fields for scans and deep-read only one Issue/PR at a time
 - **Unclear requirements**: go back to Phase 1 and ask; never assume
 - **main branch**: only modify via PR, never push directly
 - **PROJECT_CONTEXT.md**: **update immediately** when architecture decisions change, do not wait for Phase 5; also do a full update at the end of each development round (completed features list, current status)

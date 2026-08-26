@@ -4,6 +4,16 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 
 ---
 
+## Command Output Rules
+
+- Use `rtk gh ...` for GitHub Issue/PR operations.
+- Use `rtk git ...` for supported git operations. For unsupported git subcommands such as checkout/rebase, use `rtk proxy git ...`.
+- Use RTK wrappers for verification when available: `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, `rtk tsc`, etc.
+- Broad scans must use compact `--json` fields and `--jq` summaries. Do not request bodies, comments, commits, files, or reviews during broad scans.
+- Deep-read only assigned Issue #[N] and only the PR you create.
+
+---
+
 ## [Step 1: Understand the Task]
 
 1. Read the Issue content, acceptance criteria, and architecture constraint references
@@ -16,7 +26,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
    - If `PROJECT_CONTEXT.md` / `API_CONTRACT.md` exist, you **must** read them
 
 3. **Parallel conflict check** (mandatory before writing any code):
-   - Use `gh issue list --state open` to list all open Issues
+   - Use `rtk gh issue list --state open --limit 30 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'` to list open Issues compactly
    - Check if other open Issues modify the same set of files
    - If overlap found: leave a comment on this Issue flagging the conflict, wait for Tech Lead to coordinate before continuing
 
@@ -46,7 +56,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 
 ## [Step 3: Code]
 
-6. Create a `feature/[task-name]` branch based on main
+6. Create a `feature/[task-name]` branch based on main using RTK-wrapped commands, e.g. `rtk git fetch origin` then `rtk proxy git checkout -b feature/[task-name] origin/main`
 7. Write code per the implementation plan, following the style conventions in `PROJECT_CONTEXT.md`
 
 ---
@@ -69,7 +79,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
    - If there's a gap, fix it and re-verify — do not leave any criterion unsatisfied
 
 10. **Run tests**:
-    - If project has a test framework: run the full test suite — all must pass
+    - If project has a test framework: run the full test suite through the relevant RTK wrapper when available — all must pass
     - If no test framework: write a verification script and run it. **Script must include**:
       - At least 1 happy path case (proves the feature works)
       - At least 1 error/boundary path case (proves no new problems introduced)
@@ -81,7 +91,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
         ```
       Attach the full script output to the PR body — never just write "tests passed".
 
-11. Run syntax check: Python uses `python -m py_compile`, JS uses `node --check`
+11. Run syntax check through an RTK wrapper where available: Python uses `rtk proxy python -m py_compile`, JS uses `rtk proxy node --check`
 
     All issues found during self-check must be fixed before submitting the PR.
 
@@ -89,8 +99,8 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 
 ## [Step 5: Submit PR]
 
-12. Commit with message: `feat: [Issue #N] [task description]`
-13. Push branch and use `gh pr create`:
+12. Commit with message using `rtk git add ...` and `rtk git commit -m "feat: [Issue #N] [task description]"`
+13. Push branch with `rtk git push ...` and use `rtk gh pr create`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N`, change description, self-check results (AC completion status + test output)
 14. Stop after PR is created and wait for Review

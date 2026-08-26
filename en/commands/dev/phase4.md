@@ -2,6 +2,15 @@
 
 ---
 
+## Command Output Rules
+
+- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations.
+- Use compact fields for broad PR scans. Do not request PR bodies, comments, commits, files, or reviews unless reviewing exactly one PR.
+- Use `rtk git ...`, `rtk diff`, `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, or equivalent RTK wrappers for local checks.
+- If an exact wrapper is unavailable, use `rtk proxy <command> ...`.
+
+---
+
 ## Pre-Review Preparation
 
 Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions and architecture decisions to use as the review baseline.
@@ -11,12 +20,12 @@ Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions and
 ## Static Analysis Gate (run before human review)
 
 Before human review, run static analysis tools (if configured in the project):
-- Python: `flake8` / `pylint` / `mypy`; security scan: `bandit` (if not installed: `pip install bandit`, run `bandit -r .`)
-- JavaScript: `eslint`
+- Python: `rtk proxy flake8` / `rtk proxy pylint` / `rtk mypy`; security scan: `rtk proxy bandit -r .` (if not installed: ask before installing, then use `rtk pip install bandit`)
+- JavaScript: `rtk lint` or `rtk npx eslint`
 
 **Dependency vulnerability scan (mandatory):**
-- Python: `pip-audit` (if not installed: `pip install pip-audit`)
-- Node.js: `npm audit`
+- Python: `rtk proxy pip-audit` (if not installed: ask before installing, then use `rtk pip install pip-audit`)
+- Node.js: `rtk npm audit`
 
 If static analysis reports significant errors (not nitpicks), send back to Worker Agent for fixes — do not proceed to human review.
 If `pip-audit` / `npm audit` finds High or Critical vulnerabilities, also send back and require dependency upgrades.
@@ -61,7 +70,7 @@ Execute each item and give a clear pass/fail conclusion:
   Mandatory veto: unnecessary database queries inside a loop
 ```
 
-Use `gh pr review` to leave comments — one specific comment per issue.
+Use `rtk gh pr review` to leave comments — one specific comment per issue.
 
 ---
 
@@ -70,7 +79,7 @@ Use `gh pr review` to leave comments — one specific comment per issue.
 Must give one explicit rating:
 
 - **APPROVE**: all Checklist items pass, or only nitpick-level issues
-  → `gh pr merge --squash`, close the corresponding Issue
+  → `rtk gh pr merge --squash`, close the corresponding Issue
 
 - **REQUEST CHANGES**: any mandatory veto triggered, or any Checklist item fails
   → list each issue and expected fix in comments
@@ -93,7 +102,7 @@ Update `PROJECT_CONTEXT.md` after all PRs are merged (completed features list, c
 
 After a PR is merged into main, immediately:
 
-1. `gh pr list --state open` — list all open PRs
-2. Compare this merge's file list against each open PR's modified files (`gh pr diff <PR-number> --name-only`)
-3. Open PRs with file overlap → comment: `This PR overlaps files with the just-merged #N. Please rebase: git fetch origin && git rebase origin/main`
+1. `rtk gh pr list --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
+2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
+3. Open PRs with file overlap → comment: `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
 4. Open PRs with logical dependencies (e.g. this refactor changed module paths or interface signatures) → notify those PRs as well

@@ -2,6 +2,15 @@
 
 ---
 
+## Command Output Rules
+
+- Use `rtk gh ...` for every GitHub CLI operation in this phase.
+- Use `rtk git ...` or `rtk proxy git ...` for every git operation in this phase.
+- Broad GitHub scans must use `--json` with summary fields and `--jq` one-line output. Do not request PR/Issue bodies, commits, comments, files, or reviews during broad scans.
+- Deep-read a full Issue/PR body only for the specific item being created, revised, or implemented.
+
+---
+
 ## Architecture Decision Checkpoint (run for all modes, before task decomposition)
 
 Before decomposing tasks, the following architecture decisions must be confirmed and recorded in `PROJECT_CONTEXT.md`.
@@ -31,9 +40,9 @@ Confirm all decisions with the user before proceeding to task decomposition.
 
 When requirements conflict with existing architecture decisions in PROJECT_CONTEXT.md (e.g. replacing the auth system, rewriting a core module), **before task decomposition** you must:
 
-1. List affected merged PRs (use `gh pr list --state merged` to find PRs related to the conflicting module)
+1. List affected merged PRs with a compact summary scan, e.g. `rtk gh pr list --state merged --limit 20 --json number,title,mergedAt,headRefName --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'`, then deep-read only the likely affected PRs
 2. Create a fix Issue for each affected merged PR (label: `[Arch Change] Fix code affected by PR #N`)
-3. Review all open Issues, close or revise any that conflict with the new architecture (explain why in Issue comments)
+3. Review all open Issues with compact summary output, then close or revise any that conflict with the new architecture (explain why in Issue comments)
 4. Immediately update the architecture decisions section of PROJECT_CONTEXT.md (do not wait for Phase 5)
 
 ### Execution Steps
@@ -45,7 +54,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
    - **Identify cross-task shared infrastructure** (DB connection layer, auth middleware, shared utils, API client wrappers) — create a separate Issue for each, marking them as prerequisites for other tasks
 
 2. **For new projects**, execute on GitHub:
-   - `gh repo create [project-name] --private` to create the repo
+   - `rtk gh repo create [project-name] --private` to create the repo
    - Create Issue #1 with PRD content (title: `[PRD] Product Requirements Document`)
    - Create `PROJECT_CONTEXT.md` in the repo root (use template at `~/.claude/commands/dev/PROJECT_CONTEXT_TEMPLATE.md`)
    - If API Contract needed: create `API_CONTRACT.md` with all endpoint definitions, as shared constraint for frontend/backend Issues
