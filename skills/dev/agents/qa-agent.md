@@ -17,6 +17,7 @@ Target commit: `[commit-sha]`
 
 Whether launched through Claude-native or Traycer execution:
 - Treat the assigned PR/Issue and recorded head commit as the only lane.
+- Have an agent ID distinct from the reviewer agent and every implementation/fix worker.
 - Do not claim unrelated tasks or accept implementation ownership.
 - Send findings through the assigned backend and leave the required PR comment.
 - Do not approve, merge, or request final changes independently; the Tech Lead owns Phase 4.

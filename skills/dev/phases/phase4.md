@@ -22,7 +22,7 @@ For large or risky PRs, the Tech Lead may use parallel topology through the sele
 
 Review agents are advisory only. They must report findings to the Tech Lead and leave PR comments when instructed, but the Tech Lead owns APPROVE / REQUEST CHANGES / COMMENT and all merge decisions.
 
-Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Require a reviewer agent ID distinct from implementation/fix workers, no implementation ownership, the recorded current `headRefOid`, and clean worktree evidence before and after review.
+Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Require a reviewer agent ID distinct from implementation/fix workers and the QA agent, no implementation ownership, the recorded current `headRefOid`, and clean worktree evidence before and after review.
 
 ---
 

@@ -35,6 +35,12 @@ updated_at: null
 
 The Tech Lead is the sole writer of this file. Append a timestamped entry after every verified transition. Do not let workers edit the ledger.
 
+## Execution record schema
+
+Each `execution` entry records: `execution_backend`, `detection_status`, `detection_reason`, `backend_source`, `topology`, `traycer_agent_id`, and `traycer_epic_id`.
+
+Allowed `backend_source` values: `null` (not yet resolved), `detected` (the detector chose the backend), and `lead_resolved` (the lead overrode an `incomplete` result, e.g. `claude-native`).
+
 ## Worker record schema
 
 Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `created_at`, and `updated_at`.

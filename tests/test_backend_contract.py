@@ -148,6 +148,8 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("stale_head", qa)
         self.assertIn("rtk git status --short", qa)
         self.assertIn("distinct agent ID", reviewer)
+        self.assertIn("from the QA agent", reviewer)
+        self.assertIn("distinct from the reviewer agent", qa)
         self.assertIn("rtk git status --short", reviewer)
         self.assertIn("headRefOid", reviewer)
         self.assertIn("correlation/response ID", reviewer)

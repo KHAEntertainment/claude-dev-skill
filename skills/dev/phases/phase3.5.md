@@ -40,4 +40,4 @@ Require a PR comment containing `QA ✓ Health: [N]/100`, no Critical/High findi
 3. Never rely on an `@mention` to reactivate a completed worker or QA session.
 4. After fixes, invalidate QA and external-review evidence for the old head, then rerun the complete Phase 3.5 and Phase 4 sequence.
 
-Treat QA agents as one-shot, read-only lanes: they require an unchanged checkout and an unchanged PR head and must leave zero tracked changes. They report evidence; they do not approve, merge, or modify code. A QA agent ID must differ from the implementation worker ID. A new push invalidates its result.
+Treat QA agents as one-shot, read-only lanes: they require an unchanged checkout and an unchanged PR head and must leave zero tracked changes. They report evidence; they do not approve, merge, or modify code. A QA agent ID must differ from the implementation worker ID and the reviewer agent ID. A new push invalidates its result.
