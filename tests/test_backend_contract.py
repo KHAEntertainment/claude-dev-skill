@@ -110,6 +110,7 @@ class BackendContractTests(unittest.TestCase):
             "lead:",
             "reviewer:",
             "agent_id",
+            "traycer_agent_id",
             "traycer_epic_id",
             "communication_response_id",
             "headRefOid",
@@ -139,12 +140,19 @@ class BackendContractTests(unittest.TestCase):
     def test_qa_and_reviewer_are_distinct_clean_current_head_lanes(self) -> None:
         qa = self.read("agents/qa-agent.md")
         reviewer = self.read("agents/reviewer.md")
+        phase3_5 = self.read("phases/phase3.5.md")
+        traycer = self.read("backends/traycer.md")
         phase4 = self.read("phases/phase4.md")
         self.assertIn("stale_head", qa)
         self.assertIn("rtk git status --short", qa)
         self.assertIn("distinct agent ID", reviewer)
         self.assertIn("rtk git status --short", reviewer)
         self.assertIn("headRefOid", reviewer)
+        self.assertIn("correlation/response ID", reviewer)
+        self.assertIn("rev-parse", phase3_5)
+        self.assertIn("unchanged checkout", phase3_5)
+        self.assertIn("unchanged PR head", phase3_5)
+        self.assertIn("immutable local `HEAD`", traycer)
         self.assertIn("invalidate QA, internal review, and external-review", phase4)
 
 

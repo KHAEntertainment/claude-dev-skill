@@ -22,7 +22,7 @@ Resolve each role in this order:
 
 Validate harness, model, profile, reasoning effort, and permission mode against the preflight lists before launch. An invalid field, unavailable model/profile, or unsupported reasoning/permission value makes route resolution `incomplete`; do not substitute another route. On lead fallback, inherit harness/model/reasoning. Omit profile intentionally so Traycer uses `last_used`, and record profile as `value: omitted`, `source: traycer_last_used`. Do not add cost, rate-limit, or performance routing heuristics.
 
-Traycer currently defaults creation to `full_access` unless an explicit selection guide chooses `supervised` or `auto_accept_edits`. Do not invent `read_only`. QA/review safety is enforced by their prompts and verified by a clean worktree check.
+Traycer currently defaults creation to `full_access` unless an explicit selection guide chooses `supervised` or `auto_accept_edits`. Do not invent `read_only`. QA/review safety is enforced by their prompts and verified by a clean worktree check plus immutable local `HEAD` and PR `headRefOid` checks against the recorded target commit.
 
 ## Worktree preparation
 
@@ -59,7 +59,7 @@ Record the returned response ID. Absence of an ID or an incomplete structured st
 - When replying in the opened thread, pass its `--response-id`; a mismatched or absent correlation fails closed.
 - Send a final status/report request before `agent stop`. Archive with `agent archive` only after the result is recorded. During preflight, verify the installed CLI exposes both commands and their current target-ID flags; if not, mark shutdown capability incomplete rather than guessing syntax.
 - Delete worktrees only through the existing post-merge safety gate; stopping or archiving an agent does not authorize deletion.
-- On recovery, load the YAML ledger, verify each ID with `agent list`, consume pending inbox pages, reconcile transcript evidence, and update state before sending anything. Never duplicate an agent whose live state cannot be determined.
+- On recovery, load the YAML ledger and verify both `execution.traycer_agent_id` and `execution.traycer_epic_id` (not `lead.agent_id`) with `agent list`, consume pending inbox pages, reconcile transcript evidence, and update state before sending anything. Never duplicate an agent whose live state cannot be determined.
 
 ## Harness compatibility boundary
 

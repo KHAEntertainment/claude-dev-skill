@@ -5,6 +5,7 @@ execution:
   detection_status: incomplete
   detection_reason: not_checked
   topology: serial
+  traycer_agent_id: null
   traycer_epic_id: null
 lead:
   agent_id: null
