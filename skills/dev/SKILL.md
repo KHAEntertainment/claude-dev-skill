@@ -45,7 +45,7 @@ Compact reassessment sequence:
 
 Before dispatch, read `${CLAUDE_SKILL_DIR}/backends/contract.md` and run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py`.
 
-- Backend is `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, `claude-native` only when neither is present, and `incomplete` when exactly one is present.
+- Backend is `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present; otherwise detection fails closed to `incomplete`. `claude-native` is a lead-resolved selection for a known native Claude Code session, never an automatic detection result.
 - Binary presence never selects Traycer. A failed Traycer preflight never triggers Claude fallback.
 - Select topology separately: `parallel` for 2+ independent lanes with explicit ownership; `serial` for one Issue, coupled work, or a dependency chain.
 - Load exactly one adapter: `${CLAUDE_SKILL_DIR}/backends/claude-native.md` or `${CLAUDE_SKILL_DIR}/backends/traycer.md`.

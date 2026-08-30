@@ -6,7 +6,7 @@ Use this adapter only when detection returns `traycer`. All CLI operations run t
 
 1. Confirm both session identifiers were recorded by the detector.
 2. Run `rtk proxy traycer whoami --json` and `rtk proxy traycer host status --json`; authentication and Host must be verified rather than inferred.
-3. Query the current lead with `rtk proxy traycer agent list --epic-id <epic-id> --sender-agent-id <lead-agent-id> --json` and verify `TRAYCER_AGENT_ID`, harness, model, and reasoning effort.
+3. Query the current lead with `rtk proxy traycer agent list --json` and verify `TRAYCER_AGENT_ID`, harness, model, and reasoning effort. The CLI derives epic and caller from the current session; it accepts no `--epic-id` or `--sender-agent-id` flags.
 4. Query available values with `agent list-harnesses`, `agent list-harness-models`, and `agent list-profiles` before launching a configured route.
 5. Read workspace `.traycer/agent-selection-guide.md` directly when present. The current CLI `agent selection-guide` exposes the global guide; query it only after the workspace guide.
 6. Verify the selected Chat/GUI surface can receive A2A messages. V1 must create managed children with `--surface gui`; Terminal agents for Codex/OpenCode can send/read but are not valid receive-capable v1 children.
@@ -39,7 +39,7 @@ The adapter must never use `--carry-uncommitted`. Parse the structured response,
 Create one Chat/GUI agent bound to the exact source/run relationship:
 
 ```text
-rtk proxy traycer agent create --epic-id <epic-id> --sender-agent-id <lead-agent-id> --surface gui --workspace-entry <source-workspace>=<worker-worktree> --harness <harness> --model <model> [--profile <profile>] [--reasoning-effort <level>] [--permission-mode <mode>] --json
+rtk proxy traycer agent create --surface gui --workspace-entry <source-workspace>=<worker-worktree> --harness <harness> --model <model> [--profile <profile>] [--reasoning-effort <level>] [--permission-mode <mode>] --json
 ```
 
 Do not combine `--cwd` with the same workspace entry. Parse and record the new agent ID; require reviewer and QA IDs to differ from implementation IDs.
@@ -47,7 +47,7 @@ Do not combine `--cwd` with the same workspace entry. Parse and record the new a
 Send the full provider-neutral assignment and require a correlated reply:
 
 ```text
-rtk proxy traycer agent send --epic-id <epic-id> --sender-agent-id <lead-agent-id> --to <agent-id> --message <assignment> --expect-reply --json
+rtk proxy traycer agent send --to <agent-id> --message <assignment> --expect-reply --json
 ```
 
 Record the returned response ID. Absence of an ID or an incomplete structured stream is `incomplete`.

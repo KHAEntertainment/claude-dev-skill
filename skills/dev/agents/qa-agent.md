@@ -100,4 +100,4 @@ QA focus: [directly related files/functions]
 
 10. If QA fails, leave the evidence and stop. Do not tag a completed Worker Agent; the Tech Lead must dispatch the fix and rerun QA.
 
-11. Confirm `rtk git status --short` shows no tracked or staged changes (no `M`/`A`/`D`/`R` entries). If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead with the reviewed commit, and wait for shutdown.
+11. Confirm `rtk git status --short` shows no tracked or staged changes — no entry other than untracked (`??`). If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead with the reviewed commit, and wait for shutdown.

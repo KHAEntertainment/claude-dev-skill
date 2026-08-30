@@ -24,11 +24,11 @@ def detect_backend(environment: dict[str, str] | None = None) -> dict[str, str |
         }
     if not agent_id and not epic_id:
         return {
-            "execution_backend": "claude-native",
-            "detection_status": "ready",
+            "execution_backend": "incomplete",
+            "detection_status": "incomplete",
             "traycer_agent_id": None,
             "traycer_epic_id": None,
-            "reason": "no Traycer session identifiers are present",
+            "reason": "no Traycer session identifiers are present; backend cannot be determined",
         }
     missing = "TRAYCER_EPIC_ID" if agent_id else "TRAYCER_AGENT_ID"
     return {

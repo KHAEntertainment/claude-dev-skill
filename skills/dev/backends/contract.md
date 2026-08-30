@@ -2,7 +2,7 @@
 
 The Tech Lead selects `topology` (`serial` or `parallel`) independently from `execution_backend` (`claude-native`, `traycer`, or `incomplete`). Backend selection is deterministic; topology never changes it.
 
-Run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py` before dispatch. Treat exit status 2 or backend `incomplete` as a pause condition. Never use binary presence, model availability, or a failed Traycer preflight to select or fall back to another backend.
+Run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py` before dispatch. Treat exit status 2 or backend `incomplete` as a pause condition. The detector returns `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present and otherwise fails closed to `incomplete`; `claude-native` is selected by the lead for a known native Claude Code session, never inferred from absent identifiers. Never use binary presence, model availability, or a failed Traycer preflight to select or fall back to another backend.
 
 Each adapter must implement these operations and either return verified state for the ledger or fail closed:
 
