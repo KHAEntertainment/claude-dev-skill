@@ -1,0 +1,2 @@
+# Runtime recovery state, initialized per /dev session; never a tracked artifact.
+.agent/
