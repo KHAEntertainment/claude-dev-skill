@@ -112,6 +112,7 @@ class BackendContractTests(unittest.TestCase):
             "agent_id",
             "traycer_agent_id",
             "traycer_epic_id",
+            "backend_source",
             "communication_response_id",
             "headRefOid",
             "external_review_state",
@@ -143,6 +144,7 @@ class BackendContractTests(unittest.TestCase):
         phase3_5 = self.read("phases/phase3.5.md")
         traycer = self.read("backends/traycer.md")
         phase4 = self.read("phases/phase4.md")
+        contract = self.read("backends/contract.md")
         self.assertIn("stale_head", qa)
         self.assertIn("rtk git status --short", qa)
         self.assertIn("distinct agent ID", reviewer)
@@ -154,6 +156,8 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("unchanged PR head", phase3_5)
         self.assertIn("immutable local `HEAD`", traycer)
         self.assertIn("invalidate QA, internal review, and external-review", phase4)
+        self.assertIn("distinct from each other", contract)
+        self.assertIn("backend_source", contract)
 
 
 if __name__ == "__main__":

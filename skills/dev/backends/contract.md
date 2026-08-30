@@ -2,7 +2,7 @@
 
 The Tech Lead selects `topology` (`serial` or `parallel`) independently from `execution_backend` (`claude-native`, `traycer`, or `incomplete`). Backend selection is deterministic; topology never changes it.
 
-Run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py` before dispatch. Treat exit status 2 or backend `incomplete` as a pause condition. The detector returns `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present and otherwise fails closed to `incomplete`; `claude-native` is selected by the lead for a known native Claude Code session, never inferred from absent identifiers. Never use binary presence, model availability, or a failed Traycer preflight to select or fall back to another backend.
+Run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py` before dispatch. Treat exit status 2 or backend `incomplete` as a pause condition. The detector returns `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present and otherwise fails closed to `incomplete`; `claude-native` is selected by the lead for a known native Claude Code session, never inferred from absent identifiers. To discharge the pause as `claude-native`, the lead must have positive evidence the session is native Claude Code (the lead is running `/dev` directly in Claude Code, not through Traycer) and record `backend_source: lead_resolved` in the ledger; a detector-chosen `traycer` records `backend_source: detected`. Never use binary presence, model availability, or a failed Traycer preflight to select or fall back to another backend.
 
 Each adapter must implement these operations and either return verified state for the ledger or fail closed:
 
@@ -24,7 +24,7 @@ Each adapter must implement these operations and either return verified state fo
 - GitHub Issues and PRs are canonical; backend task lists are runtime coordination only.
 - Worker → PR → QA → Review is unchanged for both adapters.
 - QA and review are distinct, one-shot read-only SOP roles. They receive no implementation ownership and must leave zero tracked changes.
-- The reviewer must have a different agent ID from every implementation worker and review the recorded current `headRefOid`.
+- The reviewer and QA must have agent IDs distinct from each other and from every implementation worker; the reviewer reviews the recorded current `headRefOid`.
 - A new push invalidates QA, internal review, and external-review evidence for the prior head.
 - RTK-first command rules apply everywhere. Traycer CLI calls use `rtk proxy traycer`.
 - Record every transition in `.agent/dev-state.md`; the lead is its sole writer.

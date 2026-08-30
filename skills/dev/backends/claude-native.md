@@ -1,6 +1,6 @@
 # Claude-Native Execution Adapter
 
-Use this adapter only when the lead has resolved the session as native Claude Code. Backend detection fails closed to `incomplete` when the Traycer identifiers are absent, because that absence cannot distinguish a native Claude session from a Traycer-managed child whose environment was not injected.
+Use this adapter only when the lead has resolved the session as native Claude Code. Backend detection fails closed to `incomplete` when the Traycer identifiers are absent, because that absence cannot distinguish a native Claude session from a Traycer-managed child whose environment was not injected. Resolve the pause with positive evidence that `/dev` is running directly in Claude Code (not through Traycer), and record `backend_source: lead_resolved` in the ledger; a detector-chosen `traycer` records `backend_source: detected`.
 
 ## Preflight and topology
 
