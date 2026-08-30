@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Run the RTK-efficient, Issue-to-PR multi-agent development SOP with recovery state, isolated worker ownership, Agent Teams, QA, review, and retro gates.
+description: Run the RTK-efficient Issue-to-PR development SOP through Claude-native or Traycer execution, with recovery state, isolated ownership, QA, review, and retro gates.
 argument-hint: "[optional project or feature description]"
 disable-model-invocation: true
 ---
@@ -41,19 +41,20 @@ Compact reassessment sequence:
 4. `rtk gh issue list --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
 5. Stop, summarize likely state in 5 bullets, and ask before deep-reading more than one PR/Issue.
 
-## Agent Teams Execution Policy
+## Execution Backend and Topology Policy
 
-Agent Teams are an optional Phase 3 / Phase 3.5 execution mode, not a replacement for this SOP:
-- Use Agent Teams only for genuinely parallel work with clear file ownership: independent feature slices, frontend/backend/tests split, multi-lens QA/review, or competing debugging hypotheses.
-- Do not use Agent Teams for small fixes, same-file edits, tightly coupled refactors, sequential migrations, or work where one task blocks the next.
-- GitHub Issues and PRs remain the canonical task system. Claude's Agent Teams task list is runtime coordination only, not the source of truth.
-- Every teammate must map to exactly one GitHub Issue or one explicit QA/review lane before it starts work.
-- Teammates must not self-claim arbitrary tasks. Self-claiming is allowed only after the Tech Lead has mapped available tasks to GitHub Issues and file ownership.
-- RTK-first command rules apply to the Tech Lead and all teammates.
-- Agent Teams can run in-process without tmux or iTerm; those tools are optional split-pane display dependencies only. If Agent Teams are requested but the feature itself is disabled or another dependency is blocked, attempt the obvious fix first. If not possible, stop and ask; never silently fall back to ordinary subagents.
-- After teams finish or PRs are created, ask teammates to shut down gracefully, then have the lead clean up the team before retro or standby.
+Before dispatch, read `${CLAUDE_SKILL_DIR}/backends/contract.md` and run `${CLAUDE_SKILL_DIR}/scripts/detect_execution_backend.py`.
 
-Recovery state: `.agent/dev-state.md` must include active team name, teammate names, Issue/PR mapping, branch/worktree names, file ownership, blockers, and next action when Agent Teams are active.
+- Backend is `traycer` only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, `claude-native` only when neither is present, and `incomplete` when exactly one is present.
+- Binary presence never selects Traycer. A failed Traycer preflight never triggers Claude fallback.
+- Select topology separately: `parallel` for 2+ independent lanes with explicit ownership; `serial` for one Issue, coupled work, or a dependency chain.
+- Load exactly one adapter: `${CLAUDE_SKILL_DIR}/backends/claude-native.md` or `${CLAUDE_SKILL_DIR}/backends/traycer.md`.
+- GitHub Issues and PRs remain canonical. Backend task lists are runtime coordination only.
+- Every agent maps to exactly one Issue or explicit prototype/QA/review lane. RTK-first rules apply to all agents.
+- Claude parallel execution uses Agent Teams; they run in-process and do not require tmux/iTerm. Traycer uses receive-capable Chat/GUI child agents.
+- Do not silently change backend or topology. Mark unverified adapter operations `incomplete` and pause.
+
+Recovery state: initialize `.agent/dev-state.md` from `${CLAUDE_SKILL_DIR}/templates/DEV_STATE_TEMPLATE.md`. The lead is the sole ledger writer.
 
 ---
 
@@ -101,7 +102,7 @@ Classify the request, explain your reasoning to the user, get confirmation, then
 **Detailed rules for the prototyping sub-flow:**
 `${CLAUDE_SKILL_DIR}/phases/phase1-prototyping.md`
 
-Core principle: module-progressive alignment (each module goes Big Picture → Behavior → Detail), one question at a time with an AI recommended answer, word precision inline-written into `docs/glossary.md`, low-fidelity questions dispatched to a sub-agent for a prototype, uncapped questioning with the user controlling the module-switch gate, and a frozen PRD as the final output that becomes Phase 2's input.
+Core principle: module-progressive alignment (each module goes Big Picture → Behavior → Detail), one question at a time with an AI recommended answer, word precision inline-written into `docs/glossary.md`, low-fidelity questions dispatched to a prototype agent through the selected adapter, uncapped questioning with the user controlling the module-switch gate, and a frozen PRD as Phase 2's input.
 
 ---
 
@@ -114,12 +115,12 @@ Core principle: run the architecture decision checkpoint first to lock in tech c
 
 ---
 
-## Phase 3 — Multi-Agent Parallel Development
+## Phase 3 — Delegated Development
 
 **Before entering this Phase, read the detailed rules:**
 `${CLAUDE_SKILL_DIR}/phases/phase3.md`
 
-Core principle: for 2+ independent Issues with clear file ownership, create an Agent Team with named teammates mapped to Issues. For a single small Issue or tightly coupled work, use the existing single Worker Agent path. In both modes, every code change still happens outside the main conversation and returns through PR review.
+Core principle: select serial/parallel topology independently from the detected backend, then use its adapter to dispatch named workers mapped to Issues and verified worktrees. Every code change happens outside the lead conversation and returns through PR review.
 
 Worker Agent prompt files:
 - New feature: `${CLAUDE_SKILL_DIR}/agents/worker-new.md`
@@ -134,7 +135,7 @@ Worker Agent prompt files:
 **Before entering this Phase, read the detailed rules:**
 `${CLAUDE_SKILL_DIR}/phases/phase3.5.md`
 
-Core principle: use quantitative triggers to decide whether QA is required; resolve the PR branch before dispatch; use a QA teammate in Agent Team mode or a single QA worker otherwise; route failures through a newly dispatched fix worker and repeat Phase 3.5 + Phase 4.
+Core principle: use quantitative triggers to decide whether QA is required; resolve the PR branch and current head before dispatch; launch a distinct read-only QA identity through the selected adapter; route failures through a newly dispatched fix worker and repeat Phase 3.5 + Phase 4.
 
 Start trusted external-review observation for the exact PR head during this Phase. The reconciliation gate is defined in `${CLAUDE_SKILL_DIR}/phases/external-review.md` and completes in Phase 4.
 
@@ -150,6 +151,8 @@ QA prompt file: `${CLAUDE_SKILL_DIR}/agents/qa-agent.md`
 `${CLAUDE_SKILL_DIR}/phases/external-review.md`
 
 Core principle: run the static analysis gate first, execute the structured Checklist Review while trusted external review proceeds, reconcile every current-head external finding, and then give a clear rating (APPROVE / REQUEST CHANGES / COMMENT). After REQUEST CHANGES, Phase 3.5 + Phase 4 must be re-run.
+
+Independent reviewer prompt: `${CLAUDE_SKILL_DIR}/agents/reviewer.md`
 
 ---
 
@@ -171,5 +174,5 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 - **main branch**: only modify via PR, never push directly
 - **PROJECT_CONTEXT.md**: update immediately when architecture decisions change; after repository initialization, commit tracked context changes through a docs-only or related PR; update the main index and `docs/feature-log.md` at the end of each round
 - **Hotfix post-merge**: scan all open PRs, list PRs with file overlap with the hotfix changes, notify corresponding Worker Agents to rebase
-- **Agent Teams cleanup**: after team-based work completes, ask every teammate to shut down gracefully, then have the lead clean up the team and update `.agent/dev-state.md` before Phase 5 or standby
+- **Backend cleanup**: ask every delegated agent to stop gracefully, then run the selected adapter's cleanup and update `.agent/dev-state.md` before Phase 5 or standby
 - **After REQUEST CHANGES**: once Worker Agent finishes fixes, must re-run Phase 3.5 + Phase 4

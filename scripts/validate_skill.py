@@ -11,6 +11,9 @@ from pathlib import Path
 
 REQUIRED = {
     "SKILL.md",
+    "backends/contract.md",
+    "backends/claude-native.md",
+    "backends/traycer.md",
     "phases/phase1.md",
     "phases/phase1-prototyping.md",
     "phases/phase2.md",
@@ -22,9 +25,12 @@ REQUIRED = {
     "agents/worker-new.md",
     "agents/worker-fix.md",
     "agents/qa-agent.md",
+    "agents/reviewer.md",
     "agents/worker-prototype-frontend.md",
     "agents/worker-prototype-backend.md",
     "templates/PROJECT_CONTEXT_TEMPLATE.md",
+    "templates/DEV_STATE_TEMPLATE.md",
+    "scripts/detect_execution_backend.py",
     "scripts/inspect_external_reviews.py",
 }
 
@@ -98,10 +104,36 @@ def main() -> int:
         "--trusted-reviewer",
         "false_positive",
         "incomplete",
+        "TRAYCER_AGENT_ID",
+        "TRAYCER_EPIC_ID",
+        "claude-native",
+        "rtk proxy traycer",
+        "--surface gui",
+        "--expect-reply",
+        "--workspace-entry",
+        "--carry-uncommitted",
+        "traycer_last_used",
+        "schema_version",
+        "communication_response_id",
+        "head changed",
+        "distinct agent ID",
+        "lead is the sole ledger writer",
     )
     for token in required_policy:
         if token not in combined:
             fail(errors, f"missing required custom policy: {token}")
+
+    detector = skill_dir / "scripts" / "detect_execution_backend.py"
+    if detector.is_file():
+        detector_text = detector.read_text(encoding="utf-8")
+        if "shutil.which" in detector_text or "command -v" in detector_text:
+            fail(errors, "backend detector must not probe binary presence")
+
+    state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
+    if state_template.is_file():
+        state_text = state_template.read_text(encoding="utf-8")
+        if not state_text.startswith("---\n") or "\n---\n" not in state_text[4:]:
+            fail(errors, "DEV_STATE_TEMPLATE.md must contain YAML frontmatter")
 
     if errors:
         for error in errors:

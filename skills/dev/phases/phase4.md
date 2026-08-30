@@ -15,12 +15,14 @@
 
 Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions, architecture decisions, and the optional External Review Policy. Read `${CLAUDE_SKILL_DIR}/phases/external-review.md`; its observation should already be running from Phase 3.5.
 
-For large or risky PRs, the Tech Lead may use Agent Teams for focused review lanes before making the final rating:
+For large or risky PRs, the Tech Lead may use parallel topology through the selected adapter for focused review lanes before making the final rating:
 - `review-security`: security implications, secrets, auth, injection, unsafe shell/database calls
 - `review-performance`: obvious performance regressions, query loops, concurrency risks
 - `review-tests`: acceptance criteria coverage, regression coverage, test output quality
 
-Review teammates are advisory only. They must report findings to the Tech Lead and leave PR comments when instructed, but the Tech Lead owns APPROVE / REQUEST CHANGES / COMMENT and all merge decisions.
+Review agents are advisory only. They must report findings to the Tech Lead and leave PR comments when instructed, but the Tech Lead owns APPROVE / REQUEST CHANGES / COMMENT and all merge decisions.
+
+Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Require a reviewer agent ID distinct from implementation/fix workers, no implementation ownership, the recorded current `headRefOid`, and clean worktree evidence before and after review.
 
 ---
 
@@ -121,11 +123,15 @@ changed: src/auth.py
 
 Trigger a focused read-only reviewer when any ASK finding remains. Give it only the uncertain findings and relevant diff sections. Require an independent judgment on whether the issue is real, its severity, and the recommended resolution. Skip this step when all findings are clearly passed or DELEGATE-FIX.
 
+Launch and observe it through the selected adapter. If its identity, route, response correlation, target head, or clean-worktree result cannot be verified, mark internal review `incomplete` and do not merge.
+
 ---
 
 ## Review Rating
 
 Before assigning a rating, rerun the external-review inspector, triage every active current-head trusted-reviewer finding, and verify that the PR's current `headRefOid` still matches `.agent/dev-state.md`.
+
+If the head changed, invalidate QA, internal review, and external-review completion, update the ledger, and rerun Phase 3.5 and Phase 4 against the new commit.
 
 - `blocking` external review → REQUEST CHANGES.
 - `pending` or `incomplete` external review → do not merge; follow the explicit waiting/approval choices in the external-review gate.

@@ -12,12 +12,13 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 - Broad scans must use compact `--json` fields and `--jq` summaries. Do not request bodies, comments, commits, files, or reviews during broad scans.
 - Deep-read only assigned Issue #[N] and only the PR you create.
 
-## Agent Teams Mode
+## Delegated Execution Contract
 
-When running as an Agent Teams teammate:
-- Work only on assigned Issue #[N] and the explicit file/directories assigned by the Tech Lead.
-- Do not self-claim unrelated team tasks or modify unassigned files without Tech Lead approval.
-- If plan approval is required, stop after Step 1 and wait for approval before editing files.
+Whether launched through Claude-native or Traycer execution:
+- Work only on assigned Issue #[N], assigned branch/worktree, and explicit ownership.
+- Do not self-claim unrelated tasks or modify unassigned files without Tech Lead approval.
+- If plan approval is required, stop after Step 1 and report through the assigned backend before editing.
+- Include the assigned backend correlation/response ID in status replies when one was provided.
 - Send blockers and PR-created status to the Tech Lead, then wait for review or shutdown.
 
 ---
@@ -78,4 +79,4 @@ When running as an Agent Teams teammate:
 12. Create semantic, bisectable commits; keep every commit runnable.
 13. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
     - body: include `Closes #N`, root cause, fix approach, AC completion status, test output, impact scope assessment
-14. Stop after PR is created, report the PR to the Tech Lead, and wait for Review or shutdown
+14. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

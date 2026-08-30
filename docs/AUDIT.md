@@ -79,3 +79,11 @@ The customized lineage was reconstructed as reviewable commits:
 6. Replace the incomplete bilingual installers with validated English-only Skill installers.
 
 The legacy `en/` and `zh/` trees remain upstream historical references. `skills/dev/` is the maintained release artifact and the installer never reads from the legacy trees.
+
+## Traycer Backend v1 Architecture
+
+The maintained Skill now separates execution topology from backend. `serial` and `parallel` describe scheduling; `claude-native`, `traycer`, and `incomplete` describe the execution substrate. Detection depends only on the paired Traycer session identifiers, so an installed binary cannot unexpectedly change behavior.
+
+The provider-neutral SOP remains canonical in `skills/dev/`. Claude-native parallel execution maps to Agent Teams. Traycer execution maps roles to receive-capable Chat/GUI agents and owns CLI worktree/session mechanics, while `/dev` retains base/branch/path verification, Issue ownership, state, QA, and merge authority. Traycer does not translate slash-command syntax: non-Claude children consume neutral assignments, while future native Codex/OpenCode lead entrypoints can be thin distributions over the same adapter contract.
+
+Traycer operations fail closed on partial session context, unavailable Host/auth/capabilities, invalid routes, malformed structured output, incomplete inbox pagination, or unverified worktree binding. QA and review remain prompt-enforced read-only roles because Traycer exposes no read-only permission mode; clean worktree evidence is mandatory.

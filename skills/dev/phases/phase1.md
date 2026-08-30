@@ -289,5 +289,5 @@ If something like an architecture-level change routes the flow back to Phase 1:
 - Do not assume requirements the user did not explicitly state
 - Do not rewrite the user's existing document (unless explicitly requested)
 - Do not skip the scenario stress-test (B.3) in pursuit of "finishing quickly"
-- Do not let a sub-agent lock decisions on behalf of the main conversation (sub-agents only produce artifacts + readouts)
+- Do not let a prototype agent lock decisions on behalf of the main conversation (prototype agents only produce artifacts + readouts)
 - Do not silently modify locked terms or decisions (re-reviews must be surfaced)

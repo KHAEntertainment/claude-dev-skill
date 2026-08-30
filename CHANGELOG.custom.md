@@ -1,5 +1,21 @@
 # Customized Distribution Changelog
 
+## Unreleased — Traycer backend v1
+
+### Added
+
+- Provider-independent execution adapter contract with Claude-native and Traycer adapters.
+- Deterministic environment-only backend detection with incomplete-session fail-closed behavior.
+- Traycer worktree, Chat-agent, route-resolution, A2A messaging, observation, recovery, stop, and archive contracts through `rtk proxy traycer`.
+- Provider-neutral independent reviewer prompt and YAML-front-matter `DEV_STATE_TEMPLATE.md`.
+- Optional per-role Execution Routing Policy with project, workspace guide, global guide, and lead-route precedence.
+
+### Changed
+
+- Separate serial/parallel topology from backend selection throughout Phase 1, Phase 3, QA, review, and cleanup.
+- Make worker, prototype, QA, and reviewer dispatch provider-neutral while retaining Agent Teams for Claude-native parallel execution.
+- Preserve one canonical Claude Code Skill; Traycer-managed child harnesses consume assignments and do not require duplicate `/dev` installations.
+
 ## custom-v1.1.0-upstream.3e87db0 — 2026-08-29
 
 ### Added
