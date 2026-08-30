@@ -16,6 +16,7 @@ REQUIRED = {
     "phases/phase2.md",
     "phases/phase3.md",
     "phases/phase3.5.md",
+    "phases/external-review.md",
     "phases/phase4.md",
     "phases/phase5.md",
     "agents/worker-new.md",
@@ -24,6 +25,7 @@ REQUIRED = {
     "agents/worker-prototype-frontend.md",
     "agents/worker-prototype-backend.md",
     "templates/PROJECT_CONTEXT_TEMPLATE.md",
+    "scripts/inspect_external_reviews.py",
 }
 
 
@@ -66,7 +68,7 @@ def main() -> int:
         combined_parts.append(content)
         if re.search(r"[\u3400-\u9fff]", content):
             fail(errors, f"{markdown.relative_to(skill_dir)} contains Chinese text")
-        for ref in re.findall(r"\$\{CLAUDE_SKILL_DIR\}/([^`\s)]+)", content):
+        for ref in re.findall(r"\$\{CLAUDE_SKILL_DIR\}/([^`\s)'\"]+)", content):
             if not (skill_dir / ref).is_file():
                 fail(errors, f"{markdown.relative_to(skill_dir)} references missing file: {ref}")
 
@@ -86,6 +88,16 @@ def main() -> int:
         ".agent/dev-state.md",
         "pre-created, verified branch/worktree",
         "RTK",
+        "coderabbit",
+        "kilo",
+        "github-copilot",
+        "copilot-pull-request-reviewer[bot]",
+        "headRefOid",
+        "Default wait minutes",
+        "Allow automatic review requests",
+        "--trusted-reviewer",
+        "false_positive",
+        "incomplete",
     )
     for token in required_policy:
         if token not in combined:

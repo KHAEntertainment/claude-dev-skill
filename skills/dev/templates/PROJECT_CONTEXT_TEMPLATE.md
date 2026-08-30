@@ -36,6 +36,22 @@
 
 ---
 
+## External Review Policy (optional)
+
+Omit this section to use the `/dev` defaults shown below.
+
+- **Mode**: auto
+- **Trusted reviewers**: coderabbit, kilo, github-copilot
+- **Required reviewers**: none
+- **Ignored reviewers**: none
+- **Additional reviewer identities**: none
+- **Default wait minutes**: 10
+- **Allow automatic review requests**: false
+
+`Ignored reviewers` takes precedence over every other setting. Additional identities use `reviewer=login` or `reviewer=login,check-app-slug`. Automatic review requests can consume reviewer credits; enable them per reviewer only when intentionally desired.
+
+---
+
 ## .gitignore Guidance at Init
 
 Prototype artifacts produced during Phase 1 do not enter git by default. Add to `.gitignore`:

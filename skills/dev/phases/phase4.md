@@ -13,7 +13,7 @@
 
 ## Pre-Review Preparation
 
-Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions and architecture decisions to use as the review baseline.
+Before starting Review, read `PROJECT_CONTEXT.md` for code style conventions, architecture decisions, and the optional External Review Policy. Read `${CLAUDE_SKILL_DIR}/phases/external-review.md`; its observation should already be running from Phase 3.5.
 
 For large or risky PRs, the Tech Lead may use Agent Teams for focused review lanes before making the final rating:
 - `review-security`: security implications, secrets, auth, injection, unsafe shell/database calls
@@ -125,9 +125,15 @@ Trigger a focused read-only reviewer when any ASK finding remains. Give it only 
 
 ## Review Rating
 
+Before assigning a rating, rerun the external-review inspector, triage every active current-head trusted-reviewer finding, and verify that the PR's current `headRefOid` still matches `.agent/dev-state.md`.
+
+- `blocking` external review → REQUEST CHANGES.
+- `pending` or `incomplete` external review → do not merge; follow the explicit waiting/approval choices in the external-review gate.
+- `clear` or `not_applicable` → continue to the internal rating below. This is not a substitute for the internal checklist.
+
 Must give one explicit rating:
 
-- **APPROVE**: Pass 1 is clear, all DELEGATE-FIX findings are resolved, and only non-blocking Pass 2 findings remain
+- **APPROVE**: Pass 1 is clear, all DELEGATE-FIX findings are resolved, external review is `clear` or `not_applicable`, and only non-blocking Pass 2 findings remain
   → `rtk gh pr merge --squash`, close the corresponding Issue
 
 - **REQUEST CHANGES**: any Pass 1 failure, confirmed Scope Drift, or unresolved ASK item

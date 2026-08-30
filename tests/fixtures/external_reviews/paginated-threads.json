@@ -1,0 +1,16 @@
+{
+  "current": {
+    "number": 17,
+    "headRefOid": "head-17",
+    "reviewRequests": [],
+    "reviews": [{"id": "review-copilot", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-17"}}],
+    "latestReviews": [],
+    "statusCheckRollup": [],
+    "comments": []
+  },
+  "threads": [
+    {"nodes": [{"id": "page-1-thread", "isResolved": true, "isOutdated": false, "comments": {"nodes": [{"id": "p1", "body": "Resolved", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "commit": {"oid": "head-17"}}]}}]},
+    {"nodes": [{"id": "page-2-thread", "isResolved": false, "isOutdated": false, "comments": {"nodes": [{"id": "p2", "body": "Hidden", "isMinimized": true, "author": {"login": "copilot-pull-request-reviewer[bot]"}, "commit": {"oid": "head-17"}}]}}]}
+  ],
+  "recent": []
+}

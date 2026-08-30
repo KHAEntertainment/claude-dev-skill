@@ -22,7 +22,9 @@ try {
     $fresh = Join-Path $testRoot "fresh config"
     & $installer -ConfigDir $fresh -Lang en | Out-Null
     Assert-Path (Join-Path $fresh "skills\dev\SKILL.md")
+    Assert-Path (Join-Path $fresh "skills\dev\phases\external-review.md")
     Assert-Path (Join-Path $fresh "skills\dev\phases\phase5.md")
+    Assert-Path (Join-Path $fresh "skills\dev\scripts\inspect_external_reviews.py")
     Pass "fresh install with path spaces"
 
     $dry = Join-Path $testRoot "dry run"

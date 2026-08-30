@@ -1,0 +1,15 @@
+{
+  "current": {
+    "number": 15,
+    "headRefOid": "head-15",
+    "reviewRequests": [],
+    "reviews": [],
+    "latestReviews": [],
+    "statusCheckRollup": [
+      {"name": "CodeRabbit", "status": "COMPLETED", "conclusion": "FAILURE", "app": {"slug": "coderabbitai"}}
+    ],
+    "comments": []
+  },
+  "threads": [],
+  "recent": []
+}

@@ -1,0 +1,19 @@
+{
+  "current": {
+    "number": 12,
+    "headRefOid": "head-12",
+    "reviewRequests": [],
+    "reviews": [
+      {"id": "review-copilot", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-12"}}
+    ],
+    "latestReviews": [],
+    "statusCheckRollup": [],
+    "comments": []
+  },
+  "threads": [
+    {"nodes": [
+      {"id": "copilot-finding-1", "isResolved": false, "isOutdated": false, "path": "src/auth.py", "line": 42, "comments": {"nodes": [{"id": "cf1", "body": "This authorization branch may allow access.", "url": "https://example.test/thread/1", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "commit": {"oid": "head-12"}}]}}
+    ]}
+  ],
+  "recent": []
+}

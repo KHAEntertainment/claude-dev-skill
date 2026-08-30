@@ -22,7 +22,9 @@ fresh="$TEST_ROOT/fresh config"
 bash "$INSTALLER" --config-dir "$fresh" --lang=en >/dev/null
 expect_file "$fresh/skills/dev/SKILL.md"
 expect_file "$fresh/skills/dev/phases/phase3.5.md"
+expect_file "$fresh/skills/dev/phases/external-review.md"
 expect_file "$fresh/skills/dev/phases/phase5.md"
+expect_file "$fresh/skills/dev/scripts/inspect_external_reviews.py"
 pass "fresh install with path spaces"
 
 # Dry run must not create the target.

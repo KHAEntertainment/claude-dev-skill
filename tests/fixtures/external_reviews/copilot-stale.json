@@ -1,0 +1,19 @@
+{
+  "current": {
+    "number": 13,
+    "headRefOid": "head-13-new",
+    "reviewRequests": [],
+    "reviews": [
+      {"id": "review-copilot-old", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-13-old"}}
+    ],
+    "latestReviews": [],
+    "statusCheckRollup": [],
+    "comments": []
+  },
+  "threads": [
+    {"nodes": [
+      {"id": "copilot-old-thread", "isResolved": false, "isOutdated": true, "path": "src/old.py", "line": 8, "comments": {"nodes": [{"id": "co1", "body": "Old finding", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "commit": {"oid": "head-13-old"}}]}}
+    ]}
+  ],
+  "recent": []
+}

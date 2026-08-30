@@ -15,6 +15,7 @@ The canonical artifact is a user-invoked personal Skill at `skills/dev/`. The up
 - Pre-create and verify one branch/worktree per coding teammate; assign explicit file ownership.
 - Use Agent Teams only for genuinely parallel work. Keep GitHub Issues and PRs canonical.
 - Run quantitative QA, health scoring, scope-drift detection, two-pass review, coverage-path audit, and specialist review lanes.
+- Detect, await, and triage current-head CodeRabbit, Kilo Code, and GitHub Copilot reviews before merge without replacing internal review.
 - Ask teammates to shut down gracefully, then have the lead clean up the team.
 
 See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.md), and [custom changelog](CHANGELOG.custom.md).
@@ -31,6 +32,7 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 
 ```bash
 python3 scripts/validate_skill.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 bash -n install.sh
 shellcheck install.sh tests/test-install.sh
 bash tests/test-install.sh
@@ -92,6 +94,7 @@ skills/dev/
 │   ├── phase2.md
 │   ├── phase3.md
 │   ├── phase3.5.md
+│   ├── external-review.md
 │   ├── phase4.md
 │   └── phase5.md
 ├── agents/
@@ -100,8 +103,10 @@ skills/dev/
 │   ├── qa-agent.md
 │   ├── worker-prototype-frontend.md
 │   └── worker-prototype-backend.md
-└── templates/
-    └── PROJECT_CONTEXT_TEMPLATE.md
+├── templates/
+│   └── PROJECT_CONTEXT_TEMPLATE.md
+└── scripts/
+    └── inspect_external_reviews.py
 ```
 
 ## License

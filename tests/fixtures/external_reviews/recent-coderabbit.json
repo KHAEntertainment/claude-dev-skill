@@ -1,0 +1,23 @@
+{
+  "current": {
+    "number": 14,
+    "headRefOid": "head-14",
+    "reviewRequests": [],
+    "reviews": [],
+    "latestReviews": [],
+    "statusCheckRollup": [],
+    "comments": []
+  },
+  "threads": [],
+  "recent": [
+    {
+      "number": 9,
+      "headRefOid": "head-9",
+      "reviewRequests": [],
+      "reviews": [{"id": "recent-rabbit", "author": {"login": "coderabbitai[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-9"}}],
+      "latestReviews": [],
+      "statusCheckRollup": [],
+      "comments": []
+    }
+  ]
+}

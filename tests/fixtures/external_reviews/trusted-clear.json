@@ -1,0 +1,26 @@
+{
+  "current": {
+    "number": 11,
+    "headRefOid": "head-11",
+    "reviewRequests": [],
+    "reviews": [
+      {"id": "review-rabbit", "author": {"login": "coderabbitai[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-11"}},
+      {"id": "review-kilo", "author": {"login": "kilocode-bot"}, "state": "COMMENTED", "commit": {"oid": "head-11"}},
+      {"id": "review-copilot", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED", "commit": {"oid": "head-11"}}
+    ],
+    "latestReviews": [],
+    "statusCheckRollup": [
+      {"name": "CodeRabbit", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"slug": "coderabbitai"}},
+      {"name": "Kilo Code Review", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"slug": "kilocode"}}
+    ],
+    "comments": []
+  },
+  "threads": [
+    {"nodes": [
+      {"id": "resolved-rabbit", "isResolved": true, "isOutdated": false, "path": "src/a.py", "line": 3, "comments": {"nodes": [{"id": "rr1", "body": "Resolved", "author": {"login": "coderabbitai[bot]"}, "commit": {"oid": "head-11"}}]}},
+      {"id": "hidden-kilo", "isResolved": false, "isOutdated": false, "path": "src/b.py", "line": 4, "comments": {"nodes": [{"id": "hk1", "body": "Hidden", "isMinimized": true, "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-11"}}]}},
+      {"id": "outdated-copilot", "isResolved": false, "isOutdated": true, "path": "src/c.py", "line": 5, "comments": {"nodes": [{"id": "oc1", "body": "Outdated", "author": {"login": "copilot-pull-request-reviewer[bot]"}, "commit": {"oid": "old-head"}}]}}
+    ]}
+  ],
+  "recent": []
+}

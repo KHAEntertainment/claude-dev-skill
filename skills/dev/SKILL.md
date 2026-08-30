@@ -50,7 +50,7 @@ Agent Teams are an optional Phase 3 / Phase 3.5 execution mode, not a replacemen
 - Every teammate must map to exactly one GitHub Issue or one explicit QA/review lane before it starts work.
 - Teammates must not self-claim arbitrary tasks. Self-claiming is allowed only after the Tech Lead has mapped available tasks to GitHub Issues and file ownership.
 - RTK-first command rules apply to the Tech Lead and all teammates.
-- If Agent Teams are requested but cannot start because the feature is disabled, tmux/iTerm support is missing, or another dependency is blocked, attempt the obvious fix first. If not possible, stop and ask; never silently fall back to ordinary subagents.
+- Agent Teams can run in-process without tmux or iTerm; those tools are optional split-pane display dependencies only. If Agent Teams are requested but the feature itself is disabled or another dependency is blocked, attempt the obvious fix first. If not possible, stop and ask; never silently fall back to ordinary subagents.
 - After teams finish or PRs are created, ask teammates to shut down gracefully, then have the lead clean up the team before retro or standby.
 
 Recovery state: `.agent/dev-state.md` must include active team name, teammate names, Issue/PR mapping, branch/worktree names, file ownership, blockers, and next action when Agent Teams are active.
@@ -136,6 +136,8 @@ Worker Agent prompt files:
 
 Core principle: use quantitative triggers to decide whether QA is required; resolve the PR branch before dispatch; use a QA teammate in Agent Team mode or a single QA worker otherwise; route failures through a newly dispatched fix worker and repeat Phase 3.5 + Phase 4.
 
+Start trusted external-review observation for the exact PR head during this Phase. The reconciliation gate is defined in `${CLAUDE_SKILL_DIR}/phases/external-review.md` and completes in Phase 4.
+
 QA prompt file: `${CLAUDE_SKILL_DIR}/agents/qa-agent.md`
 
 ---
@@ -144,8 +146,10 @@ QA prompt file: `${CLAUDE_SKILL_DIR}/agents/qa-agent.md`
 
 **Before entering this Phase, read the detailed rules:**
 `${CLAUDE_SKILL_DIR}/phases/phase4.md`
+**Before the final review rating, read and complete the external-review gate:**
+`${CLAUDE_SKILL_DIR}/phases/external-review.md`
 
-Core principle: run the static analysis gate first, then execute the structured Checklist Review, and give a clear rating (APPROVE / REQUEST CHANGES / COMMENT). After REQUEST CHANGES, Phase 3.5 + Phase 4 must be re-run.
+Core principle: run the static analysis gate first, execute the structured Checklist Review while trusted external review proceeds, reconcile every current-head external finding, and then give a clear rating (APPROVE / REQUEST CHANGES / COMMENT). After REQUEST CHANGES, Phase 3.5 + Phase 4 must be re-run.
 
 ---
 

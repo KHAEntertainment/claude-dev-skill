@@ -1,0 +1,13 @@
+{
+  "current": {
+    "number": 10,
+    "headRefOid": "head-10",
+    "reviewRequests": [],
+    "reviews": [],
+    "latestReviews": [],
+    "statusCheckRollup": [],
+    "comments": []
+  },
+  "threads": [],
+  "recent": []
+}

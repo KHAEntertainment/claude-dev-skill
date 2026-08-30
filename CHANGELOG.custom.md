@@ -1,5 +1,20 @@
 # Customized Distribution Changelog
 
+## custom-v1.1.0-upstream.3e87db0 — 2026-08-29
+
+### Added
+
+- Conditional external-review oversight for CodeRabbit, Kilo Code, and GitHub Copilot.
+- Current-head review-thread normalization, trusted-review inference from five recent PRs, explicit finding dispositions, and incomplete-evidence fail-closed behavior.
+- Per-project trusted/required/ignored reviewer policy, configurable wait duration, explicit paid-review approval, and recorded timeout bypass debt.
+- Fixture-testable GitHub review inspector distributed with the Skill.
+
+### Changed
+
+- Run external review concurrently with internal QA/review, then reconcile it before the final rating.
+- Invalidate stale external review after every new PR head commit.
+- Clarify that in-process Agent Teams do not require tmux or iTerm.
+
 ## custom-v1.0.0-upstream.3e87db0 — 2026-08-26
 
 ### Added
