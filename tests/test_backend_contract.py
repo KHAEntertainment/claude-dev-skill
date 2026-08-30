@@ -156,8 +156,10 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("rev-parse", phase3_5)
         self.assertIn("unchanged checkout", phase3_5)
         self.assertIn("unchanged PR head", phase3_5)
+        self.assertIn("the reviewer agent ID", phase3_5)
         self.assertIn("immutable local `HEAD`", traycer)
         self.assertIn("invalidate QA, internal review, and external-review", phase4)
+        self.assertIn("and the QA agent", phase4)
         self.assertIn("distinct from each other", contract)
         self.assertIn("backend_source", contract)
 
