@@ -3,9 +3,10 @@
 Release tags follow plain semver (`vX.Y.Z`) starting at `v2.0.0`. Upstream
 occupies `v1.0.0`–`v1.3.0` in this repository's history and continues to
 publish on that line, so the fork's releases begin at 2.x to stay
-collision-free. Upstream provenance is retained as semver build metadata in
-`skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`) and in the `### Upstream`
-block of each entry below.
+collision-free. From `v2.0.0` onward, upstream provenance is retained as semver
+build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries below
+`v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
+record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ## v2.0.0 — 2026-08-30
 
@@ -31,7 +32,9 @@ block of each entry below.
 
 - Version scheme moved from `custom-vX.Y.Z-upstream.SHA` to plain semver with
   build metadata (`2.0.0+upstream.3e87db0`), so the value is parseable by
-  ordinary tooling and can be shared verbatim with the plugin manifests.
+  ordinary tooling. The Skill value and the manifests are not byte-identical:
+  they share the same core version, the part before `+`. Comparison strips build
+  metadata.
 - Dispatch now requires the lead to resolve `${CLAUDE_SKILL_DIR}` to an
   absolute path and substitute it into pasted worker, QA, and reviewer
   prompts. Dispatched agents do not inherit the variable, so an

@@ -13,7 +13,7 @@ here are packaging and release decisions, recorded below.
 - **Decision**: Publish `skills/dev/` as a Claude Code plugin via a marketplace manifest in this repository, while keeping `install.sh` / `install.ps1` working and supported.
 - **Decision time**: 2026-08-30
 - **Background**: Installing today requires cloning the repo, running a six-command validation gauntlet, and executing a Bash script. Open Issue #1 reports user drop-off during exactly this flow.
-- **Consequence**: Plugin skills are always namespaced `<plugin>:<skill>`, so the plugin is invoked as `/dev-skill:dev`. Bare `/dev` remains available only through the `install.sh` path. Both may be installed at once, which yields two copies that can drift; this is documented rather than prevented.
+- **Consequence**: Plugin skills are always namespaced `<plugin>:<skill>`, so the plugin is invoked as `/dev-skill:dev`. Bare `/dev` remains available only through manual installation — `install.sh` on macOS/Linux or `install.ps1` on Windows. Both may be installed at once, which yields two copies that can drift; this is documented rather than prevented.
 
 ## ADR-002 — Repo root is the plugin root
 
@@ -27,7 +27,8 @@ here are packaging and release decisions, recorded below.
 - **Decision**: The marketplace plugin entry uses an explicit `{"source": "github", "repo": ..., "ref": "vX.Y.Z"}` source rather than the simpler `"./"`.
 - **Decision time**: 2026-08-30
 - **Background**: A `"./"` source resolves inside the marketplace checkout, which tracks whatever ref the user added it at — defaulting to the repository's default branch. That would make every push to `main` an immediate release to anyone with auto-update enabled.
-- **Consequence**: Releases become deliberate. Cutting a release means bumping `ref` in `marketplace.json` and tagging.
+- **Consequence**: Releases become deliberate, and **the plugin does not resolve until the pinned tag exists and is pushed**. Cutting a release means updating all five version sites in agreement — `skills/dev/SKILL.md` (core version, keeping its `+upstream.<sha>` build metadata), `version` in both `.claude-plugin` manifests, `source.ref` in the marketplace entry, and the git tag — then tagging and verifying the install against a scratch config. The full procedure is [docs/RELEASING.md](RELEASING.md).
+- **Accepted risk**: the entry pins `ref` only, not a commit `sha`, so a moved tag would silently change what existing users receive. A released tag is therefore treated as immutable by process rather than by mechanism. Pinning `sha` was deferred because it requires writing the commit SHA into the manifest after that commit exists; revisit when release automation can compute it (Issue #6).
 
 ## ADR-004 — Release line starts at v2.0.0
 

@@ -33,6 +33,7 @@ See [UPSTREAM.md](UPSTREAM.md) for the fork/merge procedure and
 |------|---------|---------------|
 | `docs/architecture.md` | Architecture Decision Records for packaging and distribution | Immediately when a decision is made |
 | `docs/feature-log.md` | Completed features (PR number, merge date) and known tech debt | Every Phase 5 round |
+| `docs/RELEASING.md` | Version sites, tag scheme, and the release procedure | When the release process changes |
 | `docs/AUDIT.md` | Upstream-vs-fork feature matrix and risk register | On each upstream merge |
 | `docs/glossary.md` | — not used; this project has no domain terminology layer | n/a |
 | `docs/api-contracts.md` | — not used; no network API surface | n/a |
@@ -65,9 +66,9 @@ Python 3, optionally Traycer CLI/Host.
 
 ## Current Status
 
-- **Last updated**: 2026-08-30
+- **Last updated**: 2026-08-31
 - **Current iteration goal**: Ship two new distribution channels — a Claude Code plugin marketplace and (next round) a Homebrew tap — while leaving `install.sh` intact. Driven by open Issue #1, external feedback reporting user drop-off during setup.
-- **Open PRs**: none at Phase 2 entry
+- **Open PRs**: #7 (Issue #4 — plugin distribution, v2.0.0 scheme, dispatch fix)
 - **Known tech debt**: see the bottom of `docs/feature-log.md`
 
 ---
@@ -80,8 +81,8 @@ defaults in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 - **Lint**: `shellcheck install.sh tests/test-install.sh` (add new shell files as they land)
 - **Type check**: `n/a` — no typed surface
 - **Static analysis**: `bash -n install.sh` and `python3 scripts/validate_skill.py`
-- **Dependency scan**: `pip-audit` — currently reports nothing because the project declares no third-party dependencies and ships no manifest. Keep running it; it becomes meaningful when PyPI packaging lands.
-- **Tests**: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'` and `bash tests/test-install.sh`
+- **Dependency scan**: `n/a` — the project declares no third-party dependencies and ships no dependency manifest, so there is nothing to scan. Reinstate `pip-audit` when PyPI packaging lands and a manifest exists. Recorded as `n/a` deliberately rather than listing a command that exits 127, which would train everyone to ignore a failing gate.
+- **Tests**: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'`, `bash tests/test-install.sh`, and — on Windows, or any runner with PowerShell — `pwsh tests/test-install.ps1`. The PowerShell suite is the only coverage `install.ps1` has; a gate that omits it can pass green while the Windows installer is broken.
 - **Packaging**: `claude plugin validate . --strict` and `claude plugin tag --dry-run .`
 
 A change is not complete until every command above exits clean.

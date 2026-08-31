@@ -16,7 +16,10 @@
 - `README.zh.md` is stale and contradicts the current installer: it still
   documents the upstream bilingual *command* install and advertises
   `install.sh --lang zh`, which `install.sh:60` now rejects. Its prerequisites
-  table also omits RTK and Python. (recorded 2026-08-30)
+  table also omits RTK and Python. **Mitigated** as of PR #7 with a bilingual
+  outdated/unsupported banner directing readers to the English README; the body
+  itself is still wrong and either needs retranslation or deletion.
+  (recorded 2026-08-30, mitigated 2026-08-31)
 - `install.sh` has no uninstall path. Recovery from a bad install is a manual
   restore out of `~/.claude/backups/dev/<timestamp>/`. (recorded 2026-08-30)
 - `install.ps1` is under-tested relative to `install.sh`: 5 assertions versus 9.

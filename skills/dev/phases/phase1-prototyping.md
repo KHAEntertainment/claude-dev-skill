@@ -59,7 +59,9 @@ Before dispatch, the main conversation must prepare:
 
 ## Step 4 — Dispatch
 
-Dispatch through the selected adapter using the provider-neutral assignment envelope from `${CLAUDE_SKILL_DIR}/backends/contract.md`:
+Dispatch through the selected adapter using the provider-neutral assignment envelope from `${CLAUDE_SKILL_DIR}/backends/contract.md`.
+
+**Before sending, resolve `${CLAUDE_SKILL_DIR}` to its absolute path and substitute it into the pasted prompt.** The prototype prompts reference sibling files through that variable, and dispatched agents do not inherit it — an unsubstituted reference arrives as literal text the prototype agent cannot expand. This is the shared pre-dispatch invariant from the adapter contract, and it applies here in Phase 1 exactly as it does in Phase 3.
 
 ```
 role: prototype

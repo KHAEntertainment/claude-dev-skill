@@ -19,9 +19,20 @@ Restart Claude Code, then invoke:
 /dev-skill:dev [optional project or feature description]
 ```
 
-That is the whole install. Updates arrive through `claude plugin marketplace update`.
+That is the whole install. To update later:
 
-Both commands are also available inside a session as `/plugin marketplace add …` and `/plugin install …`.
+```bash
+claude plugin marketplace update khaentertainment-dev-skill   # refresh the catalog
+claude plugin update dev-skill                                # update the installed plugin
+```
+
+Both steps are needed — refreshing the catalog does not update an installed
+plugin. Restart Claude Code afterwards to apply the update.
+
+All of these commands are also available inside a session as `/plugin …`.
+
+> The marketplace entry pins a release tag, so the plugin resolves only from a
+> tagged release. See [Releasing](docs/RELEASING.md) for how a release is cut.
 
 Prefer a bare `/dev` invocation, an air-gapped machine, or an isolated evaluation target? See [Manual installation](#manual-installation).
 
@@ -78,11 +89,16 @@ against an isolated target, or on a machine that cannot reach the marketplace.
 The plugin and a manual install can coexist — they appear as `/dev-skill:dev`
 and `/dev` respectively. They are two independent copies and will drift apart as
 one is updated and the other is not. Pick one as your working path; if you
-switch to the plugin, move the old Skill aside:
+switch to the plugin, move the old Skill aside into the same backup location the
+installer uses:
 
 ```bash
-mv ~/.claude/skills/dev ~/.claude/backups/dev-manual-$(date -u +%Y%m%dT%H%M%SZ)
+mkdir -p ~/.claude/backups/dev
+mv ~/.claude/skills/dev ~/.claude/backups/dev/manual-$(date -u +%Y%m%dT%H%M%SZ)
 ```
+
+This is the same `~/.claude/backups/dev/` directory the installer writes to, so
+the restore instructions below apply unchanged.
 
 ### Validate before installing
 
