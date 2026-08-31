@@ -95,15 +95,6 @@ jobs:
         run: |
           set -euo pipefail
           archive_listing=$(git archive --format=tar HEAD | tar -t)
-
-          # 23 is the required Skill payload file count in scripts/validate_skill.py.
-          # Update this alongside that manifest when the distributable payload changes.
-          skill_file_count=$(printf '%s\n' "$archive_listing" | awk '/^skills\/dev\// && $0 !~ /\/$/ { count++ } END { print count + 0 }')
-          if [ "$skill_file_count" -ne 23 ]; then
-            printf 'ERROR: source archive contains %s Skill payload files; expected 23 from scripts/validate_skill.py\n' "$skill_file_count" >&2
-            exit 1
-          fi
-
           for required in scripts/ install.sh LICENSE README.md; do
             if ! printf '%s\n' "$archive_listing" | grep -Fqx "$required"; then
               printf 'ERROR: source archive is missing required path: %s\n' "$required" >&2
@@ -118,7 +109,12 @@ jobs:
             fi
           done
 
-          printf 'OK: source archive retains the 23-file Skill payload and required release files\n'
+          archive_root=$(mktemp -d)
+          cleanup() { rm -rf "$archive_root"; }
+          trap cleanup EXIT
+          git archive --format=tar HEAD | tar -x -C "$archive_root"
+          python3 "$archive_root/scripts/validate_skill.py" --skill-dir "$archive_root/skills/dev"
+          printf 'OK: source archive contains a valid distributable Skill and required release files\n'
       - name: Validate manifests with Claude Code or fail-closed fallback
         shell: bash
         run: |
@@ -145,16 +141,20 @@ jobs:
           PY
           }
 
-          if npm install --global @anthropic-ai/claude-code; then
+          # Pin a known-good CLI version so strict validation changes deliberately.
+          claude_code_version=2.1.251
+          if npm install --global "@anthropic-ai/claude-code@${claude_code_version}"; then
             if command -v claude >/dev/null 2>&1; then
-              echo 'Claude Code CLI installed; running strict plugin validation and tag dry run.'
+              echo "Packaging validation path: strict Claude Code CLI ${claude_code_version}."
               claude plugin validate . --strict
               claude plugin tag --dry-run .
             else
-              echo 'Claude Code installation completed but no claude executable was on PATH; using JSON fallback.'
+              echo "::warning title=Claude Code strict validation unavailable::Pinned Claude Code ${claude_code_version} installed, but no claude executable was on PATH. Using limited structural JSON fallback."
+              echo 'Packaging validation path: limited structural JSON fallback (Claude executable unavailable).'
               validate_manifests
             fi
           else
-            echo 'Claude Code CLI installation failed; using JSON fallback.'
+            echo "::warning title=Claude Code strict validation unavailable::Pinned Claude Code ${claude_code_version} could not be installed. Using limited structural JSON fallback."
+            echo 'Packaging validation path: limited structural JSON fallback (CLI installation failed).'
             validate_manifests
           fi
