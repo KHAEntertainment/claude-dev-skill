@@ -84,7 +84,7 @@ Omit this section to use the `/dev` defaults shown below.
 Record the exact lint / type-check / static-analysis / dependency-scan / test
 commands for this project so the worker, QA, and reviewer all run the same
 gate. Omit this section to fall back to the language defaults in
-`phases/phase4.md`.
+`${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 
 - **Lint**: [command]
 - **Type check**: [command, or `n/a`]
