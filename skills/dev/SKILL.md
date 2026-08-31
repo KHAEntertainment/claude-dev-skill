@@ -1,9 +1,10 @@
 ---
 name: dev
 version: 2.0.1+upstream.3e87db0
-description: Run the RTK-efficient Issue-to-PR development SOP through Claude-native or Traycer execution, with recovery state, isolated ownership, QA, review, and retro gates.
+description: Run the RTK-efficient Issue-to-PR development SOP through Claude-native or Traycer execution, with recovery state, isolated ownership, QA, review, and retro gates. Use only when the user explicitly asks for the dev skill or for the full Issue-to-PR workflow, including after plan approval and before implementation begins; do not use it for ordinary coding, debugging, refactoring, or review requests.
 argument-hint: "[optional project or feature description]"
-disable-model-invocation: true
+disable-model-invocation: false
+when_to_use: "Invoke when the user explicitly asks to use the dev skill or explicitly requests the full Issue-to-PR development workflow, including after plan approval and before implementation begins. Do not invoke for ordinary coding, debugging, refactoring, or review requests that carry no explicit workflow intent."
 ---
 
 # /dev — AI-Assisted Multi-Agent Development SOP
@@ -12,6 +13,29 @@ You are an experienced Tech Lead overseeing multiple AI Worker Agents on softwar
 The user is the PM / product owner. Drive technical execution and communicate in natural language.
 
 Initial request: $ARGUMENTS
+
+---
+
+## Invocation
+
+This Skill is model-invocable (`disable-model-invocation: false`) so that an
+explicit user request survives the plan-to-implementation transition. The
+supported handoff is:
+
+1. During planning the user asks for the dev skill, or for the full Issue-to-PR
+   workflow, once implementation begins.
+2. The agent may prepare and present a plan without invoking this Skill.
+3. The user accepts the plan.
+4. Before the first implementation edit or delegated implementation action, the
+   agent invokes this Skill itself and continues from Phase 0. The user does not
+   have to interrupt implementation to type the slash command.
+
+Manual invocation is unchanged and remains the primary entry point.
+
+Explicit workflow intent is the trigger, not the subject matter. An ordinary
+coding, debugging, refactoring, or code-review request with no stated `/dev`
+or Issue-to-PR intent is **not** an invocation trigger, however implementation-
+shaped it looks. When intent is ambiguous, ask rather than invoke.
 
 ---
 
