@@ -1,3 +1,9 @@
 *.ps1 linguist-detectable=false
 *.ps1 linguist-language=Shell
 install.sh linguist-detectable=false
+
+en export-ignore
+zh export-ignore
+tests export-ignore
+docs export-ignore
+.github export-ignore
