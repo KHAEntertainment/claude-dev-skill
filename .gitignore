@@ -1,0 +1,5 @@
+# Runtime recovery state, initialized per /dev session; never a tracked artifact.
+.agent/
+
+# Python bytecode caches (detector/tests import via exec_module).
+__pycache__/

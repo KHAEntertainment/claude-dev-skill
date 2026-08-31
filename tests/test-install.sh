@@ -25,6 +25,13 @@ expect_file "$fresh/skills/dev/phases/phase3.5.md"
 expect_file "$fresh/skills/dev/phases/external-review.md"
 expect_file "$fresh/skills/dev/phases/phase5.md"
 expect_file "$fresh/skills/dev/scripts/inspect_external_reviews.py"
+expect_file "$fresh/skills/dev/scripts/detect_execution_backend.py"
+expect_file "$fresh/skills/dev/backends/contract.md"
+expect_file "$fresh/skills/dev/backends/claude-native.md"
+expect_file "$fresh/skills/dev/backends/traycer.md"
+expect_file "$fresh/skills/dev/agents/report-back.md"
+expect_file "$fresh/skills/dev/agents/reviewer.md"
+expect_file "$fresh/skills/dev/templates/DEV_STATE_TEMPLATE.md"
 pass "fresh install with path spaces"
 
 # Dry run must not create the target.

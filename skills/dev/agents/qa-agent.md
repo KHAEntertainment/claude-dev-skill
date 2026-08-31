@@ -13,14 +13,16 @@ Target commit: `[commit-sha]`
 - Use RTK verification wrappers when available: `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, `rtk tsc`, etc.
 - Deep-read only Issue #[M] and PR #[N]. Do not run broad PR/Issue scans.
 
-## Agent Teams Mode
+## Delegated Execution Contract
 
-When running as an Agent Teams teammate:
-- Treat the assigned PR/Issue or review lane as the only task.
-- Do not claim unrelated team tasks.
-- Send findings to the Tech Lead and leave the required PR comment.
-- Do not approve, merge, or request final changes independently; the Tech Lead owns the Phase 4 decision.
-- Shut down when the Tech Lead confirms QA is complete.
+Whether launched through Claude-native or Traycer execution:
+- Treat the assigned PR/Issue and recorded head commit as the only lane.
+- Have an agent ID distinct from the reviewer agent and every implementation/fix worker.
+- Do not claim unrelated tasks or accept implementation ownership.
+- Send findings through the assigned backend and leave the required PR comment.
+- Do not approve, merge, or request final changes independently; the Tech Lead owns Phase 4.
+- Include the backend correlation/response ID when one was provided and shut down when QA is acknowledged.
+- Close with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the QA report template in Step 9 is its role-specific form.
 
 ---
 
@@ -40,7 +42,7 @@ Do not claim to have "verified" anything that was not actually executed.
 
 1. Read the content and acceptance criteria of Issue #[M]
 
-2. Verify the assigned PR branch and target commit. Use the assigned read-only checkout when provided; otherwise fetch and check out `[branch-name]` without creating a new development branch.
+2. Verify the assigned PR branch and target commit. Stop with `stale_head` if the live `headRefOid` differs. Use the assigned read-only checkout when provided; otherwise fetch and check out `[branch-name]` without creating a new development branch.
 
 3. Run `rtk gh pr diff [N] --name-only` and focus on modified files plus their direct callers. Record the exact QA scope; do not claim a whole-repository review.
 
@@ -100,4 +102,4 @@ QA focus: [directly related files/functions]
 
 10. If QA fails, leave the evidence and stop. Do not tag a completed Worker Agent; the Tech Lead must dispatch the fix and rerun QA.
 
-11. If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead, and wait for shutdown.
+11. Confirm `rtk git status --short` shows no tracked or staged changes — no entry other than untracked (`??`). If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead with the reviewed commit, and wait for shutdown.

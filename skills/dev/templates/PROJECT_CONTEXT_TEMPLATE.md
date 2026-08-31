@@ -36,6 +36,33 @@
 
 ---
 
+## Execution Routing Policy (optional)
+
+Omit this section to use the selected backend's lead route. Configure only roles that need an override.
+
+```yaml
+implementation:
+  harness: codex
+  model: gpt-5
+  profile: null
+  reasoning_effort: high
+  permission_mode: full_access
+fix: {}
+prototype: {}
+qa:
+  harness: codex
+  permission_mode: supervised
+review:
+  harness: codex
+  permission_mode: supervised
+```
+
+Route precedence is explicit project role → workspace `.traycer/agent-selection-guide.md` → Traycer global selection guide → lead route. `/dev` validates harness, model, profile, reasoning effort, and permission mode before launch. When lead fallback omits a profile, Traycer intentionally uses `last_used`; record `traycer_last_used` in `.agent/dev-state.md`.
+
+Do not configure a fictional read-only permission mode. QA/review are read-only SOP roles and must prove they leave no tracked changes. V1 does not route by cost, rate limits, or performance guesses.
+
+---
+
 ## External Review Policy (optional)
 
 Omit this section to use the `/dev` defaults shown below.
@@ -49,6 +76,21 @@ Omit this section to use the `/dev` defaults shown below.
 - **Allow automatic review requests**: false
 
 `Ignored reviewers` takes precedence over every other setting. Additional identities use `reviewer=login` or `reviewer=login,check-app-slug`. Automatic review requests can consume reviewer credits; enable them per reviewer only when intentionally desired.
+
+---
+
+## Verification Gate (optional)
+
+Record the exact lint / type-check / static-analysis / dependency-scan / test
+commands for this project so the worker, QA, and reviewer all run the same
+gate. Omit this section to fall back to the language defaults in
+`${CLAUDE_SKILL_DIR}/phases/phase4.md`.
+
+- **Lint**: [command]
+- **Type check**: [command, or `n/a`]
+- **Static analysis**: [command, or `n/a`]
+- **Dependency scan**: [command] (mandatory — Python `pip-audit` / Node `npm audit`)
+- **Tests**: [command]
 
 ---
 

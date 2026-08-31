@@ -63,6 +63,6 @@ Do not delete untested implementation outside the iteration scope.
 
 ## Step 4 — Cleanup and Standby
 
-If Agent Teams were used, ask each teammate to shut down gracefully. Once none remain active, have the lead clean up the team and clear or archive the active-team section of `.agent/dev-state.md`.
+Ask every delegated agent to shut down gracefully through the selected adapter. Verify stopped state, archive only when appropriate, and let only the lead perform backend/team cleanup. Never treat agent stop/archive as permission to delete a worktree. Clear or archive the active execution section of `.agent/dev-state.md` only after verified cleanup.
 
 Then report that the project is on standby and route the next request back through Phase 0.

@@ -1,9 +1,9 @@
 # Phase 1 — Prototyping Sub-flow
 
-When a **low-fidelity question** arises during Phase 1 (a question that cannot be settled via text discussion), this sub-flow dispatches a prototype sub-agent to make the decision point concrete, then returns to the main conversation to continue.
+When a **low-fidelity question** arises during Phase 1 (a question that cannot be settled via text discussion), this sub-flow dispatches a prototype agent through the selected execution adapter to make the decision point concrete, then returns to the main conversation to continue.
 
 The main conversation (Tech Lead) is responsible for: detecting the signal → deciding whether to dispatch → choosing type/Mode → dispatching → receiving the readout → re-asking the original question.
-The sub-agent is responsible for: producing the artifact and readout only; it does not make decisions on behalf of the main conversation.
+The prototype agent is responsible for producing the artifact and readout only; it does not make decisions on behalf of the main conversation.
 
 ---
 
@@ -59,10 +59,11 @@ Before dispatch, the main conversation must prepare:
 
 ## Step 4 — Dispatch
 
-Dispatch via the Agent tool, parameters:
+Dispatch through the selected adapter using the provider-neutral assignment envelope from `${CLAUDE_SKILL_DIR}/backends/contract.md`:
 
 ```
-subagent_type: general-purpose
+role: prototype
+topology: serial
 description: one-line description of the prototype to be made
 prompt: <paste the full content of `${CLAUDE_SKILL_DIR}/agents/worker-prototype-frontend.md` or `${CLAUDE_SKILL_DIR}/agents/worker-prototype-backend.md`>
 
@@ -76,7 +77,7 @@ Dispatch parameters:
 
 **Inform the user**: while dispatching, tell the user in the main conversation:
 ```
-I noticed that [decision point] cannot be settled via text discussion. I'm dispatching a prototype sub-agent for [type/Mode];
+I noticed that [decision point] cannot be settled via text discussion. I'm dispatching a prototype agent for [type/Mode];
 once it's out, I'll re-ask the question based on the prototype.
 ```
 
@@ -84,7 +85,7 @@ once it's out, I'll re-ask the question based on the prototype.
 
 ## Step 5 — Receive + loop back
 
-After the sub-agent returns, the main conversation does:
+After the prototype agent returns, the main conversation does:
 
 1. **Read the readout** (not the full artifact, only readout.md); absorb the "what the prototype shows / does not show / suggested next step for the main conversation"
 2. **Tell the user the artifact path** so they can open it in a browser/editor:
@@ -119,6 +120,6 @@ After the sub-agent returns, the main conversation does:
 
 - Do not dispatch a prototype on your own without a low-fidelity signal (don't dispatch to "look thorough")
 - Do not ask the user for permission before dispatching (the user has already expressed ambiguity; asking for permission only slows things down — but **you must inform while dispatching**)
-- Do not let the sub-agent directly modify the PRD or glossary (that's the main conversation's job; sub-agents can only "suggest additions")
-- Do not relay the sub-agent's full readout to the user (let the user and the main conversation pull info from the readout independently)
-- Do not dispatch multiple sub-agents in the same turn (one prototype at a time; wait for it to come back before deciding whether to upgrade or switch type)
+- Do not let the prototype agent directly modify the PRD or glossary (that's the main conversation's job; agents can only "suggest additions")
+- Do not relay the prototype agent's full readout to the user (let the user and the main conversation pull info from the readout independently)
+- Do not dispatch multiple prototype agents in the same turn (one prototype at a time; wait for it to come back before deciding whether to upgrade or switch type)

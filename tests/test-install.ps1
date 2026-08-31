@@ -25,6 +25,13 @@ try {
     Assert-Path (Join-Path $fresh "skills\dev\phases\external-review.md")
     Assert-Path (Join-Path $fresh "skills\dev\phases\phase5.md")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\inspect_external_reviews.py")
+    Assert-Path (Join-Path $fresh "skills\dev\scripts\detect_execution_backend.py")
+    Assert-Path (Join-Path $fresh "skills\dev\backends\contract.md")
+    Assert-Path (Join-Path $fresh "skills\dev\backends\claude-native.md")
+    Assert-Path (Join-Path $fresh "skills\dev\backends\traycer.md")
+    Assert-Path (Join-Path $fresh "skills\dev\agents\report-back.md")
+    Assert-Path (Join-Path $fresh "skills\dev\agents\reviewer.md")
+    Assert-Path (Join-Path $fresh "skills\dev\templates\DEV_STATE_TEMPLATE.md")
     Pass "fresh install with path spaces"
 
     $dry = Join-Path $testRoot "dry run"

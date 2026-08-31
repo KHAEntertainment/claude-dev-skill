@@ -1,80 +1,61 @@
-# Phase 3 — Multi-Agent Parallel Development (Execution Rules)
+# Phase 3 — Delegated Development (Execution Rules)
 
 ---
 
-## Execution Mode Selection
+## Select Backend and Topology
 
-Choose exactly one execution mode before dispatch:
+Read `${CLAUDE_SKILL_DIR}/backends/contract.md`, run the backend detector, and load exactly one adapter. Record the detection result before preflight.
 
-- **Agent Team mode**: use when there are 2+ independent GitHub Issues, each with clear file ownership and no unresolved dependency between them.
-- **Single Worker mode**: use for one small Issue, same-file edits, tightly coupled refactors, sequential migrations, hotfixes, or any task where one worker would block another.
+Choose topology independently:
 
-Do not silently change modes. Agent Teams can run in-process without tmux or iTerm; those tools are required only for split-pane display. If Agent Teams are unavailable or disabled, stop and ask before falling back.
+- **Parallel:** 2+ independent GitHub Issues with clear, non-overlapping ownership and no unresolved dependency.
+- **Serial:** one Issue, same-file edits, tightly coupled refactors, sequential migrations, hotfixes, or blocking dependencies.
 
-## Worktree Preparation (coding workers only)
+Do not silently change backend or topology. Partial Traycer environment, unavailable native teaming, failed auth/capability checks, or malformed backend output becomes `incomplete` and pauses dispatch.
 
-Before spawning any worker or coding teammate, the Tech Lead must:
+## Prepare Coding Worktrees
+
+Before launching a coding worker, execute the adapter's `prepare_worktree` operation:
 
 1. Fetch `origin`, verify the integration branch, and require a clean lead worktree.
-2. Create one named branch and one separate worktree per coding Issue, based on the correct integration branch (`origin/main` for ordinary work and hotfixes unless an approved dependency branch is explicitly required).
-3. Verify each worktree's absolute path, branch, base commit, and clean status.
-4. Record the mapping in `.agent/dev-state.md` before dispatch.
-5. Pass the absolute worktree path and branch to the assigned worker. The worker must `cd` there and verify the mapping before any read or edit; it must not create or switch branches itself.
+2. Create one named branch and isolated worktree per coding Issue from the verified base. Hotfixes use `origin/main` unless the user approved another base.
+3. Verify absolute source/worktree paths, assigned branch, base OID, and clean status.
+4. Record the mapping and `worktree_ready` state in `.agent/dev-state.md` before launch.
+5. Pass the exact mapping to the worker. It must verify it and must not create or switch branches.
 
-Read-only research, QA, and review teammates may share a checkout only when they make no file changes. Give them an explicit read-only lane and target commit/PR.
+Traycer creation must use the official worktree command and must never use `--carry-uncommitted`. Read-only research, QA, and review may share a verified checkout only when they make no changes.
 
----
+## Resolve Routes and Launch
 
-## Agent Team Mode
+For every role, execute adapter `resolve_route` and validate it before `launch`.
 
-- Create one Agent Team with the Tech Lead as lead and named teammates such as `worker-auth`, `worker-api`, `worker-tests`, or `qa-reviewer`.
-- Assign exactly one GitHub Issue to each Worker teammate before work starts.
-- Give each coding teammate one pre-created, verified branch/worktree and explicit file ownership in the spawn prompt.
-- GitHub Issues and PRs remain canonical. Claude's shared team task list is only runtime coordination.
-- Teammates must not self-claim arbitrary tasks. Self-claiming is allowed only after the Tech Lead maps unblocked tasks to GitHub Issues and file ownership.
-- Require plan approval before teammate code edits for architecture, database, auth, shared interfaces, migrations, or broad refactors.
-- Each teammate must receive the relevant Worker Agent prompt content, with `[N]` replaced by its assigned Issue number.
-- The Tech Lead must update `.agent/dev-state.md` after team creation with team name, teammate names, Issue/PR mapping, branches/worktrees, file ownership, blockers, and next action.
-- When all teammate PRs are created or a teammate blocks, update the Task Board and `.agent/dev-state.md`.
-- After all active teammate work is complete, ask each teammate to shut down gracefully. Once none remain active, have the lead clean up the team. Never ask a teammate to perform cleanup.
+- Parallel Claude-native maps to Agent Teams; serial maps to one native worker.
+- Both Traycer topologies use distinct receive-capable Chat/GUI child agents. Topology controls scheduling and ownership, not backend selection.
+- Map each agent to exactly one Issue or explicit lane. Agents never self-claim unrelated work.
+- Give coding agents explicit file ownership and one pre-created, verified worktree.
+- Require plan approval before edits involving architecture, databases, auth, shared interfaces, migrations, or broad refactors.
+- Send the full worker prompt and provider-neutral assignment envelope. Record the agent ID, resolved route/source, and communication response ID.
 
-## Single Worker Mode
+## Backend-Neutral Task Board
 
-- Pre-create and verify one isolated worktree/branch, then dispatch one Worker Agent with the appropriate prompt file.
-- The Worker Agent submits a PR from that assigned branch.
-- Even with only one task, the Tech Lead never writes implementation or test code directly in the main conversation.
+Output after launch and whenever a PR or blocker changes state:
 
-## Task Board Format
-
-Output after all teammates/workers are launched, and re-output after each PR is created or blocker appears:
-
-```
+```markdown
 ## Agent Task Board
 
-| # | Mode | Teammate/Worker | Branch | Issue | Ownership | Status |
-|---|------|------------------|--------|-------|-----------|--------|
-| 1 | Team | worker-auth | feat/auth | #3 User login | src/auth/** | In progress |
-| 2 | Team | worker-api | feat/user-api | #4 User profile API | src/api/user/** | In progress |
-| 3 | Single | worker-fix | fix/cache-bug | #8 Cache bug | src/cache.ts | PR #12 created |
+| # | Topology | Backend | Agent | Route | Branch | Issue/PR | Ownership | Status |
+|---|---|---|---|---|---|---|---|---|
+| 1 | parallel | traycer | agt_123 | codex/gpt-5 | feat/auth | #3 | src/auth/** | active |
+| 2 | serial | claude-native | worker-fix | claude-code/lead | fix/cache | #8 / PR #12 | src/cache.ts | pr_created |
 ```
 
-Status values:
-- `In progress` — teammate/worker is running
-- `PR #N created` — PR submitted, waiting for QA/review
-- `Blocked: [reason]` — Tech Lead action needed
+Use only ledger statuses: `planned`, `worktree_ready`, `active`, `blocked`, `pr_created`, `qa`, `review`, `complete`, or `stopped`.
 
-## Dispatching Workers Or Teammates
+## Dispatch Prompts
 
-Pass the full content of the corresponding prompt file into the worker/teammate prompt, replacing `[N]` with the actual Issue number:
+- New feature: `${CLAUDE_SKILL_DIR}/agents/worker-new.md`
+- Fix/improvement: `${CLAUDE_SKILL_DIR}/agents/worker-fix.md`
 
-- New feature: read `${CLAUDE_SKILL_DIR}/agents/worker-new.md`, pass into the Worker Agent or teammate
-- Fix / improvement: read `${CLAUDE_SKILL_DIR}/agents/worker-fix.md`, pass into the Worker Agent or teammate
+Fill the Issue number and include: role, topology, backend, agent ID after launch, route/source, branch, absolute source/worktree mapping, base OID, ownership, RTK-first requirement, plan-approval requirement, reporting path, and stop condition.
 
-Spawn prompt must also include:
-- teammate name
-- assigned Issue number
-- branch name
-- absolute pre-created worktree path and verified branch
-- owned files/directories
-- RTK-first command requirement
-- whether plan approval is required before edits
+On PR creation or blocker, execute adapter `observe`, update the task board and ledger, and preserve the communication evidence. Never infer completion from silence.
