@@ -83,7 +83,7 @@ defaults in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 - **Static analysis**: `bash -n install.sh` and `python3 scripts/validate_skill.py`
 - **Dependency scan**: `n/a` — the project declares no third-party dependencies and ships no dependency manifest, so there is nothing to scan. Reinstate `pip-audit` when PyPI packaging lands and a manifest exists. Recorded as `n/a` deliberately rather than listing a command that exits 127, which would train everyone to ignore a failing gate.
 - **Tests**: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'`, `bash tests/test-install.sh`, and — on Windows, or any runner with PowerShell — `pwsh tests/test-install.ps1`. The PowerShell suite is the only coverage `install.ps1` has; a gate that omits it can pass green while the Windows installer is broken.
-- **Packaging**: `claude plugin validate . --strict` and `claude plugin tag --dry-run .`
+- **Packaging**: `scripts/check_plugin_root.sh` and `python3 scripts/check_version_sync.py`. CI then attempts `claude plugin validate . --strict` and `claude plugin tag --dry-run .`; if the Claude Code CLI cannot be installed, it records that reason and instead fails closed on malformed JSON or missing required `name`, `version`, `owner`, or `plugins` manifest fields. On a developer machine with Claude Code available, run the two Claude commands as well.
 
 A change is not complete until every command above exits clean.
 

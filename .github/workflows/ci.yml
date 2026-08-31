@@ -1,0 +1,160 @@
+name: Verification Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  skill:
+    name: Skill validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Validate the distributable Skill
+        run: python3 scripts/validate_skill.py
+      - name: Run Python tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
+
+  shell:
+    name: Shell validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Bash syntax
+        run: bash -n install.sh
+      - name: Lint shell scripts
+        run: shellcheck install.sh tests/test-install.sh scripts/check_plugin_root.sh
+
+  installer:
+    name: Bash installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stub RTK required by the installer
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '%s\n' '#!/usr/bin/env sh' 'exit 0' > "$RUNNER_TEMP/bin/rtk"
+          chmod +x "$RUNNER_TEMP/bin/rtk"
+          printf '%s\n' "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Run Bash installer tests
+        run: bash tests/test-install.sh
+
+  installer-pwsh:
+    name: PowerShell installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stub RTK required by the installer
+        shell: pwsh
+        run: |
+          $stubDirectory = Join-Path $env:RUNNER_TEMP 'bin'
+          $stubPath = Join-Path $stubDirectory 'rtk.cmd'
+          New-Item -ItemType Directory -Force -Path $stubDirectory | Out-Null
+          "@echo off`r`nexit /b 0" | Set-Content -Path $stubPath -Encoding ascii
+          $env:PATH = "$stubDirectory;$env:PATH"
+          Add-Content -Path $env:GITHUB_PATH -Value $stubDirectory
+          $resolvedStubPath = (Resolve-Path $stubPath).Path
+          $resolvedCommandPath = (Get-Command rtk -ErrorAction Stop).Path
+          if ($resolvedCommandPath -ne $resolvedStubPath) {
+            throw "Expected Get-Command rtk to resolve $resolvedStubPath, got $resolvedCommandPath"
+          }
+      - name: Run PowerShell installer tests
+        shell: pwsh
+        run: pwsh tests/test-install.ps1
+
+  packaging:
+    name: Packaging validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate plugin root and release versions
+        run: |
+          scripts/check_plugin_root.sh
+          python3 scripts/check_version_sync.py
+      - name: Verify source archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_listing=$(git archive --format=tar HEAD | tar -t)
+          for required in scripts/ install.sh LICENSE README.md; do
+            if ! printf '%s\n' "$archive_listing" | grep -Fqx "$required"; then
+              printf 'ERROR: source archive is missing required path: %s\n' "$required" >&2
+              exit 1
+            fi
+          done
+
+          for excluded in en zh tests docs .github; do
+            if printf '%s\n' "$archive_listing" | grep -q "^${excluded}/"; then
+              printf 'ERROR: source archive unexpectedly includes excluded path: %s/\n' "$excluded" >&2
+              exit 1
+            fi
+          done
+
+          archive_root=$(mktemp -d)
+          cleanup() { rm -rf "$archive_root"; }
+          trap cleanup EXIT
+          git archive --format=tar HEAD | tar -x -C "$archive_root"
+          python3 "$archive_root/scripts/validate_skill.py" --skill-dir "$archive_root/skills/dev"
+          printf 'OK: source archive contains a valid distributable Skill and required release files\n'
+      - name: Validate manifests with Claude Code or fail-closed fallback
+        shell: bash
+        run: |
+          set -o pipefail
+          validate_manifests() {
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          plugin = json.loads(Path('.claude-plugin/plugin.json').read_text(encoding='utf-8'))
+          marketplace = json.loads(Path('.claude-plugin/marketplace.json').read_text(encoding='utf-8'))
+
+          if not isinstance(plugin, dict) or not all(isinstance(plugin.get(key), str) and plugin[key] for key in ('name', 'version')):
+              raise SystemExit('plugin.json must contain non-empty string name and version')
+          if not isinstance(marketplace, dict):
+              raise SystemExit('marketplace.json must be an object')
+          if not isinstance(marketplace.get('name'), str) or not marketplace['name']:
+              raise SystemExit('marketplace.json must contain a non-empty string name')
+          if not isinstance(marketplace.get('owner'), dict) or not marketplace['owner']:
+              raise SystemExit('marketplace.json must contain a non-empty owner object')
+          if not isinstance(marketplace.get('plugins'), list):
+              raise SystemExit('marketplace.json must contain a plugins array')
+          print('OK: plugin manifests satisfy fallback structure checks')
+          PY
+          }
+
+          # Pin a known-good CLI version so strict validation changes deliberately.
+          claude_code_version=2.1.251
+          if npm install --global "@anthropic-ai/claude-code@${claude_code_version}"; then
+            if command -v claude >/dev/null 2>&1; then
+              echo "Packaging validation path: strict Claude Code CLI ${claude_code_version}."
+              claude plugin validate . --strict
+              claude plugin tag --dry-run .
+            else
+              echo "::warning title=Claude Code strict validation unavailable::Pinned Claude Code ${claude_code_version} installed, but no claude executable was on PATH. Using limited structural JSON fallback."
+              echo 'Packaging validation path: limited structural JSON fallback (Claude executable unavailable).'
+              validate_manifests
+            fi
+          else
+            echo "::warning title=Claude Code strict validation unavailable::Pinned Claude Code ${claude_code_version} could not be installed. Using limited structural JSON fallback."
+            echo 'Packaging validation path: limited structural JSON fallback (CLI installation failed).'
+            validate_manifests
+          fi
