@@ -27,3 +27,8 @@
   (recorded 2026-08-30)
 - `--migrate-legacy` and `--keep-legacy` are accepted by `install.sh` but absent
   from its `usage()` output. (recorded 2026-08-30)
+- The advertised plugin install path has **not** been verified end to end. It
+  cannot be until PR #7 merges (putting `.claude-plugin/` on `main`) and the
+  `v2.0.0` tag is pushed. Pre-merge attempts fail on the missing manifest, which
+  proves nothing about the release. `docs/RELEASING.md` step 5 is the gate that
+  must be run once both conditions hold. (recorded 2026-08-31)

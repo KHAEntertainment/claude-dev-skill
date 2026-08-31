@@ -34,7 +34,27 @@ All of these commands are also available inside a session as `/plugin …`.
 > The marketplace entry pins a release tag, so the plugin resolves only from a
 > tagged release. See [Releasing](docs/RELEASING.md) for how a release is cut.
 
-Prefer a bare `/dev` invocation, an air-gapped machine, or an isolated evaluation target? See [Manual installation](#manual-installation).
+### If the install fails on `Permission denied (publickey)`
+
+`claude plugin` fetches over **SSH**, not HTTPS, so it needs a working GitHub
+SSH key. An authenticated `gh` is *not* sufficient — `gh auth status` can report
+`Git operations protocol: https` and succeed while the plugin install still
+fails, because they use different transports.
+
+Check with:
+
+```bash
+ssh -T git@github.com
+```
+
+`Permission denied (publickey)` means you need to
+[add an SSH key to your GitHub account](https://docs.github.com/en/authentication/connecting-to-github-with-ssh).
+Anything else — including GitHub's "successfully authenticated" greeting — means
+SSH is fine and the problem is elsewhere.
+
+If you would rather not set up SSH, use the [manual install](#manual-installation),
+which needs only HTTPS. That is also the path to take if you want a bare `/dev`
+invocation, an air-gapped machine, or an isolated evaluation target.
 
 ## Execution Backends
 
@@ -73,6 +93,7 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 
 - Claude Code. Agent Teams are required only for Claude-native *parallel* topology.
 - Git and an authenticated GitHub CLI (`gh`)
+- A working GitHub **SSH** key, if installing via the plugin — `claude plugin` fetches over SSH, and an authenticated `gh` does not substitute for it. Verify with `ssh -T git@github.com`. The manual install needs only HTTPS.
 - [RTK](https://github.com/rtk-ai/rtk) — `brew install rtk`, or see the RTK README for other platforms
 - Python 3 (used by the Skill at runtime, and by the manual installer's preflight validation)
 - **Optional** Traycer CLI/Host for managed multi-harness execution; Traycer children use the Chat/GUI surface in v1. Without it, the skill runs Claude-native with no loss of core workflow.

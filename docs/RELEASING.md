@@ -6,7 +6,9 @@ therefore a required step, not an optional one.
 
 ## Version sites
 
-One version, four places. They must agree before a tag is cut.
+One version, five places — four repository fields plus the git tag. The four
+repository fields are updated together in the release commit; the tag is created
+afterwards, from that commit.
 
 | Site | Form | Example |
 |---|---|---|
@@ -45,8 +47,18 @@ version. Ignore the tag name it proposes; do not let it create the tag.
    claude plugin tag --dry-run .        # validation only; ignore the proposed tag name
    ```
 
-   `claude plugin tag` refuses to run on a dirty worktree. Commit or clean
-   first — do not reach for `--force`, which defeats the check.
+   `claude plugin tag` refuses to run on a dirty worktree, and `--force`
+   defeats the check rather than satisfying it.
+
+   Note that an untracked `.qwen/` currently trips this. Do **not** commit it —
+   it is local harness state, not a project artifact — and do not delete it
+   blind. Park it instead:
+
+   ```bash
+   mv .qwen "$TMPDIR/qwen-park-$$"   # restore afterwards if you still want it
+   ```
+
+   Gitignoring `.qwen/` is tracked on #6 and will remove this step.
 
 3. **Tag and push.**
 
@@ -66,7 +78,16 @@ version. Ignore the tag name it proposes; do not let it create the tag.
    ```
 
 5. **Verify the advertised install actually works**, in a scratch config so the
-   real one is untouched:
+   real one is untouched.
+
+   First confirm SSH works, because `claude plugin` fetches over SSH rather than
+   HTTPS and an authenticated `gh` does not cover it:
+
+   ```bash
+   ssh -T git@github.com     # must not print "Permission denied (publickey)"
+   ```
+
+   Then:
 
    ```bash
    CLAUDE_CONFIG_DIR=/tmp/dev-skill-release-check \
@@ -75,8 +96,13 @@ version. Ignore the tag name it proposes; do not let it create the tag.
      claude plugin install dev-skill@khaentertainment-dev-skill
    ```
 
-   This is the step that catches an unresolvable pin. Do not skip it — manifest
-   validation passing does not prove the pinned ref exists.
+   This is the step that catches an unresolvable pin, and the only step that
+   exercises the transport real users hit. Do not skip it — manifest validation
+   passing proves neither that the pinned ref exists nor that it can be fetched.
+
+   It can only be run **after** the tag is pushed. Before that, both the
+   `owner/repo` shorthand and the explicit HTTPS URL fail on the missing
+   manifest, which is expected and tells you nothing about the release.
 
 ## Never move a released tag
 
@@ -92,6 +118,12 @@ computes it (Issue #6).
 
 ## Next release
 
-Bump all five sites in one commit, then repeat from step 1. `skills/dev/SKILL.md`
+Update the four repository fields in a single commit, land it, then create the
+tag from that commit — the tag is the fifth site and by definition cannot be
+inside the commit it points at. Then repeat from step 1.
+
+`CHANGELOG.custom.md` also records the version as a release-lifecycle heading.
+It is not a plugin-resolution source, so it is not in the table above, but it
+should be updated in the same release commit. `skills/dev/SKILL.md`
 keeps its `+upstream.<sha>` suffix, updated only when an upstream merge changes
 the base commit — see [UPSTREAM.md](../UPSTREAM.md).
