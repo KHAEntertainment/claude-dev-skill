@@ -11,6 +11,47 @@
 - External review oversight gate (commit `6ad111b`)
 - Validated atomic Skill distribution installer (commit `ad6101a`)
 
+## Retro — claude-dev-skill / v2.0.x Distribution
+
+### Completed
+
+- Claude Code plugin distribution. `skills/dev/` ships as a plugin from the
+  repository root; installable in two commands and verified working end to end
+  on a machine with no GitHub SSH key.
+- `v2.0.0` release line adopted, resolving a collision with upstream's `v1.x`
+  tags that live in this fork's history. `v2.0.1` is current.
+- Two stdlib-only packaging guards, both with proven failure modes.
+- The repository's first CI: 6 jobs across ubuntu/macos/windows, validating the
+  extracted release archive as well as the working tree.
+- A documented release procedure, which did not previously exist.
+- A latent dispatch defect fixed: dispatched agents do not inherit
+  `${CLAUDE_SKILL_DIR}`, which plugin packaging would have made unguessable.
+
+### Known Issues
+
+- `README.zh.md` carries an outdated banner but its body is still wrong.
+- The plugin-root component list is defined by Claude Code, not by this repo, and
+  can grow without notice.
+- `install.ps1` remains under-tested relative to `install.sh` (5 assertions vs 9).
+
+### Deferred
+
+- Homebrew tap (ADR-007). Now unblocked: it needs a tagged tarball, and `v2.0.1`
+  exists.
+- PyPI packaging. Note the exec-bit hazard — wheels do not preserve file modes,
+  and `detect_execution_backend.py` must stay 755.
+- Issue #3, adapter-level report-back enforcement. Its stated precondition was
+  the contract surviving real lanes; six lanes this iteration all produced clean
+  reports, so that precondition is now met.
+
+### Recommended Next Priorities
+
+1. Homebrew tap — smallest remaining distribution gap, and now unblocked.
+2. Issue #3 — the lead hand-rolled reply correlation six times this iteration and
+   got it wrong three times. Mechanical enforcement at `observe` would remove
+   that whole class of error.
+3. `README.zh.md` — retranslate or delete; a banner is a stopgap.
+
 ## Known Tech Debt
 
 - Phase-level role prompts are not covered by the reviewer/QA distinctness

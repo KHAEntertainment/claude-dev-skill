@@ -53,7 +53,7 @@ When both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, detection return
 
 ### Detection and fail-closed behavior
 
-`scripts/detect_execution_backend.py` decides the backend from the environment only — it never probes binaries. Both identifiers present → `traycer`; otherwise it fails closed to `incomplete` (exit 2) and pauses rather than guessing. Because the absence of Traycer identifiers cannot distinguish a native Claude session from a Traycer child whose environment was not injected, `claude-native` is a **lead-resolved** choice backed by positive evidence, never an automatic fallback. The chosen backend is recorded in `.agent/dev-state.md` as `backend_source: detected | lead_resolved`.
+`skills/dev/scripts/detect_execution_backend.py` decides the backend from the environment only — it never probes binaries. Both identifiers present → `traycer`; otherwise it fails closed to `incomplete` (exit 2) and pauses rather than guessing. Because the absence of Traycer identifiers cannot distinguish a native Claude session from a Traycer child whose environment was not injected, `claude-native` is a **lead-resolved** choice backed by positive evidence, never an automatic fallback. The chosen backend is recorded in `.agent/dev-state.md` as `backend_source: detected | lead_resolved`.
 
 ## Customized Guarantees
 
