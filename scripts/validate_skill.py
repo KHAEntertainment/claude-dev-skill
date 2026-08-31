@@ -22,6 +22,7 @@ REQUIRED = {
     "phases/external-review.md",
     "phases/phase4.md",
     "phases/phase5.md",
+    "agents/report-back.md",
     "agents/worker-new.md",
     "agents/worker-fix.md",
     "agents/qa-agent.md",

@@ -20,6 +20,7 @@ Whether launched through Claude-native or Traycer execution:
 - If plan approval is required, stop after Step 2 and report through the assigned backend before editing.
 - Include the assigned backend correlation/response ID in status replies when one was provided.
 - Send blockers and PR-created status to the Tech Lead, then wait for review or shutdown.
+- End the lane with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`.
 
 ---
 
