@@ -1,6 +1,6 @@
 {
   "name": "dev-skill",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Turns Claude Code into a Tech Lead running an Issue-to-PR SOP: requirements, worktrees, delegated workers, QA, review, and retro gates.",
   "author": {
     "name": "KHA Entertainment",
@@ -20,5 +20,7 @@
     "qa",
     "pull-request"
   ],
-  "skills": ["./skills/dev"]
+  "skills": [
+    "./skills/dev"
+  ]
 }

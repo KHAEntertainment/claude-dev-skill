@@ -8,6 +8,26 @@ build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries belo
 `v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
 record upstream SHAs as plain text in their `### Upstream` blocks.
 
+## v2.0.1 — 2026-08-31
+
+### Fixed
+
+- Plugin install no longer requires a GitHub SSH key. The marketplace entry now
+  uses `source: "url"` with an explicit `https://` URL. A `source: "github"`
+  entry made `claude plugin install` clone `git@github.com:` with no fallback,
+  failing `Permission denied (publickey)` on any machine without an SSH key —
+  even though `claude plugin marketplace add` falls back to HTTPS and succeeds,
+  and even with an authenticated `gh`. Found by running the release verification
+  against the live `v2.0.0` tag.
+- Reverted an inaccurate documentation change that presented SSH as a blanket
+  requirement for `claude plugin` and directed users to generate a key they do
+  not need.
+
+### Note
+
+`v2.0.0` is left in place rather than moved, per the immutability rule in
+`docs/RELEASING.md`. Anyone who installed it should update to `v2.0.1`.
+
 ## v2.0.0 — 2026-08-30
 
 ### Added
