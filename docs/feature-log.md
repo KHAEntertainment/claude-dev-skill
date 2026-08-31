@@ -2,6 +2,11 @@
 
 ## Completed
 
+- CI Verification Gate: 6 jobs across ubuntu/macos/windows, archive validation,
+  and packaging guards (PR #11, merged 2026-08-31)
+- Plugin-root and version-sync guard scripts (PR #10, merged 2026-08-31)
+- v2.0.1 release: HTTPS marketplace source, no SSH key required (PR #8/#9, merged 2026-08-31)
+- Claude Code plugin distribution and v2.0.0 version scheme (PR #7, merged 2026-08-30)
 - Traycer execution backend v1 (PR #1, merged 2026-08-30)
 - External review oversight gate (commit `6ad111b`)
 - Validated atomic Skill distribution installer (commit `ad6101a`)
@@ -35,3 +40,11 @@
   installed copy.
 - `README.zh.md` carries an outdated banner but its body is still wrong.
   Retranslate or delete. (recorded 2026-08-31)
+- The plugin-root guard checks the 11 documented auto-discovered components as of
+  2026-08-31. That list is defined by Claude Code, not by this repo, so it can
+  grow without notice. Re-check it against
+  https://code.claude.com/docs/en/plugins-reference on each upstream sync.
+  (recorded 2026-08-31)
+- CI installs a pinned `@anthropic-ai/claude-code@2.1.251` to run strict manifest
+  validation. The pin needs periodic review: too old and it stops matching the
+  format the runtime actually enforces. (recorded 2026-08-31)
