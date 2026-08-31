@@ -62,6 +62,7 @@ def main() -> int:
             fail(errors, "SKILL.md must begin with YAML frontmatter")
         for field in (
             "name: dev",
+            "version:",
             "description:",
             "argument-hint:",
             "disable-model-invocation: true",
