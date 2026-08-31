@@ -1,0 +1,24 @@
+{
+  "name": "dev-skill",
+  "version": "2.0.0",
+  "description": "Turns Claude Code into a Tech Lead running an Issue-to-PR SOP: requirements, worktrees, delegated workers, QA, review, and retro gates.",
+  "author": {
+    "name": "KHA Entertainment",
+    "url": "https://github.com/KHAEntertainment"
+  },
+  "homepage": "https://github.com/KHAEntertainment/claude-dev-skill#readme",
+  "repository": "https://github.com/KHAEntertainment/claude-dev-skill",
+  "license": "MIT",
+  "keywords": [
+    "dev",
+    "workflow",
+    "multi-agent",
+    "tech-lead",
+    "rtk",
+    "traycer",
+    "code-review",
+    "qa",
+    "pull-request"
+  ],
+  "skills": ["./skills/dev"]
+}

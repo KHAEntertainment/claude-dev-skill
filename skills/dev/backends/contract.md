@@ -19,6 +19,7 @@ Each adapter must implement these operations and either return verified state fo
 
 ## Common invariants
 
+- **Resolve `${CLAUDE_SKILL_DIR}` to its absolute path and substitute it into every prompt before dispatch, in every phase.** Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so an unsubstituted reference reaches the delegate as literal text it cannot expand. This applies to every lane that pastes prompt content — prototype, worker, QA, and reviewer alike — and to the assignment envelope itself. Record the resolved value as `skill_dir` in `.agent/dev-state.md` and re-resolve it at the start of each run rather than trusting a stored value; the path changes when the Skill is reinstalled, and it is version-stamped when the Skill is installed as a plugin.
 - The lead never modifies implementation or test code.
 - Every coding agent receives a pre-created, verified branch/worktree and explicit ownership.
 - GitHub Issues and PRs are canonical; backend task lists are runtime coordination only.

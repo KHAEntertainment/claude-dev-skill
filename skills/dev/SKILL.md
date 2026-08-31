@@ -1,6 +1,6 @@
 ---
 name: dev
-version: custom-v1.2.0-upstream.3e87db0
+version: 2.0.0+upstream.3e87db0
 description: Run the RTK-efficient Issue-to-PR development SOP through Claude-native or Traycer execution, with recovery state, isolated ownership, QA, review, and retro gates.
 argument-hint: "[optional project or feature description]"
 disable-model-invocation: true
@@ -128,6 +128,8 @@ Worker Agent prompt files:
 - Fix / improvement: `${CLAUDE_SKILL_DIR}/agents/worker-fix.md`
 
 **When dispatching a Worker Agent, pass the full content of the corresponding prompt file and fill in the specific Issue number.**
+
+**Resolve `${CLAUDE_SKILL_DIR}` to its absolute path and substitute it into every reference in the pasted content before dispatch.** Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so an unsubstituted reference reaches the worker as literal text it cannot expand. This is the shared pre-dispatch invariant recorded in `${CLAUDE_SKILL_DIR}/backends/contract.md` and applies to every delegated lane in every Phase — prototype, worker, QA, and reviewer alike. Record the resolved path as `skill_dir` in the ledger, and re-resolve it at the start of each run rather than trusting a stored value, because the path changes when the Skill is reinstalled or upgraded.
 
 All delegated lanes end with the shared report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`.
 

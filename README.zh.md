@@ -1,5 +1,21 @@
 # /dev — Claude Code 多 Agent 开发 SOP
 
+> ## ⚠️ 此文档已过时，不再受支持 / OUTDATED AND UNSUPPORTED
+>
+> 本文档描述的是上游的双语 **命令** 安装方式，与本分支的实际安装流程不符。
+> 其中的 `install.sh --lang zh` 会被安装器直接拒绝 —— 本维护分支仅提供英文版。
+> 先决条件列表也已过时：实际还需要 RTK 和 Python 3。
+>
+> **请改用 [English README](./README.md)。**
+>
+> This file documents upstream's bilingual **command** install and no longer
+> matches this fork. The `install.sh --lang zh` form it advertises is rejected
+> outright by both installers — this distribution is English-only. Its
+> prerequisites table is also stale; RTK and Python 3 are required.
+>
+> **Use the [English README](./README.md) instead.** This file is retained only
+> as an upstream historical reference.
+
 <a href="https://www.producthunt.com/posts/dev-for-claude-code?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-dev-for-claude-code" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=dev-for-claude-code&theme=light" alt="/dev for Claude Code - Claude Code as a Tech Lead with parallel Worker Agents | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
 [English](./README.md)
