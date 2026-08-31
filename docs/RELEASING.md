@@ -48,17 +48,7 @@ version. Ignore the tag name it proposes; do not let it create the tag.
    ```
 
    `claude plugin tag` refuses to run on a dirty worktree, and `--force`
-   defeats the check rather than satisfying it.
-
-   Note that an untracked `.qwen/` currently trips this. Do **not** commit it —
-   it is local harness state, not a project artifact — and do not delete it
-   blind. Park it instead:
-
-   ```bash
-   mv .qwen "$TMPDIR/qwen-park-$$"   # restore afterwards if you still want it
-   ```
-
-   Gitignoring `.qwen/` is tracked on #6 and will remove this step.
+   defeats the check rather than satisfying it. Commit or clean first.
 
 3. **Tag and push.**
 
@@ -99,6 +89,18 @@ version. Ignore the tag name it proposes; do not let it create the tag.
    It can only be run **after** the tag is pushed. Before that, both the
    `owner/repo` shorthand and the explicit HTTPS URL fail on the missing
    manifest, which is expected and tells you nothing about the release.
+
+## What CI enforces for you
+
+`.github/workflows/ci.yml` runs the full Verification Gate on every pull request
+and every push to `main`, so most of step 2 is checked automatically. In
+particular the packaging job extracts `git archive HEAD` and runs
+`scripts/validate_skill.py` against the **extracted archive**, not just the
+working tree — so a broken `export-ignore` rule that would ship a defective
+source tarball fails CI rather than surfacing later as a broken `brew install`.
+
+What CI cannot do is step 5. The tag does not exist when CI runs, so verifying
+that the published plugin actually installs remains a manual post-tag step.
 
 ## Never move a released tag
 
