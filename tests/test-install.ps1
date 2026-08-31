@@ -29,6 +29,7 @@ try {
     Assert-Path (Join-Path $fresh "skills\dev\backends\contract.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\claude-native.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\traycer.md")
+    Assert-Path (Join-Path $fresh "skills\dev\agents\report-back.md")
     Assert-Path (Join-Path $fresh "skills\dev\agents\reviewer.md")
     Assert-Path (Join-Path $fresh "skills\dev\templates\DEV_STATE_TEMPLATE.md")
     Pass "fresh install with path spaces"

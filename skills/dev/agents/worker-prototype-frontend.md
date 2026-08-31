@@ -88,7 +88,8 @@ Write `readout.md` in the same directory, **total length ≤200 words**, with a 
 
 ### Step 5 — Wrap up
 
-Report the artifact path and readout path to the Tech Lead:
+Report the artifact path and readout path to the Tech Lead, following the
+report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`:
 
 ```
 ✓ Prototype generated

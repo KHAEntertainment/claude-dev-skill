@@ -40,7 +40,8 @@ The Tech Lead may directly correct review/planning documentation only in a docs-
 
 ## Static Analysis Gate (run before human review)
 
-Before human review, run static analysis tools (if configured in the project):
+Run the project's **Verification Gate** recorded in `PROJECT_CONTEXT.md` when
+present; otherwise run these defaults:
 - Python: `rtk proxy flake8` / `rtk proxy pylint` / `rtk mypy`; security scan: `rtk proxy bandit -r .` (if not installed: ask before installing, then use `rtk pip install bandit`)
 - JavaScript: `rtk lint` or `rtk npx eslint`
 

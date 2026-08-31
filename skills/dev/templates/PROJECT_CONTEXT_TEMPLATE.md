@@ -79,6 +79,21 @@ Omit this section to use the `/dev` defaults shown below.
 
 ---
 
+## Verification Gate (optional)
+
+Record the exact lint / type-check / static-analysis / dependency-scan / test
+commands for this project so the worker, QA, and reviewer all run the same
+gate. Omit this section to fall back to the language defaults in
+`${CLAUDE_SKILL_DIR}/phases/phase4.md`.
+
+- **Lint**: [command]
+- **Type check**: [command, or `n/a`]
+- **Static analysis**: [command, or `n/a`]
+- **Dependency scan**: [command] (mandatory — Python `pip-audit` / Node `npm audit`)
+- **Tests**: [command]
+
+---
+
 ## .gitignore Guidance at Init
 
 Prototype artifacts produced during Phase 1 do not enter git by default. Add to `.gitignore`:

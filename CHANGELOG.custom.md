@@ -1,5 +1,17 @@
 # Customized Distribution Changelog
 
+## Unreleased — report-back contract
+
+### Added
+
+- Canonical provider-neutral report-back contract (`agents/report-back.md`)
+  shared by worker, QA, reviewer, and prototype prompts.
+
+### Changed
+
+- Record the project's Verification Gate in `PROJECT_CONTEXT.md` and have
+  Phase 4 run it in place of the inline language defaults.
+
 ## Unreleased — Traycer backend v1
 
 ### Added

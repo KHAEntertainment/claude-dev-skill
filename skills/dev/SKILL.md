@@ -128,6 +128,8 @@ Worker Agent prompt files:
 
 **When dispatching a Worker Agent, pass the full content of the corresponding prompt file and fill in the specific Issue number.**
 
+All delegated lanes end with the shared report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`.
+
 ---
 
 ## Phase 3.5 — QA Verification
