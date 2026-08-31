@@ -31,6 +31,31 @@ plugin. Restart Claude Code afterwards to apply the update.
 
 All of these commands are also available inside a session as `/plugin …`.
 
+## Invocation
+
+Type it yourself at any time:
+
+```text
+/dev-skill:dev [optional project or feature description]
+```
+
+The Skill is also model-invocable, so an explicit request survives the
+plan-to-implementation transition. If you say during planning that you want the
+dev skill — or the full Issue-to-PR workflow — once implementation starts, the
+agent can invoke it for you after you accept the plan and before the first
+implementation edit. You do not have to interrupt implementation to type the
+command.
+
+Explicit workflow intent is the trigger, not the subject matter. An ordinary
+coding, debugging, refactoring, or review request with no stated `/dev` or
+Issue-to-PR intent does not activate the Skill.
+
+> Frontmatter is read when the Skill is loaded. A Claude Code session that was
+> already running when you installed or updated the plugin keeps the previous
+> invocation behavior until you reload the plugin or restart the session — the
+> same reload the update steps above require. After a manual install, restart
+> Claude Code before checking invocation behavior.
+
 > The marketplace entry pins a release tag, so the plugin resolves only from a
 > tagged release. See [Releasing](docs/RELEASING.md) for how a release is cut.
 
@@ -146,6 +171,10 @@ Restart Claude Code after the swap, then invoke:
 ```text
 /dev [optional project or feature description]
 ```
+
+The restart is not optional if you are checking invocation behavior: a session
+that was already running keeps the previously loaded frontmatter, including
+whether the Skill is model-invocable.
 
 Compatibility forms `--lang en` and `--lang=en` are accepted. Chinese installation is intentionally rejected before any filesystem mutation.
 
