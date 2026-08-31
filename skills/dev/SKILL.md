@@ -38,9 +38,31 @@ Use the same Issue → branch/worktree → PR → review workflow, but keep comm
 Compact reassessment sequence:
 1. `rtk git status --short` and `rtk git branch`
 2. `rtk git log -10`
-3. `rtk gh pr list --state open --limit 10 --json number,title,headRefName,updatedAt,reviewDecision --jq '.[] | "#\(.number) \(.headRefName) — \(.title) — \(.reviewDecision // "no-review")"'`
-4. `rtk gh issue list --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
+3. `rtk gh pr list --repo OWNER/REPO --state open --limit 10 --json number,title,headRefName,updatedAt,reviewDecision --jq '.[] | "#\(.number) \(.headRefName) — \(.title) — \(.reviewDecision // "no-review")"'`
+4. `rtk gh issue list --repo OWNER/REPO --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
 5. Stop, summarize likely state in 5 bullets, and ask before deep-reading more than one PR/Issue.
+
+`OWNER/REPO` above is always the canonical repository resolved below, never a placeholder left for `gh` to fill in.
+
+## Repository Identity Anchor (execute before the first GitHub operation)
+
+Repository identity is an explicit execution invariant, not an implicit property of the current directory or of `gh` configuration. Resolve it before the first GitHub read or write of a run, and again immediately after any repository is created or cloned.
+
+1. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"` from the target checkout. It normalizes the ordinary HTTPS and SSH `origin` syntaxes to canonical `OWNER/REPO`, compares that against the configured `gh` default repository and every other GitHub remote, and confirms the repository is readable. It runs only read-only commands and never writes.
+2. Exit status 2, or `"status": "incomplete"`, is a pause condition. Report the emitted `reason` verbatim — it names the mismatch — and run no GitHub operation until `origin`, the `gh` default, and the intended repository agree. Never discharge the pause by adopting whichever repository `gh` happened to resolve.
+3. Record the resolved value as `repository.canonical` in `.agent/dev-state.md` and include it in every assignment envelope. Delegated agents re-verify it with `--expect OWNER/REPO` before their own first GitHub operation.
+4. Pass the recorded `OWNER/REPO` explicitly to every GitHub command. The preflight comparison is defense in depth; it is not a substitute for explicit scoping on each command.
+
+There is no universal scoping flag. Use the form the specific subcommand accepts, and verify it against the installed `gh` rather than assuming:
+
+| Command family | Explicit repository scope |
+|---|---|
+| `gh issue …`, `gh pr …`, `gh release …`, `gh label …` | `--repo OWNER/REPO` |
+| `gh repo view`, `gh repo clone` | positional `OWNER/REPO` argument |
+| `gh repo create` | positional project name; verify the new `origin` immediately after `--clone` |
+| `gh api`, `gh search …` | repository carried in the path (`repos/OWNER/REPO/...`) or `--repo OWNER/REPO` |
+
+The failure shape this prevents is an ordinary fork checkout: `origin` on the fork, `upstream` on the parent, and a missing or parent `gh` default. An unscoped `gh issue create` then opens the Issue on the parent repository, and no later command notices.
 
 ## Execution Backend and Topology Policy
 
@@ -174,7 +196,7 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 
 - **gh CLI path**: `export PATH="$PATH:/c/Program Files/GitHub CLI"`
 - **git operations**: always run in the correct worktree/directory and through `rtk git ...` or `rtk proxy git ...`
-- **GitHub operations**: always run through `rtk gh ...`; use summary fields for scans and deep-read only one Issue/PR at a time
+- **GitHub operations**: always run through `rtk gh ...`, always carry the canonical repository scope resolved by the Repository Identity Anchor, and never rely on the configured `gh` default to pick a base repository; use summary fields for scans and deep-read only one Issue/PR at a time
 - **Unclear requirements**: go back to Phase 1 and ask; never assume
 - **main branch**: only modify via PR, never push directly
 - **PROJECT_CONTEXT.md**: update immediately when architecture decisions change; after repository initialization, commit tracked context changes through a docs-only or related PR; update the main index and `docs/feature-log.md` at the end of each round

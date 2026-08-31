@@ -6,7 +6,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for GitHub Issue/PR operations.
+- Use `rtk gh ...` for GitHub Issue/PR operations, and scope every one with `--repo OWNER/REPO` using the canonical repository from your assignment.
 - Use `rtk git ...` for supported git operations. For unsupported git subcommands such as checkout/rebase, use `rtk proxy git ...`.
 - Use RTK wrappers for verification when available: `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, `rtk tsc`, etc.
 - Broad scans must use compact `--json` fields and `--jq` summaries. Do not request bodies, comments, commits, files, or reviews during broad scans.
@@ -26,7 +26,7 @@ Whether launched through Claude-native or Traycer execution:
 
 ## [Step 1: Understand the Task]
 
-1. `cd` to the absolute worktree path assigned by the Tech Lead. Verify the repository root, current branch, clean status, and expected base commit. Stop and report a blocker if any value differs; do not create, switch, or reuse another branch.
+1. `cd` to the absolute worktree path assigned by the Tech Lead. Verify the repository root, current branch, clean status, and expected base commit. Confirm the checkout resolves to the canonical repository named in your assignment by running `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO`; a non-zero exit is a blocker, not a warning. Stop and report a blocker if any value differs; do not create, switch, or reuse another branch.
 
 2. Read the Issue content, acceptance criteria, and architecture constraint references
 
@@ -112,7 +112,7 @@ Whether launched through Claude-native or Traycer execution:
 
 13. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
 14. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
-15. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
+15. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create --repo OWNER/REPO`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N`, change rationale, AC completion status, complete test output, coverage-path audit, and caller impact
 16. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

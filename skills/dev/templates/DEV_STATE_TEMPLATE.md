@@ -1,5 +1,12 @@
 ---
 schema_version: 2
+repository:
+  canonical: null
+  origin_url: null
+  gh_default: null
+  identity_status: incomplete
+  identity_reason: not_checked
+  verified_at: null
 execution:
   execution_backend: incomplete
   detection_status: incomplete
@@ -35,6 +42,14 @@ updated_at: null
 # /dev Recovery Log
 
 The Tech Lead is the sole writer of this file. Append a timestamped entry after every verified transition. Do not let workers edit the ledger.
+
+## Repository record schema
+
+The `repository` entry records: `canonical`, `origin_url`, `gh_default`, `identity_status`, `identity_reason`, and `verified_at`.
+
+`canonical` is the `OWNER/REPO` value returned by `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py`, normalized from the `origin` remote and reconciled with the configured `gh` default repository. Allowed `identity_status` values are `incomplete` (nothing may touch GitHub yet) and `ready`. `identity_reason` keeps the resolver's emitted reason code — `missing_origin`, `non_github_origin`, `ambiguous_origin`, `default_conflicts_with_origin`, `ambiguous_default`, `inaccessible_repository`, `origin_redirects`, `expected_mismatch`, `origin_matches_default`, or `origin_is_only_github_remote`.
+
+Every GitHub command carries `canonical` explicitly, and every assignment envelope repeats it. Re-resolve after creating or cloning a repository, and whenever remotes or the `gh` default change; a stale `ready` is not evidence.
 
 ## Execution record schema
 

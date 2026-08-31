@@ -17,7 +17,7 @@
 ## What this project is
 
 A maintained English fork of an upstream Claude Code Skill. The canonical shipped
-artifact is `skills/dev/` — 23 files of Markdown plus two stdlib-only Python
+artifact is `skills/dev/` — 21 Markdown files plus three stdlib-only Python
 scripts. The repository is therefore **content-first**: almost every change is
 prose that an agent reads at runtime, not code that executes. `en/` and `zh/` are
 historical upstream command trees and are never installed.
@@ -57,7 +57,7 @@ Python 3, optionally Traycer CLI/Host.
 ## Conventions
 
 - Everything in `skills/dev/` refers to siblings as `${CLAUDE_SKILL_DIR}/<relpath>` — never a hardcoded path.
-- `scripts/validate_skill.py` is the gatekeeper: a 23-path required manifest, frontmatter keys, a forbidden-token list, and a required-policy token allowlist. Adding prose is safe; removing policy tokens fails the build.
+- `scripts/validate_skill.py` is the gatekeeper: a 24-path required manifest, frontmatter keys, a forbidden-token list, and a required-policy token allowlist. Adding prose is safe; removing policy tokens fails the build.
 - No CJK characters anywhere in the payload (enforced by the validator).
 - No absolute machine paths in the payload (enforced by the validator).
 - `bin/` must never exist at repo root — Claude Code plugin auto-discovery would add it to the Bash tool PATH.

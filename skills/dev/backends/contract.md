@@ -20,6 +20,7 @@ Each adapter must implement these operations and either return verified state fo
 ## Common invariants
 
 - **Resolve `${CLAUDE_SKILL_DIR}` to its absolute path and substitute it into every prompt before dispatch, in every phase.** Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so an unsubstituted reference reaches the delegate as literal text it cannot expand. This applies to every lane that pastes prompt content — prototype, worker, QA, and reviewer alike — and to the assignment envelope itself. Record the resolved value as `skill_dir` in `.agent/dev-state.md` and re-resolve it at the start of each run rather than trusting a stored value; the path changes when the Skill is reinstalled, and it is version-stamped when the Skill is installed as a plugin.
+- **Resolve the canonical repository before the first GitHub operation and pass it explicitly to every GitHub command.** `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py` normalizes HTTPS and SSH `origin` syntax to `OWNER/REPO` and fails closed when `origin` is missing, non-GitHub, unreadable, or disagrees with the configured `gh` default or another GitHub remote. Record the result as `repository.canonical` in `.agent/dev-state.md`, carry it in the assignment envelope, and have each delegate re-verify it with `--expect OWNER/REPO`. An unresolved or conflicting identity is a pause condition before any remote write, not a warning.
 - The lead never modifies implementation or test code.
 - Every coding agent receives a pre-created, verified branch/worktree and explicit ownership.
 - GitHub Issues and PRs are canonical; backend task lists are runtime coordination only.
@@ -32,6 +33,8 @@ Each adapter must implement these operations and either return verified state fo
 
 ## Provider-neutral assignment envelope
 
-Every backend sends the full role prompt plus: role, Issue or review lane, topology, backend, route and route source, branch, absolute worktree, base OID, target `headRefOid` when applicable, ownership, acceptance criteria, plan-approval requirement, RTK rules, reporting channel, and stop condition.
+Every backend sends the full role prompt plus: role, canonical repository (`OWNER/REPO`), Issue or review lane, topology, backend, route and route source, branch, absolute worktree, base OID, target `headRefOid` when applicable, ownership, acceptance criteria, plan-approval requirement, RTK rules, reporting channel, and stop condition.
+
+The canonical repository is mandatory in the envelope. A delegate that receives no canonical repository, or whose checkout resolves to a different one, reports a blocker instead of guessing.
 
 The assignment must not depend on Claude-specific tool names. Native packaging for a non-Claude lead may reuse this contract later; it is not required for Codex, OpenCode, Cursor, or smaller harnesses to serve as Traycer-managed children.

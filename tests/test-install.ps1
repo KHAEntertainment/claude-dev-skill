@@ -26,6 +26,7 @@ try {
     Assert-Path (Join-Path $fresh "skills\dev\phases\phase5.md")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\inspect_external_reviews.py")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\detect_execution_backend.py")
+    Assert-Path (Join-Path $fresh "skills\dev\scripts\resolve_repository.py")
     Assert-Path (Join-Path $fresh "skills\dev\backends\contract.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\claude-native.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\traycer.md")

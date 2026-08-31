@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -137,6 +138,60 @@ class BackendContractTests(unittest.TestCase):
             "stopped",
         ):
             self.assertIn(f"`{status}`", state)
+
+    def test_repository_identity_is_an_explicit_invariant(self) -> None:
+        entry = self.read("SKILL.md")
+        contract = self.read("backends/contract.md")
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn("scripts/resolve_repository.py", entry)
+        self.assertIn("Repository Identity Anchor", entry)
+        self.assertIn("pause condition", entry)
+        self.assertIn("positional `OWNER/REPO` argument", entry)
+        self.assertIn("scripts/resolve_repository.py", contract)
+        self.assertIn("repository.canonical", contract)
+        self.assertIn("canonical repository (`OWNER/REPO`)", contract)
+        for token in (
+            "repository:",
+            "canonical:",
+            "identity_status",
+            "identity_reason",
+            "default_conflicts_with_origin",
+            "ambiguous_default",
+        ):
+            self.assertIn(token, state)
+
+    def test_every_github_surface_scopes_the_repository_explicitly(self) -> None:
+        for relative in (
+            "SKILL.md",
+            "phases/phase2.md",
+            "phases/phase3.5.md",
+            "phases/phase4.md",
+            "phases/external-review.md",
+            "agents/worker-new.md",
+            "agents/worker-fix.md",
+            "agents/qa-agent.md",
+            "agents/reviewer.md",
+        ):
+            with self.subTest(surface=relative):
+                self.assertIn("--repo OWNER/REPO", self.read(relative))
+
+    def test_no_unscoped_github_command_examples_remain(self) -> None:
+        pattern = re.compile(r"rtk gh (?:issue|pr|release|label) [a-z-]+(?P<tail>[^`\n]*)")
+        for markdown in sorted(SKILL.rglob("*.md")):
+            for match in pattern.finditer(markdown.read_text(encoding="utf-8")):
+                with self.subTest(command=match.group(0)):
+                    self.assertIn("--repo", match.group("tail"))
+
+    def test_delegated_lanes_verify_the_assigned_repository(self) -> None:
+        for relative in (
+            "agents/worker-new.md",
+            "agents/worker-fix.md",
+            "agents/qa-agent.md",
+            "agents/reviewer.md",
+        ):
+            with self.subTest(lane=relative):
+                self.assertIn("--expect OWNER/REPO", self.read(relative))
+        self.assertIn("canonical repository", self.read("agents/report-back.md"))
 
     def test_qa_and_reviewer_are_distinct_clean_current_head_lanes(self) -> None:
         qa = self.read("agents/qa-agent.md")

@@ -24,14 +24,14 @@ If Mode is `off`, record that external review was disabled by repository policy 
 After resolving the PR branch, resolve its exact head commit:
 
 ```bash
-rtk gh pr view [N] --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
+rtk gh pr view [N] --repo OWNER/REPO --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
 ```
 
-Record the PR number, `headRefOid`, expected/requested/observed reviewers, the default deadline, and the next observation time in `.agent/dev-state.md`. Begin the deadline when this state is written. Continue internal QA and review while external reviewers work.
+Record the canonical repository, PR number, `headRefOid`, expected/requested/observed reviewers, the default deadline, and the next observation time in `.agent/dev-state.md`. Begin the deadline when this state is written. Continue internal QA and review while external reviewers work.
 
 ## Inspect One PR
 
-Run the deterministic inspector from the target repository:
+Run the deterministic inspector from the target repository, passing `repository.canonical` as `--repo` rather than relying on the configured `gh` default:
 
 ```bash
 rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/inspect_external_reviews.py" --repo OWNER/REPO --pr N

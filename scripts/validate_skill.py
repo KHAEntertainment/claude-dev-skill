@@ -33,6 +33,7 @@ REQUIRED = {
     "templates/DEV_STATE_TEMPLATE.md",
     "scripts/detect_execution_backend.py",
     "scripts/inspect_external_reviews.py",
+    "scripts/resolve_repository.py",
 }
 
 
@@ -120,6 +121,12 @@ def main() -> int:
         "head changed",
         "distinct agent ID",
         "lead is the sole ledger writer",
+        "scripts/resolve_repository.py",
+        "repository.canonical",
+        "--repo OWNER/REPO",
+        "positional `OWNER/REPO` argument",
+        "default_conflicts_with_origin",
+        "ambiguous_default",
     )
     for token in required_policy:
         if token not in combined:
@@ -130,6 +137,22 @@ def main() -> int:
         detector_text = detector.read_text(encoding="utf-8")
         if "shutil.which" in detector_text or "command -v" in detector_text:
             fail(errors, "backend detector must not probe binary presence")
+
+    resolver = skill_dir / "scripts" / "resolve_repository.py"
+    if resolver.is_file():
+        resolver_text = resolver.read_text(encoding="utf-8")
+        for verb in (
+            "issue create",
+            "issue comment",
+            "issue close",
+            "pr create",
+            "pr comment",
+            "pr review",
+            "pr merge",
+            "push",
+        ):
+            if verb in resolver_text:
+                fail(errors, f"repository resolver must stay read-only: {verb}")
 
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():

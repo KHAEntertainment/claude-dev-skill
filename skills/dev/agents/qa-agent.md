@@ -8,7 +8,7 @@ Target commit: `[commit-sha]`
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for PR and Issue reads/comments.
+- Use `rtk gh ...` for PR and Issue reads/comments, scoped with `--repo OWNER/REPO` from the canonical repository in your assignment.
 - Use `rtk git ...` for supported git operations. For unsupported git subcommands such as checkout, use `rtk proxy git ...`.
 - Use RTK verification wrappers when available: `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, `rtk tsc`, etc.
 - Deep-read only Issue #[M] and PR #[N]. Do not run broad PR/Issue scans.
@@ -42,9 +42,9 @@ Do not claim to have "verified" anything that was not actually executed.
 
 1. Read the content and acceptance criteria of Issue #[M]
 
-2. Verify the assigned PR branch and target commit. Stop with `stale_head` if the live `headRefOid` differs. Use the assigned read-only checkout when provided; otherwise fetch and check out `[branch-name]` without creating a new development branch.
+2. Verify the assigned PR branch and target commit against the canonical repository. Confirm the checkout resolves to it with `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO` and stop with a blocker on a non-zero exit. Stop with `stale_head` if the live `headRefOid` differs. Use the assigned read-only checkout when provided; otherwise fetch and check out `[branch-name]` without creating a new development branch.
 
-3. Run `rtk gh pr diff [N] --name-only` and focus on modified files plus their direct callers. Record the exact QA scope; do not claim a whole-repository review.
+3. Run `rtk gh pr diff [N] --repo OWNER/REPO --name-only` and focus on modified files plus their direct callers. Record the exact QA scope; do not claim a whole-repository review.
 
 4. **If the project has a test framework, run the full test suite through the relevant RTK wrapper when available**. Failing tests mean QA fails immediately.
 

@@ -192,7 +192,8 @@ skills/dev/
 │   └── DEV_STATE_TEMPLATE.md
 └── scripts/
     ├── detect_execution_backend.py
-    └── inspect_external_reviews.py
+    ├── inspect_external_reviews.py
+    └── resolve_repository.py
 ```
 
 ## License

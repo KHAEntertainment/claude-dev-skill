@@ -18,12 +18,13 @@ Use compact diff statistics first. Do not substitute subjective judgment for the
 
 ## Prepare the QA Lane
 
-1. Resolve the exact PR head branch and commit with `rtk gh pr view [N] --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'`.
-2. Record PR number, Issue number, head branch, `headRefOid`, and target commit in `.agent/dev-state.md`.
-3. Read `${CLAUDE_SKILL_DIR}/phases/external-review.md`, resolve the repository policy, start its review deadline, and record expected/requested/observed reviewers. Do not wait here; continue QA while external review proceeds.
-4. Load `${CLAUDE_SKILL_DIR}/agents/qa-agent.md` and fill every placeholder before dispatch.
-5. Resolve and launch one distinct read-only QA identity through the selected adapter. Record its agent ID and route. Do not give QA implementation ownership.
-6. Record `rtk git status --short`, local `HEAD` (`rtk git rev-parse HEAD`), and the PR `headRefOid` before and after the lane. Any tracked QA change, or either head differing from the recorded target commit, fails the lane and makes the adapter result incomplete.
+1. Confirm `repository.identity_status` is `ready` in `.agent/dev-state.md`; if it is not, re-run `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py` and pause on `incomplete` before touching the PR.
+2. Resolve the exact PR head branch and commit with `rtk gh pr view [N] --repo OWNER/REPO --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'`.
+3. Record the canonical repository, PR number, Issue number, head branch, `headRefOid`, and target commit in `.agent/dev-state.md`.
+4. Read `${CLAUDE_SKILL_DIR}/phases/external-review.md`, resolve the repository policy, start its review deadline, and record expected/requested/observed reviewers. Do not wait here; continue QA while external review proceeds.
+5. Load `${CLAUDE_SKILL_DIR}/agents/qa-agent.md` and fill every placeholder before dispatch, including the canonical repository.
+6. Resolve and launch one distinct read-only QA identity through the selected adapter. Record its agent ID and route. Do not give QA implementation ownership.
+7. Record `rtk git status --short`, local `HEAD` (`rtk git rev-parse HEAD`), and the PR `headRefOid` before and after the lane. Any tracked QA change, or either head differing from the recorded target commit, fails the lane and makes the adapter result incomplete.
 
 The Tech Lead resolves the branch before dispatch; the QA agent must not guess it.
 

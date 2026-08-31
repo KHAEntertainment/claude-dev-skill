@@ -4,7 +4,7 @@
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations.
+- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations, and scope every one of them with `--repo OWNER/REPO` from `repository.canonical` in `.agent/dev-state.md`. Merging and reviewing are the highest-cost operations to run against the wrong repository; never let the configured `gh` default choose the target. Confirm `repository.identity_status` is `ready` before the first GitHub command of this phase.
 - Use compact fields for broad PR scans. Do not request PR bodies, comments, commits, files, or reviews unless reviewing exactly one PR.
 - Use `rtk git ...`, `rtk diff`, `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, or equivalent RTK wrappers for local checks.
 - If an exact wrapper is unavailable, use `rtk proxy <command> ...`.
@@ -28,7 +28,7 @@ Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Re
 
 ## Step 0 — Scope-Drift Gate
 
-Run `rtk gh pr diff [PR-number] --name-only` before any checklist.
+Run `rtk gh pr diff [PR-number] --repo OWNER/REPO --name-only` before any checklist.
 
 - Files clearly outside the Issue and ownership map → mark Scope Drift and REQUEST CHANGES; require the worker to revert unrelated changes.
 - Missing files or behavior required by an acceptance criterion → record a completeness failure.
@@ -100,7 +100,7 @@ Classify each finding as:
 □ Migration downgrade quality
 ```
 
-Use `rtk gh pr review` for concrete findings. Batch ASK items rather than interrupting one at a time.
+Use `rtk gh pr review [PR-number] --repo OWNER/REPO` for concrete findings. Batch ASK items rather than interrupting one at a time.
 
 ## Coverage-Path Audit
 
@@ -141,7 +141,7 @@ If the head changed, invalidate QA, internal review, and external-review complet
 Must give one explicit rating:
 
 - **APPROVE**: Pass 1 is clear, all DELEGATE-FIX findings are resolved, external review is `clear` or `not_applicable`, and only non-blocking Pass 2 findings remain
-  → `rtk gh pr merge --squash`, close the corresponding Issue
+  → `rtk gh pr merge [PR-number] --repo OWNER/REPO --squash`, then close the corresponding Issue with `rtk gh issue close [N] --repo OWNER/REPO`
 
 - **REQUEST CHANGES**: any Pass 1 failure, confirmed Scope Drift, or unresolved ASK item
   → list each issue and expected fix in comments
@@ -164,7 +164,7 @@ Update `PROJECT_CONTEXT.md` after all PRs are merged through a docs-only worktre
 
 After a PR is merged into main, immediately:
 
-1. `rtk gh pr list --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
-2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
+1. `rtk gh pr list --repo OWNER/REPO --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
+2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --repo OWNER/REPO --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
 3. Open PRs with file overlap → comment: `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
 4. Open PRs with logical dependencies (e.g. this refactor changed module paths or interface signatures) → notify those PRs as well

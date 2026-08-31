@@ -4,7 +4,8 @@
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for every GitHub CLI operation in this phase.
+- Resolve the canonical repository before the first GitHub operation of this phase (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"`), and pause on `incomplete` rather than creating an Issue against whatever repository `gh` resolves.
+- Use `rtk gh ...` for every GitHub CLI operation in this phase, and scope each one explicitly: `--repo OWNER/REPO` for `gh issue …` and `gh pr …`, the positional argument for `gh repo view`.
 - Use `rtk git ...` or `rtk proxy git ...` for every git operation in this phase.
 - Broad GitHub scans must use `--json` with summary fields and `--jq` one-line output. Do not request PR/Issue bodies, commits, comments, files, or reviews during broad scans.
 - Deep-read a full Issue/PR body only for the specific item being created, revised, or implemented.
@@ -40,7 +41,7 @@ Confirm all decisions with the user before proceeding to task decomposition.
 
 When requirements conflict with existing architecture decisions in PROJECT_CONTEXT.md (e.g. replacing the auth system, rewriting a core module), **before task decomposition** you must:
 
-1. List affected merged PRs with a compact summary scan, e.g. `rtk gh pr list --state merged --limit 20 --json number,title,mergedAt,headRefName --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'`, then deep-read only the likely affected PRs
+1. List affected merged PRs with a compact summary scan, e.g. `rtk gh pr list --repo OWNER/REPO --state merged --limit 20 --json number,title,mergedAt,headRefName --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'`, then deep-read only the likely affected PRs
 2. Create a fix Issue for each affected merged PR (label: `[Arch Change] Fix code affected by PR #N`)
 3. Review all open Issues with compact summary output, then close or revise any that conflict with the new architecture (explain why in Issue comments)
 4. Immediately update the architecture decisions section of PROJECT_CONTEXT.md (do not wait for Phase 5)
@@ -55,11 +56,12 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 2. **For new projects**, establish a real default branch before creating worktrees:
 
-   1. Create and clone the repository with a server-generated initial commit: `rtk gh repo create [project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
+   1. Create and clone the repository with a server-generated initial commit: `rtk gh repo create [project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push. `gh repo create` takes the project name positionally; it has no `--repo` flag.
    2. Enter the clone and verify readiness with `rtk git status --short`, `rtk git branch --show-current`, and `rtk git rev-parse HEAD`. Require `main`, a real commit, and a clean tree.
-   3. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
-   4. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`).
-   5. Create one Issue per development task using the template below, then create a milestone linking all Issues.
+   3. Immediately resolve and record the new repository's identity with `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"` before any further GitHub operation. A freshly cloned repository has a new `origin`, so the previous run's `repository.canonical` is stale until this succeeds.
+   4. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
+   5. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`), scoped with `--repo OWNER/REPO`.
+   6. Create one Issue per development task using the template below, then create a milestone linking all Issues. Scope each creation explicitly.
 
    Do not create coding worktrees until the bootstrap PR is merged and `origin/main` contains the project context.
 

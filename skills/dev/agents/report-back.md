@@ -24,7 +24,8 @@ silence.
    `pass` / `fail` / `n/a`.
 5. **Acceptance criteria** — each criterion restated as
    `[trigger] → [behavior]`, marked ✓/✗ with a one-line result.
-6. **Evidence** — the commit `headRefOid` (or local `HEAD`) the lane ran
+6. **Evidence** — the canonical repository (`OWNER/REPO`) every GitHub command
+   was scoped to, the commit `headRefOid` (or local `HEAD`) the lane ran
    against, plus clean-worktree evidence for read-only lanes.
 7. **Scope / ownership** — confirm no file outside assigned ownership was
    modified; list any exception and its reason.
