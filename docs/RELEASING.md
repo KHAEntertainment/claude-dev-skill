@@ -80,14 +80,10 @@ version. Ignore the tag name it proposes; do not let it create the tag.
 5. **Verify the advertised install actually works**, in a scratch config so the
    real one is untouched.
 
-   First confirm SSH works, because `claude plugin` fetches over SSH rather than
-   HTTPS and an authenticated `gh` does not cover it:
-
-   ```bash
-   ssh -T git@github.com     # must not print "Permission denied (publickey)"
-   ```
-
-   Then:
+   The marketplace entry uses an `https://` `url` source specifically so this
+   works without a GitHub SSH key (ADR-003). Verify on a machine where
+   `ssh -T git@github.com` fails, if you have one — that is the configuration
+   the `url` source exists to support.
 
    ```bash
    CLAUDE_CONFIG_DIR=/tmp/dev-skill-release-check \

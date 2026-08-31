@@ -10,8 +10,8 @@
     {
       "name": "dev-skill",
       "source": {
-        "source": "github",
-        "repo": "KHAEntertainment/claude-dev-skill",
+        "source": "url",
+        "url": "https://github.com/KHAEntertainment/claude-dev-skill.git",
         "ref": "v2.0.0"
       },
       "description": "Turns Claude Code into a Tech Lead running an Issue-to-PR SOP: requirements, worktrees, delegated workers, QA, review, and retro gates.",
