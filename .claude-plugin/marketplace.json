@@ -1,0 +1,37 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "khaentertainment-dev-skill",
+  "description": "KHA Entertainment's maintained distribution of the /dev multi-agent development SOP for Claude Code.",
+  "owner": {
+    "name": "KHA Entertainment",
+    "url": "https://github.com/KHAEntertainment"
+  },
+  "plugins": [
+    {
+      "name": "dev-skill",
+      "source": {
+        "source": "github",
+        "repo": "KHAEntertainment/claude-dev-skill",
+        "ref": "v2.0.0"
+      },
+      "description": "Turns Claude Code into a Tech Lead running an Issue-to-PR SOP: requirements, worktrees, delegated workers, QA, review, and retro gates.",
+      "version": "2.0.0",
+      "author": {
+        "name": "KHA Entertainment",
+        "url": "https://github.com/KHAEntertainment"
+      },
+      "homepage": "https://github.com/KHAEntertainment/claude-dev-skill",
+      "license": "MIT",
+      "category": "workflow",
+      "keywords": [
+        "dev",
+        "workflow",
+        "multi-agent",
+        "tech-lead",
+        "rtk",
+        "traycer",
+        "code-review"
+      ]
+    }
+  ]
+}

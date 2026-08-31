@@ -4,7 +4,26 @@ KHA Entertainment's maintained English fork of [`hnaymyh123-henry/claude-dev-ski
 
 `/dev` turns the active Claude Code session into a Tech Lead that coordinates requirements, GitHub Issues, pre-created worktrees, delegated coding workers, QA, review, merge order, recovery state, and retrospectives. It runs in two execution modes: **Claude-native** (default, no Traycer required) or **Traycer** (optional multi-harness execution).
 
-The canonical artifact is a user-invoked personal Skill at `skills/dev/`. The upstream `en/` and `zh/` command trees remain historical references and are not installed.
+The canonical artifact is a user-invoked Skill at `skills/dev/`. The upstream `en/` and `zh/` command trees remain historical references and are not installed.
+
+## Install
+
+```bash
+claude plugin marketplace add KHAEntertainment/claude-dev-skill
+claude plugin install dev-skill@khaentertainment-dev-skill
+```
+
+Restart Claude Code, then invoke:
+
+```text
+/dev-skill:dev [optional project or feature description]
+```
+
+That is the whole install. Updates arrive through `claude plugin marketplace update`.
+
+Both commands are also available inside a session as `/plugin marketplace add …` and `/plugin install …`.
+
+Prefer a bare `/dev` invocation, an air-gapped machine, or an isolated evaluation target? See [Manual installation](#manual-installation).
 
 ## Execution Backends
 
@@ -41,14 +60,31 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 
 ## Requirements
 
-- Claude Code with personal Skills; Agent Teams support is required only for Claude-native parallel topology
-- Git and authenticated GitHub CLI (`gh`)
-- [RTK](https://github.com/rtk-ai/rtk)
-- Python 3 for installer preflight validation
+- Claude Code. Agent Teams are required only for Claude-native *parallel* topology.
+- Git and an authenticated GitHub CLI (`gh`)
+- [RTK](https://github.com/rtk-ai/rtk) — `brew install rtk`, or see the RTK README for other platforms
+- Python 3 (used by the Skill at runtime, and by the manual installer's preflight validation)
 - **Optional** Traycer CLI/Host for managed multi-harness execution; Traycer children use the Chat/GUI surface in v1. Without it, the skill runs Claude-native with no loss of core workflow.
 - Agent Teams run in-process and do not require tmux or iTerm
 
-## Validate Before Installing
+## Manual installation
+
+The plugin above is the recommended path. Install manually when you want the
+bare `/dev` invocation instead of `/dev-skill:dev`, when evaluating a change
+against an isolated target, or on a machine that cannot reach the marketplace.
+
+### Running both at once
+
+The plugin and a manual install can coexist — they appear as `/dev-skill:dev`
+and `/dev` respectively. They are two independent copies and will drift apart as
+one is updated and the other is not. Pick one as your working path; if you
+switch to the plugin, move the old Skill aside:
+
+```bash
+mv ~/.claude/skills/dev ~/.claude/backups/dev-manual-$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+### Validate before installing
 
 ```bash
 python3 scripts/validate_skill.py
@@ -59,7 +95,7 @@ bash tests/test-install.sh
 ./install.sh --dry-run
 ```
 
-## Isolated Installation
+### Isolated installation
 
 Use an explicit target while another Claude Code session is active or while evaluating the Skill:
 
@@ -69,7 +105,7 @@ Use an explicit target while another Claude Code session is active or while eval
 
 An explicit target does not migrate `~/.claude/commands/dev.md` or `~/.claude/commands/dev/` unless `--migrate-legacy` is also supplied.
 
-## Live Installation
+### Live installation
 
 When ready to swap the global `/dev` implementation:
 
@@ -93,6 +129,9 @@ Restart Claude Code after the swap, then invoke:
 ```
 
 Compatibility forms `--lang en` and `--lang=en` are accepted. Chinese installation is intentionally rejected before any filesystem mutation.
+
+There is no uninstall command. To reverse an install, restore the most recent
+directory under `~/.claude/backups/dev/`.
 
 ### Windows PowerShell
 
