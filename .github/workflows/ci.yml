@@ -90,6 +90,35 @@ jobs:
         run: |
           scripts/check_plugin_root.sh
           python3 scripts/check_version_sync.py
+      - name: Verify source archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_listing=$(git archive --format=tar HEAD | tar -t)
+
+          # 23 is the required Skill payload file count in scripts/validate_skill.py.
+          # Update this alongside that manifest when the distributable payload changes.
+          skill_file_count=$(printf '%s\n' "$archive_listing" | awk '/^skills\/dev\// && $0 !~ /\/$/ { count++ } END { print count + 0 }')
+          if [ "$skill_file_count" -ne 23 ]; then
+            printf 'ERROR: source archive contains %s Skill payload files; expected 23 from scripts/validate_skill.py\n' "$skill_file_count" >&2
+            exit 1
+          fi
+
+          for required in scripts/ install.sh LICENSE README.md; do
+            if ! printf '%s\n' "$archive_listing" | grep -Fqx "$required"; then
+              printf 'ERROR: source archive is missing required path: %s\n' "$required" >&2
+              exit 1
+            fi
+          done
+
+          for excluded in en zh tests docs .github; do
+            if printf '%s\n' "$archive_listing" | grep -q "^${excluded}/"; then
+              printf 'ERROR: source archive unexpectedly includes excluded path: %s/\n' "$excluded" >&2
+              exit 1
+            fi
+          done
+
+          printf 'OK: source archive retains the 23-file Skill payload and required release files\n'
       - name: Validate manifests with Claude Code or fail-closed fallback
         shell: bash
         run: |
