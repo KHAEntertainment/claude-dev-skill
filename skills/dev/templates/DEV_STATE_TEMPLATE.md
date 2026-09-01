@@ -47,7 +47,7 @@ The Tech Lead is the sole writer of this file. Append a timestamped entry after 
 
 The `repository` entry records: `canonical`, `origin_url`, `gh_default`, `identity_status`, `identity_reason`, and `verified_at`.
 
-`canonical` is the `OWNER/REPO` value returned by `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py`, normalized from the `origin` remote and reconciled with the configured `gh` default repository. Allowed `identity_status` values are `incomplete` (nothing may touch GitHub yet) and `ready`. `identity_reason` keeps the resolver's emitted reason code — `missing_origin`, `non_github_origin`, `ambiguous_origin`, `push_mismatch`, `default_conflicts_with_origin`, `ambiguous_default`, `inaccessible_repository`, `origin_redirects`, `expected_mismatch`, `git_cli_missing`, `gh_cli_missing`, `origin_matches_default`, or `origin_is_only_github_remote`.
+`canonical` is the `OWNER/REPO` value returned by `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py`, normalized from the `origin` remote and reconciled with the configured `gh` default repository. Allowed `identity_status` values are `incomplete` (nothing may touch GitHub yet) and `ready`. `identity_reason` keeps the resolver's emitted reason code — `missing_origin`, `non_github_origin`, `ambiguous_origin`, `remote_url_mismatch`, `default_conflicts_with_origin`, `ambiguous_default`, `inaccessible_repository`, `origin_redirects`, `expected_mismatch`, `git_cli_missing`, `gh_cli_missing`, `not_checked`, `origin_matches_default`, or `origin_is_only_github_remote`.
 
 `origin_url` is the resolver's redacted `remote_url` output with any userinfo removed; never persist a raw remote URL that may contain credentials.
 

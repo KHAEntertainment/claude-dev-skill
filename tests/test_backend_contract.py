@@ -182,6 +182,13 @@ class BackendContractTests(unittest.TestCase):
                 with self.subTest(command=match.group(0)):
                     self.assertIn("--repo", match.group("tail"))
 
+    def test_gh_api_examples_carry_repository_in_path(self) -> None:
+        pattern = re.compile(r"rtk gh api(?P<tail>[^`\n]*)")
+        for markdown in sorted(SKILL.rglob("*.md")):
+            for match in pattern.finditer(markdown.read_text(encoding="utf-8")):
+                with self.subTest(command=match.group(0)):
+                    self.assertIn("repos/OWNER/REPO", match.group("tail"))
+
     def test_delegated_lanes_verify_the_assigned_repository(self) -> None:
         for relative in (
             "agents/worker-new.md",

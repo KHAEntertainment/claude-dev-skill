@@ -4,7 +4,7 @@
 
 ## Command Output Rules
 
-- Resolve the canonical repository before the first GitHub operation of this phase (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"`), and pause on `incomplete` rather than creating an Issue against whatever repository `gh` resolves.
+- Resolve the canonical repository before the first GitHub operation of this phase (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"`), and pause on `incomplete` rather than creating an Issue against whatever repository `gh` resolves. The only exception is `gh repo create --clone` on the new-project path: create the repository first, then immediately resolve and record the new `origin` before any further `gh` or `git push` operation.
 - Use `rtk gh ...` for every GitHub CLI operation in this phase, and scope each one explicitly: `--repo OWNER/REPO` for `gh issue …` and `gh pr …`, the positional argument for `gh repo view`.
 - Use `rtk git ...` or `rtk proxy git ...` for every git operation in this phase.
 - Broad GitHub scans must use `--json` with summary fields and `--jq` one-line output. Do not request PR/Issue bodies, commits, comments, files, or reviews during broad scans.

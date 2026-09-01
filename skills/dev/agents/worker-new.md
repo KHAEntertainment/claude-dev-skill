@@ -8,6 +8,7 @@ You are a Worker Agent responsible for completing GitHub Issue #[N].
 
 - Use `rtk gh ...` for GitHub Issue/PR operations, and scope every one with `--repo OWNER/REPO` using the canonical repository from your assignment.
 - Use `rtk git ...` for supported git operations. For unsupported git subcommands such as checkout/rebase, use `rtk proxy git ...`.
+- Do not push to any remote or raw URL until `resolve_repository.py` has verified that **every** fetch URL and **every** push URL (including any added with `git remote set-url --add --push`) for that remote resolve to `OWNER/REPO`.
 - Use RTK wrappers for verification when available: `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, `rtk tsc`, etc.
 - Broad scans must use compact `--json` fields and `--jq` summaries. Do not request bodies, comments, commits, files, or reviews during broad scans.
 - Deep-read only assigned Issue #[N] and only the PR you create.
