@@ -82,6 +82,36 @@ def normalize_remote(url: str) -> str:
     return f"{owner}/{repository}"
 
 
+def redact_remote(url: str | None) -> str | None:
+    """Return a display-safe copy of *url* with any userinfo removed.
+
+    Credentials in an HTTPS remote are the primary concern. The output is never
+    used to connect; it is only recorded in the resolver JSON and in the ledger
+    so that a token-bearing origin cannot be persisted in committed state.
+    """
+    if url is None:
+        return None
+    text = (url or "").strip()
+    if not text:
+        return text
+
+    if "://" in text:
+        scheme, _, rest = text.partition("://")
+        authority, _, path = rest.partition("/")
+        # authority may be userinfo@host:port; keep only host:port
+        safe_authority = authority.rsplit("@", 1)[-1]
+        redacted = f"{scheme}://{safe_authority}"
+        if path:
+            redacted = f"{redacted}/{path}"
+        return redacted
+
+    # SCP-like or bare host:path
+    if "@" in text:
+        _, _, after = text.partition("@")
+        return after
+    return text
+
+
 def parse_owner_repo(value: str, *, label: str) -> str:
     """Validate an already-canonical `OWNER/REPO` string such as the `gh` default."""
     segments = [segment for segment in (value or "").strip().split("/") if segment]
@@ -101,6 +131,7 @@ def same_repository(left: str, right: str) -> bool:
 def resolve_repository(
     *,
     remotes: dict[str, str],
+    push_remotes: dict[str, str] | None = None,
     gh_default: str | None,
     verified_name: str | None = None,
     access_verified: bool = False,
@@ -108,11 +139,14 @@ def resolve_repository(
     remote_name: str = "origin",
 ) -> dict[str, object]:
     """Decide the canonical repository, or fail closed with a named mismatch."""
+    push_lookup = push_remotes or {}
+
     result: dict[str, object] = {
         "status": "incomplete",
         "repository": None,
         "remote": remote_name,
-        "remote_url": remotes.get(remote_name),
+        "remote_url": None,
+        "push_url": None,
         "gh_default": gh_default,
         "conflicting_remotes": [],
         "reason_code": "",
@@ -127,30 +161,55 @@ def resolve_repository(
         )
         return result
 
+    fetch_url = remotes[remote_name]
+    push_url = push_lookup.get(remote_name, fetch_url)
+    result["remote_url"] = redact_remote(fetch_url)
+
     try:
-        origin = normalize_remote(remotes[remote_name])
+        origin = normalize_remote(fetch_url)
     except RepositoryError as exc:
         result["reason_code"] = exc.code
-        result["reason"] = f"`{remote_name}` remote is unusable: {exc}"
+        result["reason"] = f"`{remote_name}` fetch URL is unusable: {exc}"
         return result
+
+    if push_url != fetch_url:
+        result["push_url"] = redact_remote(push_url)
+        try:
+            push_origin = normalize_remote(push_url)
+        except RepositoryError as exc:
+            result["reason_code"] = "push_mismatch"
+            result["reason"] = (
+                f"`{remote_name}` push URL `{redact_remote(push_url)}` is not a "
+                f"usable GitHub repository: {exc}"
+            )
+            return result
+        if not same_repository(push_origin, origin):
+            result["reason_code"] = "push_mismatch"
+            result["reason"] = (
+                f"`{remote_name}` fetch URL resolves to {origin} but its push URL "
+                f"resolves to {push_origin}; refusing to push until they agree"
+            )
+            return result
 
     result["repository"] = origin
 
-    others: dict[str, str] = {}
-    for name, url in sorted(remotes.items()):
+    seen_conflicts: set[str] = set()
+    all_names = set(remotes) | set(push_lookup)
+    for name in sorted(all_names):
         if name == remote_name:
             continue
-        try:
-            others[name] = normalize_remote(url)
-        except RepositoryError:
-            continue
-
-    conflicting = sorted(
-        f"{name}={value}"
-        for name, value in others.items()
-        if not same_repository(value, origin)
-    )
-    result["conflicting_remotes"] = conflicting
+        for url in {remotes.get(name), push_lookup.get(name)}:
+            if url is None or url in seen_conflicts:
+                continue
+            try:
+                other = normalize_remote(url)
+            except RepositoryError:
+                continue
+            if not same_repository(other, origin):
+                seen_conflicts.add(url)
+                cast = list(result["conflicting_remotes"])
+                cast.append(f"{name}={other}")
+                result["conflicting_remotes"] = cast
 
     if gh_default is not None:
         try:
@@ -169,14 +228,14 @@ def resolve_repository(
                 "operation until they agree"
             )
             return result
-    elif conflicting:
+    elif result["conflicting_remotes"]:
         result["repository"] = None
         result["reason_code"] = "ambiguous_default"
         result["reason"] = (
             f"no gh default repository is configured and `{remote_name}` is "
             f"{origin} while other GitHub remotes point elsewhere "
-            f"({', '.join(conflicting)}); gh would be free to resolve a "
-            "different base repository"
+            f"({', '.join(str(x) for x in result['conflicting_remotes'])}); "
+            "gh would be free to resolve a different base repository"
         )
         return result
 
@@ -223,27 +282,39 @@ def resolve_repository(
 
 def read_command(command: list[str], *, cwd: Path) -> tuple[int, str]:
     """Run one read-only command and return its exit status and stdout."""
-    completed = subprocess.run(
-        command, cwd=str(cwd), capture_output=True, text=True, check=False
-    )
+    try:
+        completed = subprocess.run(
+            command, cwd=str(cwd), capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        return (-1, str(exc))
     return completed.returncode, completed.stdout.strip()
 
 
-def collect_remotes(repo_dir: Path) -> dict[str, str]:
+def collect_remotes(repo_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
     status, output = read_command(["git", "remote", "-v"], cwd=repo_dir)
+    if status == -1:
+        raise RepositoryError("git_cli_missing", "git CLI is not installed or not in PATH")
     if status != 0:
         raise RepositoryError("missing_origin", "`git remote -v` failed in this checkout")
-    remotes: dict[str, str] = {}
+    fetch: dict[str, str] = {}
+    push: dict[str, str] = {}
     for line in output.splitlines():
         parts = line.split()
-        if len(parts) < 2:
+        if len(parts) < 3:
             continue
-        remotes.setdefault(parts[0], parts[1])
-    return remotes
+        name, url, kind = parts[0], parts[1], parts[2].strip("()")
+        if kind == "fetch":
+            fetch[name] = url
+        elif kind == "push":
+            push[name] = url
+    return fetch, push
 
 
 def collect_gh_default(repo_dir: Path) -> str | None:
     status, output = read_command(["gh", "repo", "set-default", "--view"], cwd=repo_dir)
+    if status == -1:
+        raise RepositoryError("gh_cli_missing", "gh CLI is not installed or not in PATH")
     if status != 0 or not output or "no default repository" in output.lower():
         return None
     return output.splitlines()[0].strip()
@@ -255,6 +326,8 @@ def collect_verified_name(repo_dir: Path, repository: str) -> str | None:
         ["gh", "repo", "view", repository, "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
         cwd=repo_dir,
     )
+    if status == -1:
+        raise RepositoryError("gh_cli_missing", "gh CLI is not installed or not in PATH")
     if status != 0 or not output:
         return None
     return output.splitlines()[0].strip()
@@ -296,6 +369,11 @@ def main() -> int:
         if args.fixture is not None:
             fixture = load_fixture(args.fixture)
             remotes = {str(k): str(v) for k, v in fixture["remotes"].items()}
+            push_raw = fixture.get("push_remotes")
+            if isinstance(push_raw, dict):
+                push_remotes = {str(k): str(v) for k, v in push_raw.items()}
+            else:
+                push_remotes = None
             raw_default = fixture.get("gh_default")
             gh_default = None if raw_default is None else str(raw_default)
             access_verified = bool(fixture.get("access_verified", False))
@@ -303,7 +381,7 @@ def main() -> int:
             verified_name = None if raw_verified is None else str(raw_verified)
         else:
             repo_dir = args.repo_dir.resolve()
-            remotes = collect_remotes(repo_dir)
+            remotes, push_remotes = collect_remotes(repo_dir)
             gh_default = collect_gh_default(repo_dir)
             access_verified = not args.no_verify_access
             verified_name = None
@@ -317,6 +395,7 @@ def main() -> int:
 
         decision = resolve_repository(
             remotes=remotes,
+            push_remotes=push_remotes,
             gh_default=gh_default,
             verified_name=verified_name,
             access_verified=access_verified,
@@ -329,6 +408,7 @@ def main() -> int:
             "repository": None,
             "remote": args.remote,
             "remote_url": None,
+            "push_url": None,
             "gh_default": None,
             "conflicting_remotes": [],
             "reason_code": exc.code,

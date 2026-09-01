@@ -294,5 +294,93 @@ class ResolverCommandLineTests(unittest.TestCase):
                     self.assertNotIn("hnaymyh123-henry", joined)
 
 
+class SplitRemoteRegressionTests(unittest.TestCase):
+    def run_fixture(self, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory, "state.json")
+            fixture.write_text(json.dumps(payload), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(RESOLVER), "--fixture", str(fixture)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        return completed.returncode, json.loads(completed.stdout)
+
+    def test_split_fetch_push_resolves_to_incomplete(self) -> None:
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": UPSTREAM_HTTPS},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(2, status)
+        self.assertEqual("push_mismatch", payload["reason_code"])
+        self.assertIsNone(payload["repository"])
+        self.assertEqual(ORIGIN_HTTPS, payload["remote_url"])
+        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
+
+    def test_credentials_are_redacted_in_output(self) -> None:
+        secret = "https://user:s3cr3t-token@github.com/KHAEntertainment/claude-dev-skill.git"
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": secret},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(0, status)
+        self.assertEqual(CANONICAL, payload["repository"])
+        self.assertNotIn("s3cr3t-token", json.dumps(payload))
+        self.assertNotIn("user:", json.dumps(payload))
+        self.assertEqual("https://github.com/KHAEntertainment/claude-dev-skill.git", payload["remote_url"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX shebang stubs are not executable on Windows")
+    def test_missing_gh_cli_returns_incomplete_not_traceback(self) -> None:
+        """gh is absent but git is present; the resolver returns compact incomplete JSON."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stub_dir = root / "bin"
+            stub_dir.mkdir()
+            log = root / "commands.log"
+            git_stub = stub_dir / "git"
+            git_stub.write_text(
+                f"#!/usr/bin/env python3\n"
+                f"import os, sys\n"
+                f"with open(os.environ['REPO_IDENTITY_LOG'], 'a', encoding='utf-8') as h:\n"
+                f"    h.write('\\t'.join(sys.argv) + '\\n')\n"
+                f"print('origin\\t{ORIGIN_HTTPS} (fetch)')\n"
+                f"print('origin\\t{UPSTREAM_HTTPS} (push)')\n"
+                f"raise SystemExit(0)\n",
+                encoding="utf-8",
+            )
+            git_stub.chmod(0o755)
+
+            python_dir = str(Path(sys.executable).parent)
+            environment = os.environ.copy()
+            environment["REPO_IDENTITY_LOG"] = str(log)
+            environment["PATH"] = f"{stub_dir}{os.pathsep}{python_dir}"
+            completed = subprocess.run(
+                [sys.executable, str(RESOLVER), "--repo-dir", str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            payload = json.loads(completed.stdout)
+            self.assertEqual(2, completed.returncode)
+            self.assertEqual("gh_cli_missing", payload["reason_code"])
+            self.assertIsNone(payload["repository"])
+            recorded = [
+                tuple(line.split("\t"))
+                for line in log.read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+            self.assertTrue(recorded, "the resolver ran no command at all")
+            for argv in recorded:
+                self.assertEqual("git", Path(argv[0]).name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -172,10 +172,13 @@ def main() -> int:
             "pr comment",
             "pr review",
             "pr merge",
-            "push",
         ):
-            if verb in resolver_text:
+            if re.search(rf"\b{re.escape(verb)}\b", resolver_text):
                 fail(errors, f"repository resolver must stay read-only: {verb}")
+        # The resolver may legitimately talk about "push" URLs; it must not run
+        # the `git push` command itself.
+        if re.search(r"\bgit\s+push\b", resolver_text):
+            fail(errors, "repository resolver must stay read-only: git push")
 
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():
