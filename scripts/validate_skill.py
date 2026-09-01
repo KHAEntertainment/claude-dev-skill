@@ -65,10 +65,33 @@ def main() -> int:
             "version:",
             "description:",
             "argument-hint:",
-            "disable-model-invocation: true",
+            "when_to_use:",
         ):
             if field not in text:
                 fail(errors, f"SKILL.md frontmatter missing: {field}")
+
+        # The Skill must stay model-invocable so an explicit user request made
+        # during planning survives into implementation. Require the explicit
+        # `false` rather than an omitted field, so a regression is visible in
+        # the diff instead of hiding in a default.
+        frontmatter = text.split("\n---\n", 1)[0] if text.startswith("---\n") else ""
+        if "disable-model-invocation: false" not in frontmatter:
+            fail(
+                errors,
+                "SKILL.md must set `disable-model-invocation: false` explicitly; "
+                "model invocation is required for the plan-to-implementation handoff",
+            )
+        when_to_use = ""
+        for line in frontmatter.splitlines():
+            if line.startswith("when_to_use:"):
+                when_to_use = line.partition(":")[2].strip().strip('"').strip("'")
+                break
+        for phrase in ("explicitly", "after plan approval", "Do not invoke"):
+            if phrase not in when_to_use:
+                fail(
+                    errors,
+                    f"SKILL.md `when_to_use` must keep the explicit-intent trigger: {phrase}",
+                )
 
     combined_parts: list[str] = []
     for markdown in sorted(skill_dir.rglob("*.md")):
