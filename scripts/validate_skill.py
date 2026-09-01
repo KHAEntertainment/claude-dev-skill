@@ -129,6 +129,8 @@ class _ResolverVisitor(ast.NodeVisitor):
         self.errors = errors
         self._function_stack: list[str] = []
         self._parent_stack: list[ast.AST] = []
+        self._sys_aliases: set[str] = set()
+        self._sys_modules_aliases: set[str] = set()
 
     def _disallow(self, message: str) -> None:
         fail(self.errors, message)
@@ -138,6 +140,18 @@ class _ResolverVisitor(ast.NodeVisitor):
 
     def _parent(self) -> ast.AST | None:
         return self._parent_stack[-1] if self._parent_stack else None
+
+    def _is_sys_modules_expr(self, node: ast.AST) -> bool:
+        """Return True if *node* is an expression that resolves to sys.modules."""
+        if isinstance(node, ast.Attribute):
+            return (
+                node.attr == "modules"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in self._sys_aliases
+            )
+        if isinstance(node, ast.Name):
+            return node.id in self._sys_modules_aliases
+        return False
 
     def _is_dangerous_call(self, node: ast.Call) -> bool:
         """Return True if this call can dynamically obtain a subprocess runner."""
@@ -172,6 +186,8 @@ class _ResolverVisitor(ast.NodeVisitor):
                 continue
             if alias.name not in self._ALLOWED_IMPORTS:
                 self._disallow(f"repository resolver must not import {alias.name}")
+            if alias.name == "sys":
+                self._sys_aliases.add("sys")
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.module == "__future__" or (node.module == "pathlib" and len(node.names) == 1 and node.names[0].name == "Path" and node.names[0].asname is None):
@@ -185,6 +201,35 @@ class _ResolverVisitor(ast.NodeVisitor):
                 self._disallow(f"repository resolver must not alias imports: from {module} import {alias.name} as {alias.asname}")
             elif alias.name in self._DANGEROUS_NAMES or alias.name in self._DANGEROUS_MODULES:
                 self._disallow(f"repository resolver must not import {alias.name} from {module}")
+        if module == "sys":
+            for alias in node.names:
+                if alias.name == "modules" and alias.asname is None:
+                    self._sys_modules_aliases.add(alias.name)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if self._is_sys_modules_expr(node.value):
+                self._sys_modules_aliases.add(target.id)
+                self._disallow(f"repository resolver must not alias sys.modules as {target.id}")
+            elif isinstance(node.value, ast.Name) and node.value.id in self._sys_aliases:
+                self._sys_aliases.add(target.id)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if (
+            isinstance(node.target, ast.Name)
+            and self._is_sys_modules_expr(node.value)
+        ):
+            self._sys_modules_aliases.add(node.target.id)
+            self._disallow(f"repository resolver must not alias sys.modules as {node.target.id}")
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if self._is_sys_modules_expr(node.value):
+            self._disallow("repository resolver must not use sys.modules[...] for dynamic module access")
+        self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
         if node.id in self._DANGEROUS_MODULES:
@@ -226,6 +271,9 @@ class _ResolverVisitor(ast.NodeVisitor):
             return
 
         if isinstance(func, ast.Attribute):
+            if self._is_sys_modules_expr(func.value):
+                self._disallow("repository resolver must not call a method on sys.modules")
+                return
             if isinstance(func.value, ast.Name):
                 if func.value.id == "subprocess":
                     if func.attr != "run" or self._current_function() != "read_command":

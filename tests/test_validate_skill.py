@@ -163,6 +163,11 @@ def preview():
         errors = self.validate(source)
         self.assertTrue(any("__import__" in e for e in errors))
 
+    def test_rejects_sys_modules_subscript(self) -> None:
+        source = READ_ONLY_RESOLVER + '\nimport sys\nsys.modules["subprocess"].run(["gh", "pr", "merge"])\n'
+        errors = self.validate(source)
+        self.assertTrue(any("sys.modules" in e for e in errors))
+
     def test_rejects_exec_string(self) -> None:
         source = READ_ONLY_RESOLVER + '\nexec("import subprocess; subprocess.run([\\\"gh\\\", \\\"pr\\\", \\\"merge\\\"])")\n'
         errors = self.validate(source)
