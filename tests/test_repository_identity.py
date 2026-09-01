@@ -41,14 +41,17 @@ MUTATING_PHRASES = (
     r"\bgh\s+pr\s+merge\b",
 )
 
-# Read-only command prefixes the resolver may emit.
-READ_ONLY_PREFIXES = (
-    ("git", "branch", "--show-current"),
-    ("git", "config"),
-    ("git", "remote"),
-    ("git", "remote", "get-url"),
-    ("gh", "repo", "set-default", "--view"),
-    ("gh", "repo", "view"),
+# Read-only command shapes the resolver may emit. Each entry is
+# (leading-constant-tokens, min-extra-args, max-extra-args); max=None means
+# the command may have any number of trailing flags.
+READ_ONLY_COMMANDS = (
+    (("git", "branch", "--show-current"), 0, 0),
+    (("git", "config"), 1, 1),
+    (("git", "remote"), 0, 0),
+    (("git", "remote", "get-url", "--all"), 1, 1),
+    (("git", "remote", "get-url", "--push", "--all"), 1, 1),
+    (("gh", "repo", "set-default", "--view"), 0, 0),
+    (("gh", "repo", "view"), 1, None),
 )
 
 # Generic git/gh stub. The test sets FIXTURE (JSON) in the environment.
@@ -98,8 +101,9 @@ if name == "gh" and args == ["repo", "set-default", "--view"]:
     if default and not default.lower().startswith("no default"):
         print(default)
         raise SystemExit(0)
+    # Real gh reports a missing default on stderr with exit 0.
     sys.stderr.write((default or "no default repository has been set") + "\\n")
-    raise SystemExit(1)
+    raise SystemExit(0)
 
 if name == "gh" and args[:2] == ["repo", "view"]:
     print(args[2])
@@ -216,7 +220,7 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("remote_url_mismatch", result["reason_code"])
         self.assertIsNone(result["repository"])
 
-    def test_conflicting_remote_blocks_even_when_gh_default_matches(self) -> None:
+    def test_conflicting_remote_is_ready_when_default_matches_effective_push_target(self) -> None:
         result = self.resolve(
             remotes={
                 "origin": ORIGIN_HTTPS,
@@ -229,9 +233,9 @@ class ResolutionMatrixTests(unittest.TestCase):
             gh_default=CANONICAL,
             remote_name="origin",
         )
-        self.assertEqual("incomplete", result["status"])
-        self.assertEqual("conflicting_remote", result["reason_code"])
-        self.assertIsNone(result["repository"])
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(CANONICAL, result["repository"])
+        self.assertEqual("origin_matches_default", result["reason_code"])
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
     def test_gh_default_mismatch_blocks(self) -> None:
@@ -239,7 +243,7 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("default_conflicts_with_origin", result["reason_code"])
 
-    def test_missing_gh_default_with_conflicts_blocks(self) -> None:
+    def test_missing_gh_default_with_conflicts_is_ready(self) -> None:
         result = self.resolve(
             remotes={
                 "origin": ORIGIN_HTTPS,
@@ -251,8 +255,10 @@ class ResolutionMatrixTests(unittest.TestCase):
             },
             gh_default=None,
         )
-        self.assertEqual("incomplete", result["status"])
-        self.assertEqual("conflicting_remote", result["reason_code"])
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(CANONICAL, result["repository"])
+        self.assertEqual("origin_is_only_github_remote", result["reason_code"])
+        self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
     def test_assignment_expectation_match_is_ready(self) -> None:
         result = self.resolve(expected=CANONICAL)
@@ -287,10 +293,15 @@ class ResolverCommandLineTests(unittest.TestCase):
                 self.assertNotIn(token, joined)
             for pattern in MUTATING_PHRASES:
                 self.assertIsNone(re.search(pattern, joined), f"mutating phrase in: {joined}")
+            tokens = raw.split("\t")
+            leading = tuple(tokens)
+            total = len(tokens)
             allowed = any(
-                joined.startswith(" ".join(prefix))
-                for prefix in READ_ONLY_PREFIXES
-            ) or joined.startswith("git remote")
+                leading[: len(prefix)] == prefix
+                and total - len(prefix) >= min_extra
+                and (max_extra is None or total - len(prefix) <= max_extra)
+                for prefix, min_extra, max_extra in READ_ONLY_COMMANDS
+            )
             self.assertTrue(allowed, f"resolver ran unexpected command: {joined}")
 
     def _run_with_fixture(self, fixture: dict[str, object]) -> tuple[subprocess.CompletedProcess[str], str]:
@@ -340,7 +351,8 @@ class ResolverCommandLineTests(unittest.TestCase):
         self.assertEqual(CANONICAL, payload["repository"])
         self._no_write_evidence(log_text)
 
-    def test_conflicting_remote_exits_two_even_when_gh_default_matches(self) -> None:
+    def test_fork_with_matching_default_exits_zero(self) -> None:
+        """A fork checkout with origin+upstream and a matching gh default is ready."""
         fixture = {
             "branch": "main",
             "config": {
@@ -361,9 +373,11 @@ class ResolverCommandLineTests(unittest.TestCase):
             "gh_default": CANONICAL,
         }
         completed, log_text = self._run_with_fixture(fixture)
-        self.assertEqual(2, completed.returncode)
+        self.assertEqual(0, completed.returncode)
         payload = json.loads(completed.stdout)
-        self.assertEqual("conflicting_remote", payload["reason_code"])
+        self.assertEqual("ready", payload["status"])
+        self.assertEqual(CANONICAL, payload["repository"])
+        self.assertEqual("origin_matches_default", payload["reason_code"])
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", payload["conflicting_remotes"])
         self._no_write_evidence(log_text)
 
@@ -390,9 +404,36 @@ class ResolverCommandLineTests(unittest.TestCase):
         completed, log_text = self._run_with_fixture(fixture)
         self.assertEqual(2, completed.returncode)
         payload = json.loads(completed.stdout)
-        self.assertEqual("conflicting_remote", payload["reason_code"])
+        self.assertEqual("default_conflicts_with_origin", payload["reason_code"])
         self.assertEqual("upstream", payload["effective_push_remote"])
         self.assertIsNone(payload["repository"])
+        self.assertIn("origin=KHAEntertainment/claude-dev-skill", payload["conflicting_remotes"])
+        self._no_write_evidence(log_text)
+
+    def test_fresh_clone_no_gh_default_exits_zero(self) -> None:
+        """A clean single-remote checkout with no gh default configured is ready."""
+        fixture = {
+            "branch": "main",
+            "config": {
+                "branch.main.pushRemote": "",
+                "remote.pushDefault": "",
+                "branch.main.remote": "origin",
+            },
+            "remotes": {
+                "origin": {
+                    "fetch": [ORIGIN_HTTPS],
+                    "push": [ORIGIN_HTTPS],
+                },
+            },
+            "gh_default": "",
+        }
+        completed, log_text = self._run_with_fixture(fixture)
+        self.assertEqual(0, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("ready", payload["status"])
+        self.assertEqual(CANONICAL, payload["repository"])
+        self.assertEqual("origin_is_only_github_remote", payload["reason_code"])
+        self.assertEqual([], payload["conflicting_remotes"])
         self._no_write_evidence(log_text)
 
     def test_whitespace_url_in_push_position_fails_closed(self) -> None:

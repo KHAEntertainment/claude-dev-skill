@@ -67,7 +67,7 @@ class ValidateResolverGuardTests(unittest.TestCase):
             '["git", "push"]',
         )
         errors = self.validate(source)
-        self.assertTrue(any("disallowed prefix" in e for e in errors))
+        self.assertTrue(any("disallowed command" in e for e in errors))
 
     def test_rejects_injected_gh_issue_create(self) -> None:
         source = READ_ONLY_RESOLVER.replace(
@@ -75,7 +75,7 @@ class ValidateResolverGuardTests(unittest.TestCase):
             '["gh", "issue", "create"]',
         )
         errors = self.validate(source)
-        self.assertTrue(any("disallowed prefix" in e for e in errors))
+        self.assertTrue(any("disallowed command" in e for e in errors))
 
     def test_rejects_subprocess_run_at_module_scope(self) -> None:
         source = READ_ONLY_RESOLVER + '\nsubprocess.run(["gh", "pr", "merge", "15"])\n'
@@ -151,7 +151,7 @@ def preview():
     def test_rejects_from_subprocess_import_run_aliased(self) -> None:
         source = READ_ONLY_RESOLVER.replace("import subprocess", "from subprocess import run as _go\n_go([\"gh\",\"pr\",\"merge\"])")
         errors = self.validate(source)
-        self.assertTrue(any("must not import" in e for e in errors))
+        self.assertTrue(any("from-imports" in e for e in errors))
 
     def test_rejects_getattr_subprocess(self) -> None:
         source = READ_ONLY_RESOLVER + '\ngetattr(subprocess, "run")(["gh", "pr", "merge"])\n'
@@ -189,6 +189,49 @@ p()
 '''
         errors = self.validate(source)
         self.assertTrue(any("must not call" in e or "partial" in e for e in errors))
+
+    def test_rejects_from_pty_spawn(self) -> None:
+        source = READ_ONLY_RESOLVER + '\nfrom pty import spawn\nspawn(["git", "push"])\n'
+        errors = self.validate(source)
+        self.assertTrue(any("from-imports" in e for e in errors))
+
+    def test_rejects_from_ctypes_cdll(self) -> None:
+        source = READ_ONLY_RESOLVER + '\nfrom ctypes import CDLL\nCDLL(None).system(b"git push")\n'
+        errors = self.validate(source)
+        self.assertTrue(any("from-imports" in e for e in errors))
+
+    def test_rejects_git_config_write_shape(self) -> None:
+        source = READ_ONLY_RESOLVER.replace(
+            '["git", "config", key]',
+            '["git", "config", "remote.pushDefault", "upstream"]',
+        )
+        errors = self.validate(source)
+        self.assertTrue(any("disallowed command" in e for e in errors))
+
+    def test_rejects_git_remote_set_url_shape(self) -> None:
+        source = READ_ONLY_RESOLVER.replace(
+            '["git", "remote", "get-url", "--all", name]',
+            '["git", "remote", "set-url", name, "https://attacker/repo.git"]',
+        )
+        errors = self.validate(source)
+        self.assertTrue(any("disallowed command" in e for e in errors))
+
+    def test_rejects_read_command_rebind(self) -> None:
+        source = READ_ONLY_RESOLVER.replace(
+            'return subprocess.run(command, cwd=str(cwd),',
+            'command = ["git", "push"];\n    return subprocess.run(command,',
+        )
+        errors = self.validate(source)
+        self.assertTrue(any("rebind" in e for e in errors))
+
+    def test_rejects_sys_modules_after_import_order(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+import sys
+def f():
+    sys.modules["subprocess"].run(["gh", "pr", "merge"])
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("sys.modules" in e for e in errors))
 
     def test_rejects_string_forms(self) -> None:
         source = READ_ONLY_RESOLVER + '\n"gh issue create"\n"git push"\n'

@@ -37,16 +37,42 @@ REQUIRED = {
     "scripts/resolve_repository.py",
 }
 
-# Every command-and-subcommand prefix the repository resolver is permitted to run.
-READ_ONLY_PREFIXES = (
-    ("git", "branch", "--show-current"),
-    ("git", "config"),
-    ("git", "remote"),
-    ("git", "remote", "get-url", "--all"),
-    ("git", "remote", "get-url", "--push", "--all"),
-    ("gh", "repo", "set-default", "--view"),
-    ("gh", "repo", "view"),
+# Every read-only command shape the repository resolver is permitted to run.
+# Each entry is (leading-constant-tokens, min-extra-args, max-extra-args).
+# The leading tokens must match the literal leading argv exactly; extra args
+# may be variable names or trailing flags. None in max means unbounded.
+READ_ONLY_COMMANDS = (
+    (("git", "branch", "--show-current"), 0, 0),
+    (("git", "config"), 1, 1),
+    (("git", "remote"), 0, 0),
+    (("git", "remote", "get-url", "--all"), 1, 1),
+    (("git", "remote", "get-url", "--push", "--all"), 1, 1),
+    (("gh", "repo", "set-default", "--view"), 0, 0),
+    (("gh", "repo", "view"), 1, None),
 )
+
+
+def _read_command_shape(node: ast.List | ast.Tuple) -> tuple[tuple[str, ...], int]:
+    """Return the leading string constants and total length of a literal argv."""
+    constants: list[str] = []
+    for element in node.elts:
+        if isinstance(element, ast.Constant) and isinstance(element.value, str):
+            constants.append(element.value)
+        else:
+            break
+    return tuple(constants), len(node.elts)
+
+
+def _is_allowed_command(leading: tuple[str, ...], total: int) -> bool:
+    """Return True if *leading*/*total* matches an allowed read-only shape."""
+    for prefix, min_extra, max_extra in READ_ONLY_COMMANDS:
+        if leading[: len(prefix)] != prefix:
+            continue
+        extra = total - len(prefix)
+        if extra < min_extra or (max_extra is not None and extra > max_extra):
+            continue
+        return True
+    return False
 
 # Mutating command phrases in prose, used only as a coarse string-form guard.
 MUTATING_PROSE = (
@@ -64,14 +90,46 @@ def fail(errors: list[str], message: str) -> None:
     errors.append(message)
 
 
-def _prefix_of_literal_list(node: ast.List | ast.Tuple) -> tuple[str, ...]:
-    constants: list[str] = []
-    for element in node.elts:
-        if isinstance(element, ast.Constant) and isinstance(element.value, str):
-            constants.append(element.value)
-        else:
-            break
-    return tuple(constants)
+class _SysBindingCollector(ast.NodeVisitor):
+    """First pass: collect all aliases that resolve to `sys` or `sys.modules`
+    regardless of source order, so binding-based checks are not defeated by
+    placing the `import sys` after its first use.
+    """
+
+    def __init__(self) -> None:
+        self.sys_aliases: set[str] = set()
+        self.sys_modules_aliases: set[str] = set()
+
+    def _is_sys_modules_expr(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Attribute) and node.attr == "modules":
+            if isinstance(node.value, ast.Name) and node.value.id in self.sys_aliases:
+                return True
+        if isinstance(node, ast.Name) and node.id in self.sys_modules_aliases:
+            return True
+        return False
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.asname is None and alias.name == "sys":
+                self.sys_aliases.add("sys")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "sys":
+            for alias in node.names:
+                if alias.asname is None and alias.name == "modules":
+                    self.sys_modules_aliases.add(alias.name)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if self._is_sys_modules_expr(node.value):
+                self.sys_modules_aliases.add(target.id)
+            elif isinstance(node.value, ast.Name) and node.value.id in self.sys_aliases:
+                self.sys_aliases.add(target.id)
+        self.generic_visit(node)
 
 
 class _ResolverVisitor(ast.NodeVisitor):
@@ -125,12 +183,17 @@ class _ResolverVisitor(ast.NodeVisitor):
     })
     _DANGEROUS_MODULES = frozenset({"os", "functools", "importlib"})
 
-    def __init__(self, errors: list[str]) -> None:
+    def __init__(
+        self,
+        errors: list[str],
+        sys_aliases: set[str] | None = None,
+        sys_modules_aliases: set[str] | None = None,
+    ) -> None:
         self.errors = errors
         self._function_stack: list[str] = []
         self._parent_stack: list[ast.AST] = []
-        self._sys_aliases: set[str] = set()
-        self._sys_modules_aliases: set[str] = set()
+        self._sys_aliases = sys_aliases if sys_aliases is not None else set()
+        self._sys_modules_aliases = sys_modules_aliases if sys_modules_aliases is not None else set()
 
     def _disallow(self, message: str) -> None:
         fail(self.errors, message)
@@ -186,43 +249,41 @@ class _ResolverVisitor(ast.NodeVisitor):
                 continue
             if alias.name not in self._ALLOWED_IMPORTS:
                 self._disallow(f"repository resolver must not import {alias.name}")
-            if alias.name == "sys":
-                self._sys_aliases.add("sys")
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        # Only two from-imports are ever allowed: `__future__.annotations` and
+        # `pathlib.Path`. Everything else is denied by default to close the
+        # `from pty import spawn`, `from ctypes import CDLL`, and `asyncio`
+        # reachability holes.
         if node.module == "__future__" or (node.module == "pathlib" and len(node.names) == 1 and node.names[0].name == "Path" and node.names[0].asname is None):
             return
         module = node.module or ""
-        if module in self._DANGEROUS_MODULES or module.startswith("subprocess") or module.startswith("os"):
-            self._disallow(f"repository resolver must not import from {module}")
-            return
         for alias in node.names:
-            if alias.asname is not None:
-                self._disallow(f"repository resolver must not alias imports: from {module} import {alias.name} as {alias.asname}")
-            elif alias.name in self._DANGEROUS_NAMES or alias.name in self._DANGEROUS_MODULES:
-                self._disallow(f"repository resolver must not import {alias.name} from {module}")
-        if module == "sys":
-            for alias in node.names:
-                if alias.name == "modules" and alias.asname is None:
-                    self._sys_modules_aliases.add(alias.name)
+            self._disallow(f"repository resolver must not use from-imports: from {module} import {alias.name}")
 
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
             if not isinstance(target, ast.Name):
                 continue
+            if target.id == "command" and self._current_function() == "read_command":
+                self._disallow("repository resolver must not rebind the read_command `command` parameter")
+                continue
             if self._is_sys_modules_expr(node.value):
-                self._sys_modules_aliases.add(target.id)
                 self._disallow(f"repository resolver must not alias sys.modules as {target.id}")
-            elif isinstance(node.value, ast.Name) and node.value.id in self._sys_aliases:
-                self._sys_aliases.add(target.id)
+                continue
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if (
             isinstance(node.target, ast.Name)
+            and node.target.id == "command"
+            and self._current_function() == "read_command"
+        ):
+            self._disallow("repository resolver must not rebind the read_command `command` parameter")
+        if (
+            isinstance(node.target, ast.Name)
             and self._is_sys_modules_expr(node.value)
         ):
-            self._sys_modules_aliases.add(node.target.id)
             self._disallow(f"repository resolver must not alias sys.modules as {node.target.id}")
         self.generic_visit(node)
 
@@ -261,9 +322,12 @@ class _ResolverVisitor(ast.NodeVisitor):
                 if not isinstance(first, (ast.List, ast.Tuple)):
                     self._disallow("repository resolver read_command calls must use a literal argument list")
                     return
-                prefix = _prefix_of_literal_list(first)
-                if prefix not in READ_ONLY_PREFIXES:
-                    self._disallow(f"repository resolver read_command has disallowed prefix: {prefix!r}")
+                leading, total = _read_command_shape(first)
+                if not _is_allowed_command(leading, total):
+                    self._disallow(
+                        f"repository resolver read_command has disallowed command shape: "
+                        f"leading={leading!r}, total_args={total}"
+                    )
                 return
             if func.id in self._DANGEROUS_NAMES:
                 self._disallow(f"repository resolver must not call {func.id}")
@@ -312,7 +376,13 @@ def validate_resolver(resolver_text: str, errors: list[str]) -> None:
         fail(errors, f"repository resolver is not valid Python: {exc}")
         return
 
-    _ResolverVisitor(errors).visit(tree)
+    collector = _SysBindingCollector()
+    collector.visit(tree)
+    _ResolverVisitor(
+        errors,
+        sys_aliases=collector.sys_aliases,
+        sys_modules_aliases=collector.sys_modules_aliases,
+    ).visit(tree)
 
     for verb in MUTATING_PROSE:
         if re.search(rf"\b{re.escape(verb)}\b", resolver_text):

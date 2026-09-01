@@ -240,17 +240,12 @@ def resolve_repository(
             if not same_repository(other, candidate):
                 conflicts.add(f"{name}={other}")
 
-    # Conflicts are enforced unconditionally; a correct gh default must not skip them.
+    # Record other GitHub remotes that disagree, but do not fail closed unless
+    # the disagreement is with the effective push remote or the gh default. The
+    # push destination is already the one we validated in `origin_urls`; an
+    # unrelated `upstream` on a fork is for the ledger, not a hard stop.
     if conflicts:
         result["conflicting_remotes"] = sorted(conflicts)
-        result["repository"] = None
-        result["reason_code"] = "conflicting_remote"
-        result["reason"] = (
-            f"`{remote_name}` resolves to {candidate} but other GitHub remotes "
-            f"disagree ({', '.join(sorted(conflicts))}); refusing to run any "
-            "GitHub operation until all remote targets resolve to the same canonical repository"
-        )
-        return result
 
     if gh_default is not None:
         try:
@@ -297,29 +292,42 @@ def resolve_repository(
         return result
 
     result["status"] = "ready"
+    conflict_note = ""
+    if conflicts:
+        conflict_note = (
+            "; non-target GitHub remotes disagree ("
+            f"{', '.join(sorted(conflicts))}) but the effective push target is {candidate}"
+        )
     if gh_default is not None:
         result["reason_code"] = "origin_matches_default"
         result["reason"] = (
             f"effective push remote `{remote_name}` and the gh default repository "
-            f"both resolve to {candidate}"
+            f"both resolve to {candidate}{conflict_note}"
         )
     else:
         result["reason_code"] = "origin_is_only_github_remote"
         result["reason"] = (
-            f"effective push remote `{remote_name}` resolves to {candidate} and "
-            "no other GitHub remote or gh default disagrees"
+            f"effective push remote `{remote_name}` resolves to {candidate}"
+            f"{conflict_note}"
         )
     return result
 
 
-def read_command(command: list[str], *, cwd: Path) -> tuple[int, str]:
-    """Run one read-only command and return its exit status and combined output."""
+def read_command(
+    command: list[str], *, cwd: Path, merge_stderr: bool = True
+) -> tuple[int, str]:
+    """Run one read-only command and return its exit status and stdout.
+
+    Most probes merge stderr into stdout so error banners are visible in the
+    compact JSON. The `gh repo set-default --view` probe is special: a missing
+    default is reported on stderr with exit 0, so we must keep stdout clean.
+    """
     try:
         completed = subprocess.run(
             command,
             cwd=str(cwd),
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
             text=True,
             check=False,
             timeout=COMMAND_TIMEOUT,
@@ -377,12 +385,27 @@ def get_effective_push_remote(repo_dir: Path, *, fallback: str = "origin") -> st
 
 
 def collect_gh_default(repo_dir: Path) -> str | None:
-    """`gh repo set-default --view` takes no repository argument."""
-    status, output = read_command(["gh", "repo", "set-default", "--view"], cwd=repo_dir)
+    """`gh repo set-default --view` takes no repository argument.
+
+    gh reports a missing default on stderr with exit 0, so stdout must not be
+    merged with stderr. A non-OWNER/REPO banner is also treated as unreadable.
+    """
+    status, output = read_command(
+        ["gh", "repo", "set-default", "--view"],
+        cwd=repo_dir,
+        merge_stderr=False,
+    )
     if status == -1:
         raise RepositoryError("gh_cli_missing", "gh CLI is not installed or not in PATH")
     if status == 0 and output:
-        return output.splitlines()[0].strip()
+        first = output.splitlines()[0].strip()
+        try:
+            parse_owner_repo(first, label="gh default repository")
+        except RepositoryError as exc:
+            raise RepositoryError("gh_default_unreadable", str(exc))
+        return first
+    if status == 0:
+        return None
     if status != 0 and output and ("no default" in output.lower() or "no default repository" in output.lower()):
         return None
     if status != 0:
