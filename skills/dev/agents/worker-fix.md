@@ -78,6 +78,6 @@ Whether launched through Claude-native or Traycer execution:
 
 11. If self-check changed code, rerun the full relevant regression and static-check set.
 12. Create semantic, bisectable commits; keep every commit runnable.
-13. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create --repo OWNER/REPO`:
+13. Re-run the repository identity check immediately before pushing: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO`; a non-zero exit is a blocker. If it is `ready`, the resolver has already verified that `origin` fetch and push both resolve to `OWNER/REPO`. Push the assigned branch with `rtk git push --set-upstream origin $(rtk git branch --show-current)` and use `rtk gh pr create --repo OWNER/REPO`:
     - body: include `Closes #N`, root cause, fix approach, AC completion status, test output, impact scope assessment
 14. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

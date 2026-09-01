@@ -84,7 +84,8 @@ There is no universal scoping flag. Use the form the specific subcommand accepts
 | `gh issue …`, `gh pr …`, `gh release …`, `gh label …` | `--repo OWNER/REPO` |
 | `gh repo view`, `gh repo clone` | positional `OWNER/REPO` argument |
 | `gh repo create` | positional project name; verify the new `origin` immediately after `--clone` |
-| `gh api`, `gh search …` | repository carried in the path (`repos/OWNER/REPO/...`) or `--repo OWNER/REPO` |
+| `gh api …` | repository carried in the endpoint path (`repos/OWNER/REPO/...`); `gh api` has no `--repo` flag |
+| `gh search prs`, `gh search issues`, `gh search code` | `--repo OWNER/REPO` where the subcommand supports it; verify with `gh search --help` |
 
 The failure shape this prevents is an ordinary fork checkout: `origin` on the fork, `upstream` on the parent, and a missing or parent `gh` default. An unscoped `gh issue create` then opens the Issue on the parent repository, and no later command notices.
 

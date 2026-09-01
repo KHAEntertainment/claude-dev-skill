@@ -193,6 +193,21 @@ class BackendContractTests(unittest.TestCase):
                 self.assertIn("--expect OWNER/REPO", self.read(relative))
         self.assertIn("canonical repository", self.read("agents/report-back.md"))
 
+    def test_delegated_prompts_are_renderable_with_canonical_repository(self) -> None:
+        canonical = "KHAEntertainment/claude-dev-skill"
+        for relative in (
+            "agents/worker-new.md",
+            "agents/worker-fix.md",
+            "agents/qa-agent.md",
+            "agents/reviewer.md",
+        ):
+            with self.subTest(surface=relative):
+                template = self.read(relative)
+                rendered = template.replace("OWNER/REPO", canonical)
+                self.assertNotIn("OWNER/REPO", rendered)
+                self.assertIn(f"--repo {canonical}", rendered)
+                self.assertIn(f"--expect {canonical}", rendered)
+
     def test_qa_and_reviewer_are_distinct_clean_current_head_lanes(self) -> None:
         qa = self.read("agents/qa-agent.md")
         reviewer = self.read("agents/reviewer.md")
