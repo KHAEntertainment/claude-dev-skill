@@ -113,7 +113,7 @@ Whether launched through Claude-native or Traycer execution:
 
 13. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
 14. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
-15. Re-run the repository identity check immediately before pushing: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO`; a non-zero exit is a blocker. If it is `ready`, the resolver has already verified that `origin` fetch and push both resolve to `OWNER/REPO`. Push the assigned branch with `rtk git push --set-upstream origin $(rtk git branch --show-current)` and use `rtk gh pr create --repo OWNER/REPO`:
+15. Re-run the repository identity check immediately before pushing: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO`; a non-zero exit is a blocker. If it is `ready`, the resolver emits the validated `effective_push_remote`; push only to that remote. Extract it with `PUSH_REMOTE=$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO | rtk proxy python3 -c 'import json,sys; print(json.load(sys.stdin)["effective_push_remote"])')` and push the assigned branch with `rtk git push --set-upstream "$PUSH_REMOTE" $(rtk git branch --show-current)`. Then use `rtk gh pr create --repo OWNER/REPO`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N`, change rationale, AC completion status, complete test output, coverage-path audit, and caller impact
 16. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

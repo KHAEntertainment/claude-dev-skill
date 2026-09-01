@@ -238,6 +238,28 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("origin_matches_default", result["reason_code"])
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
+    def test_hostile_origin_canonical_effective_push_is_ready(self) -> None:
+        """A fork-shaped checkout where `origin` is the parent and the effective
+        push remote is the canonical `fork` resolves `ready` and names `fork`
+        as the only valid push target."""
+        result = self.resolve(
+            remotes={
+                "origin": UPSTREAM_HTTPS,
+                "fork": ORIGIN_HTTPS,
+            },
+            push_remotes={
+                "origin": [UPSTREAM_HTTPS],
+                "fork": [ORIGIN_HTTPS],
+            },
+            gh_default=CANONICAL,
+            remote_name="fork",
+        )
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(CANONICAL, result["repository"])
+        self.assertEqual("fork", result["effective_push_remote"])
+        self.assertEqual("origin_matches_default", result["reason_code"])
+        self.assertIn("origin=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
+
     def test_gh_default_mismatch_blocks(self) -> None:
         result = self.resolve(gh_default=PARENT)
         self.assertEqual("incomplete", result["status"])

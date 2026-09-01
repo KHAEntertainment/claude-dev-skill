@@ -72,8 +72,8 @@ Compact reassessment sequence:
 
 Repository identity is an explicit execution invariant, not an implicit property of the current directory or of `gh` configuration. Resolve it before the first GitHub read or write of a run, and again immediately after any repository is created or cloned.
 
-1. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"` from the target checkout. It normalizes the ordinary HTTPS and SSH `origin` syntaxes to canonical `OWNER/REPO`, compares that against the configured `gh` default repository and every other GitHub remote, and confirms the repository is readable. It runs only read-only commands and never writes.
-2. Exit status 2, or `"status": "incomplete"`, is a pause condition. Report the emitted `reason` verbatim — it names the mismatch — and run no GitHub operation until `origin`, the `gh` default, and the intended repository agree. Never discharge the pause by adopting whichever repository `gh` happened to resolve.
+1. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py"` from the target checkout. It resolves the effective push remote (from `branch.*.pushRemote`, `remote.pushDefault`, and `branch.*.remote`), normalizes its fetch and push URLs to canonical `OWNER/REPO`, compares that against the configured `gh` default repository and every other GitHub remote, and confirms the repository is readable. It runs only read-only commands and never writes.
+2. Exit status 2, or `"status": "incomplete"`, is a pause condition. Report the emitted `reason` verbatim — it names the mismatch — and run no GitHub operation until the effective push remote, the `gh` default, and the intended repository agree. Never discharge the pause by adopting whichever repository `gh` happened to resolve.
 3. Record the resolved value as `repository.canonical` in `.agent/dev-state.md` and include it in every assignment envelope. Delegated agents re-verify it with `--expect OWNER/REPO` before their own first GitHub operation.
 4. Pass the recorded `OWNER/REPO` explicitly to every GitHub command. The preflight comparison is defense in depth; it is not a substitute for explicit scoping on each command.
 
