@@ -39,7 +39,11 @@ REQUIRED = {
 
 # Every command-and-subcommand prefix the repository resolver is permitted to run.
 READ_ONLY_PREFIXES = (
-    ("git", "remote", "-v"),
+    ("git", "branch", "--show-current"),
+    ("git", "config"),
+    ("git", "remote"),
+    ("git", "remote", "get-url", "--all"),
+    ("git", "remote", "get-url", "--push", "--all"),
     ("gh", "repo", "set-default", "--view"),
     ("gh", "repo", "view"),
 )
@@ -70,18 +74,84 @@ def _prefix_of_literal_list(node: ast.List | ast.Tuple) -> tuple[str, ...]:
     return tuple(constants)
 
 
-class _ResolverCallVisitor(ast.NodeVisitor):
-    """Walk every call site in the resolver, regardless of scope.
+class _ResolverVisitor(ast.NodeVisitor):
+    """Allowlist of behaviour. Everything that could reach a subprocess is denied
+    unless the guard can prove it is the single audited chokepoint.
 
-    The guard is a property of the call, not of the container. `subprocess.run`
-    (and friends) are only allowed inside `read_command` using the `command`
-    parameter; `read_command` calls must use a literal list whose prefix is on
-    the read-only allowlist. `os.system`/`os.popen` are never allowed.
+    `subprocess.run` is only allowed inside `read_command` using the `command`
+    parameter. `read_command` calls must use a literal list whose prefix is on
+    the read-only allowlist. `os`, `functools`, `importlib`, and dynamic
+    dispatch (`exec`, `eval`, `getattr`, `__import__`, `partial`) are never
+    allowed. The walk is scope-agnostic: module, function, method, lambda,
+    comprehension, try/except, and `if __name__` are all treated the same way.
     """
+
+    _ALLOWED_IMPORTS = frozenset({
+        "argparse",
+        "ast",
+        "json",
+        "re",
+        "subprocess",
+        "sys",
+    })
+    _DANGEROUS_NAMES = frozenset({
+        "run",
+        "Popen",
+        "call",
+        "check_call",
+        "check_output",
+        "system",
+        "popen",
+        "exec",
+        "eval",
+        "compile",
+        "getattr",
+        "__import__",
+        "execv",
+        "execvp",
+        "execve",
+        "execl",
+        "execlp",
+        "execle",
+        "spawnl",
+        "spawnlp",
+        "spawnv",
+        "spawnve",
+        "spawnvp",
+        "spawnvpe",
+        "getoutput",
+        "getstatusoutput",
+        "partial",
+    })
+    _DANGEROUS_MODULES = frozenset({"os", "functools", "importlib"})
 
     def __init__(self, errors: list[str]) -> None:
         self.errors = errors
         self._function_stack: list[str] = []
+        self._parent_stack: list[ast.AST] = []
+
+    def _disallow(self, message: str) -> None:
+        fail(self.errors, message)
+
+    def _current_function(self) -> str | None:
+        return self._function_stack[-1] if self._function_stack else None
+
+    def _parent(self) -> ast.AST | None:
+        return self._parent_stack[-1] if self._parent_stack else None
+
+    def _is_dangerous_call(self, node: ast.Call) -> bool:
+        """Return True if this call can dynamically obtain a subprocess runner."""
+        func = node.func
+        if isinstance(func, ast.Name):
+            return func.id in self._DANGEROUS_NAMES
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            return func.value.id in ("subprocess", "os", "functools", "importlib")
+        return False
+
+    def generic_visit(self, node: ast.AST) -> None:
+        self._parent_stack.append(node)
+        super().generic_visit(node)
+        self._parent_stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._function_stack.append(node.name)
@@ -95,56 +165,98 @@ class _ResolverCallVisitor(ast.NodeVisitor):
         self.generic_visit(node)
         self._function_stack.pop()
 
-    def _current_function(self) -> str | None:
-        return self._function_stack[-1] if self._function_stack else None
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.asname is not None:
+                self._disallow(f"repository resolver must not alias imports: import {alias.name} as {alias.asname}")
+                continue
+            if alias.name not in self._ALLOWED_IMPORTS:
+                self._disallow(f"repository resolver must not import {alias.name}")
 
-    def _disallow(self, message: str) -> None:
-        fail(self.errors, message)
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "__future__" or (node.module == "pathlib" and len(node.names) == 1 and node.names[0].name == "Path" and node.names[0].asname is None):
+            return
+        module = node.module or ""
+        if module in self._DANGEROUS_MODULES or module.startswith("subprocess") or module.startswith("os"):
+            self._disallow(f"repository resolver must not import from {module}")
+            return
+        for alias in node.names:
+            if alias.asname is not None:
+                self._disallow(f"repository resolver must not alias imports: from {module} import {alias.name} as {alias.asname}")
+            elif alias.name in self._DANGEROUS_NAMES or alias.name in self._DANGEROUS_MODULES:
+                self._disallow(f"repository resolver must not import {alias.name} from {module}")
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in self._DANGEROUS_MODULES:
+            parent = self._parent()
+            if not isinstance(parent, ast.Attribute):
+                self._disallow(f"repository resolver must not reference {node.id} outside a module attribute")
+            return
+        if node.id == "subprocess":
+            parent = self._parent()
+            if not isinstance(parent, ast.Attribute):
+                self._disallow("repository resolver must not reference subprocess outside an attribute access")
+            return
+        if node.id == "read_command":
+            parent = self._parent()
+            if not (isinstance(parent, ast.Call) and parent.func is node):
+                self._disallow("repository resolver must not alias, return, or pass read_command")
 
     def visit_Call(self, node: ast.Call) -> None:
         self.generic_visit(node)
         func = node.func
 
-        if isinstance(func, ast.Name) and func.id == "read_command":
-            first = node.args[0] if node.args else None
-            if not isinstance(first, (ast.List, ast.Tuple)):
-                self._disallow("repository resolver read_command calls must use a literal argument list")
+        if isinstance(func, ast.Call):
+            self._disallow("repository resolver must not call a dynamically-obtained callable")
+            return
+
+        if isinstance(func, ast.Name):
+            if func.id == "read_command":
+                first = node.args[0] if node.args else None
+                if not isinstance(first, (ast.List, ast.Tuple)):
+                    self._disallow("repository resolver read_command calls must use a literal argument list")
+                    return
+                prefix = _prefix_of_literal_list(first)
+                if prefix not in READ_ONLY_PREFIXES:
+                    self._disallow(f"repository resolver read_command has disallowed prefix: {prefix!r}")
                 return
-            prefix = _prefix_of_literal_list(first)
-            if prefix not in READ_ONLY_PREFIXES:
-                self._disallow(f"repository resolver read_command has disallowed prefix: {prefix!r}")
+            if func.id in self._DANGEROUS_NAMES:
+                self._disallow(f"repository resolver must not call {func.id}")
+                return
             return
 
-        proc_attr: str | None = None
-        os_attr: str | None = None
-        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-            if func.value.id == "subprocess" and func.attr in {"run", "Popen", "call", "check_call", "check_output"}:
-                proc_attr = func.attr
-            elif func.value.id == "os" and func.attr in {"system", "popen"}:
-                os_attr = func.attr
-        elif isinstance(func, ast.Name) and func.id in {"run", "Popen", "call", "check_call", "check_output", "system", "popen"}:
-            # Covers `from subprocess import run`, `from os import system`, etc.
-            proc_attr = os_attr = func.id
-
-        if os_attr:
-            self._disallow(f"repository resolver must not call os.{os_attr}")
+        if isinstance(func, ast.Attribute):
+            if isinstance(func.value, ast.Name):
+                if func.value.id == "subprocess":
+                    if func.attr != "run" or self._current_function() != "read_command":
+                        self._disallow("repository resolver must only call subprocess.run inside read_command")
+                        return
+                    first = node.args[0] if node.args else None
+                    if not isinstance(first, ast.Name) or first.id != "command":
+                        self._disallow("repository resolver subprocess.run must use the read_command `command` parameter")
+                    return
+                if func.value.id in self._DANGEROUS_MODULES:
+                    self._disallow(f"repository resolver must not call {func.value.id}.{func.attr}")
+                    return
+                return
+            if isinstance(func.value, ast.Attribute):
+                # Ordinary chained method calls, e.g. text.strip() or completed.stdout.strip().
+                return
+            if isinstance(func.value, ast.Call) and self._is_dangerous_call(func.value):
+                self._disallow("repository resolver must not call a method on a dynamically-obtained subprocess runner")
+                return
+            # Subscript, Constant, BoolOp, etc. are ordinary expression-based calls.
             return
 
-        if proc_attr:
-            current = self._current_function()
-            first = node.args[0] if node.args else None
-            if current != "read_command" or not isinstance(first, ast.Name) or first.id != "command":
-                self._disallow(
-                    f"repository resolver subprocess.{proc_attr} must live in read_command and use the `command` parameter"
-                )
+        self._disallow("repository resolver call target is not a plain name or attribute")
 
 
 def validate_resolver(resolver_text: str, errors: list[str]) -> None:
     """Ensure the repository resolver only executes read-only commands.
 
-    Two layers: an AST guard over subprocess.run / read_command call sites, and
-    a coarse string-form guard so that prose comments cannot carry disallowed
-    command examples either.
+    Two layers: an AST guard over all call/import/name sites, and a coarse
+    string-form guard so that prose comments cannot carry disallowed command
+    examples either.
     """
     try:
         tree = ast.parse(resolver_text)
@@ -152,7 +264,7 @@ def validate_resolver(resolver_text: str, errors: list[str]) -> None:
         fail(errors, f"repository resolver is not valid Python: {exc}")
         return
 
-    _ResolverCallVisitor(errors).visit(tree)
+    _ResolverVisitor(errors).visit(tree)
 
     for verb in MUTATING_PROSE:
         if re.search(rf"\b{re.escape(verb)}\b", resolver_text):

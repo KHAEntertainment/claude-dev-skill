@@ -3,6 +3,8 @@ schema_version: 2
 repository:
   canonical: null
   origin_url: null
+  effective_push_remote: null
+  conflicting_remotes: []
   gh_default: null
   identity_status: incomplete
   identity_reason: not_checked
@@ -45,11 +47,11 @@ The Tech Lead is the sole writer of this file. Append a timestamped entry after 
 
 ## Repository record schema
 
-The `repository` entry records: `canonical`, `origin_url`, `gh_default`, `identity_status`, `identity_reason`, and `verified_at`.
+The `repository` entry records: `canonical`, `origin_url`, `effective_push_remote`, `conflicting_remotes`, `gh_default`, `identity_status`, `identity_reason`, and `verified_at`.
 
-`canonical` is the `OWNER/REPO` value returned by `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py`, normalized from the `origin` remote and reconciled with the configured `gh` default repository. Allowed `identity_status` values are `incomplete` (nothing may touch GitHub yet) and `ready`. `identity_reason` keeps the resolver's emitted reason code — `missing_origin`, `non_github_origin`, `ambiguous_origin`, `remote_url_mismatch`, `default_conflicts_with_origin`, `ambiguous_default`, `inaccessible_repository`, `origin_redirects`, `expected_mismatch`, `git_cli_missing`, `gh_cli_missing`, `not_checked`, `origin_matches_default`, or `origin_is_only_github_remote`.
+`canonical` is the `OWNER/REPO` value returned by `${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py`, normalized from the effective push remote and reconciled with the configured `gh` default repository. Allowed `identity_status` values are `incomplete` (nothing may touch GitHub yet) and `ready`. `identity_reason` keeps the resolver's emitted reason code — `missing_origin`, `non_github_origin`, `ambiguous_origin`, `remote_url_mismatch`, `conflicting_remote`, `default_conflicts_with_origin`, `ambiguous_default`, `inaccessible_repository`, `origin_redirects`, `expected_mismatch`, `git_cli_missing`, `gh_cli_missing`, `gh_default_unreadable`, `not_checked`, `origin_matches_default`, or `origin_is_only_github_remote`.
 
-`origin_url` is the resolver's redacted `remote_url` output with any userinfo removed; never persist a raw remote URL that may contain credentials.
+`origin_url` is the resolver's redacted `remote_url` output with any userinfo removed; `effective_push_remote` is the remote git will actually push to (resolved from `branch.*.pushRemote`, `remote.pushDefault`, and `branch.*.remote`); `conflicting_remotes` lists every other remote whose URLs resolve to a different canonical repository. Never persist a raw remote URL that may contain credentials.
 
 Every GitHub command carries `canonical` explicitly, and every assignment envelope repeats it. Re-resolve after creating or cloning a repository, and whenever remotes or the `gh` default change; a stale `ready` is not evidence.
 

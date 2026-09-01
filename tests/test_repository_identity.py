@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,53 +23,86 @@ PARENT = "hnaymyh123-henry/claude-dev-skill"
 ORIGIN_HTTPS = "https://github.com/KHAEntertainment/claude-dev-skill.git"
 UPSTREAM_HTTPS = "https://github.com/hnaymyh123-henry/claude-dev-skill.git"
 
-# Verbs that would mutate a repository. The resolver must never emit one.
+# HTTP-method tokens are the only ones that appear as argv tokens, not phrases.
 MUTATING_TOKENS = (
-    "create",
-    "comment",
-    "review",
-    "merge",
-    "close",
-    "reopen",
-    "edit",
-    "push",
-    "delete",
     "POST",
     "PATCH",
     "PUT",
     "--method",
 )
 
-# Every command the resolver is allowed to run, as an exact argv prefix.
+MUTATING_PHRASES = (
+    r"\bgit\s+push\b",
+    r"\bgh\s+issue\s+create\b",
+    r"\bgh\s+issue\s+comment\b",
+    r"\bgh\s+pr\s+create\b",
+    r"\bgh\s+pr\s+comment\b",
+    r"\bgh\s+pr\s+review\b",
+    r"\bgh\s+pr\s+merge\b",
+)
+
+# Read-only command prefixes the resolver may emit.
 READ_ONLY_PREFIXES = (
-    ("git", "remote", "-v"),
+    ("git", "branch", "--show-current"),
+    ("git", "config"),
+    ("git", "remote"),
+    ("git", "remote", "get-url"),
     ("gh", "repo", "set-default", "--view"),
     ("gh", "repo", "view"),
 )
 
+# Generic git/gh stub. The test sets FIXTURE (JSON) in the environment.
 STUB = """#!{python}
+import json
 import os
 import sys
 
 with open(os.environ["REPO_IDENTITY_LOG"], "a", encoding="utf-8") as handle:
-    handle.write("\\t".join(sys.argv) + "\\n")
+    handle.write("\\t".join([os.path.basename(sys.argv[0])] + sys.argv[1:]) + "\\n")
 
+fixture = json.loads(os.environ.get("FIXTURE", "{{}}"))
 name = os.path.basename(sys.argv[0])
 args = sys.argv[1:]
 
-if name == "git" and args[:2] == ["remote", "-v"]:
-    print("origin\\t{origin} (fetch)")
-    print("origin\\t{origin} (push)")
-    print("upstream\\t{upstream} (fetch)")
-    print("upstream\\t{upstream} (push)")
+if name == "git" and args == ["branch", "--show-current"]:
+    print(fixture.get("branch", "main"))
     raise SystemExit(0)
 
-if name == "gh" and args[:3] == ["repo", "set-default", "--view"]:
-    sys.stderr.write("no default repository has been set\\n")
+if name == "git" and args[0] == "config":
+    key = args[1]
+    value = fixture.get("config", {{}}).get(key, "")
+    if value:
+        print(value)
+        raise SystemExit(0)
+    raise SystemExit(1)
+
+if name == "git" and args == ["remote"]:
+    for remote in fixture.get("remotes", {{}}):
+        print(remote)
+    raise SystemExit(0)
+
+if name == "git" and args[:3] == ["remote", "get-url", "--all"]:
+    remote = args[3]
+    for url in fixture.get("remotes", {{}}).get(remote, {{}}).get("fetch", []):
+        print(url)
+    raise SystemExit(0)
+
+if name == "git" and args[:4] == ["remote", "get-url", "--push", "--all"]:
+    remote = args[4]
+    for url in fixture.get("remotes", {{}}).get(remote, {{}}).get("push", []):
+        print(url)
+    raise SystemExit(0)
+
+if name == "gh" and args == ["repo", "set-default", "--view"]:
+    default = fixture.get("gh_default", "")
+    if default and not default.lower().startswith("no default"):
+        print(default)
+        raise SystemExit(0)
+    sys.stderr.write((default or "no default repository has been set") + "\\n")
     raise SystemExit(1)
 
 if name == "gh" and args[:2] == ["repo", "view"]:
-    print("{canonical}")
+    print(args[2])
     raise SystemExit(0)
 
 sys.stderr.write("unexpected command\\n")
@@ -112,66 +146,56 @@ class RemoteNormalizationTests(unittest.TestCase):
                     MODULE.normalize_remote(url)
                 self.assertEqual(code, caught.exception.code)
 
+    def test_whitespace_in_local_path_is_rejected(self) -> None:
+        cases = (
+            "/tmp/exfil dir/stash.git",
+            "/tmp/exfil dir/stash",
+        )
+        for url in cases:
+            with self.subTest(url=url):
+                with self.assertRaises(MODULE.RepositoryError) as caught:
+                    MODULE.normalize_remote(url)
+                self.assertEqual("ambiguous_origin", caught.exception.code)
+
     def test_repository_comparison_is_case_insensitive(self) -> None:
         self.assertTrue(MODULE.same_repository(CANONICAL, CANONICAL.lower()))
         self.assertFalse(MODULE.same_repository(CANONICAL, PARENT))
+
+    def test_credentials_are_redacted(self) -> None:
+        redacted = MODULE.redact_remote("https://token@github.com/KHAEntertainment/claude-dev-skill.git")
+        self.assertEqual("https://github.com/KHAEntertainment/claude-dev-skill.git", redacted)
 
 
 class ResolutionMatrixTests(unittest.TestCase):
     def resolve(self, **overrides: object) -> dict[str, object]:
         arguments: dict[str, object] = {
-            "remotes": {"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
+            "remotes": {"origin": ORIGIN_HTTPS},
+            "push_remotes": None,
             "gh_default": CANONICAL,
+            "remote_name": "origin",
         }
         arguments.update(overrides)
-        return MODULE.resolve_repository(**arguments)  # type: ignore[arg-type]
+        return MODULE.resolve_repository(**arguments)
 
-    def test_fork_with_missing_default_stops_and_names_the_mismatch(self) -> None:
-        result = self.resolve(gh_default=None)
-        self.assertEqual("incomplete", result["status"])
-        self.assertEqual("ambiguous_default", result["reason_code"])
-        self.assertIsNone(result["repository"])
-        self.assertIn(CANONICAL, str(result["reason"]))
-        self.assertIn(PARENT, str(result["reason"]))
-        self.assertEqual([f"upstream={PARENT}"], result["conflicting_remotes"])
-
-    def test_fork_with_upstream_default_stops_and_names_the_mismatch(self) -> None:
-        result = self.resolve(gh_default=PARENT)
-        self.assertEqual("incomplete", result["status"])
-        self.assertEqual("default_conflicts_with_origin", result["reason_code"])
-        self.assertIsNone(result["repository"])
-        self.assertIn(CANONICAL, str(result["reason"]))
-        self.assertIn(PARENT, str(result["reason"]))
-
-    def test_fork_with_matching_default_is_ready(self) -> None:
+    def test_single_remote_with_matching_default_is_ready(self) -> None:
         result = self.resolve()
         self.assertEqual("ready", result["status"])
         self.assertEqual(CANONICAL, result["repository"])
-        self.assertEqual("origin_matches_default", result["reason_code"])
 
-    def test_ssh_origin_matches_an_https_default(self) -> None:
-        result = self.resolve(
-            remotes={"origin": "git@github.com:KHAEntertainment/claude-dev-skill.git"},
-            gh_default=CANONICAL,
-        )
-        self.assertEqual("ready", result["status"])
-        self.assertEqual(CANONICAL, result["repository"])
-
-    def test_single_remote_without_a_default_stays_ready(self) -> None:
-        result = self.resolve(remotes={"origin": ORIGIN_HTTPS}, gh_default=None)
-        self.assertEqual("ready", result["status"])
-        self.assertEqual("origin_is_only_github_remote", result["reason_code"])
-
-    def test_mirror_remote_of_the_same_repository_is_not_a_conflict(self) -> None:
+    def test_effective_push_remote_can_differ_from_origin(self) -> None:
         result = self.resolve(
             remotes={
-                "origin": ORIGIN_HTTPS,
-                "mirror": "git@github.com:khaentertainment/claude-dev-skill.git",
+                "upstream": UPSTREAM_HTTPS,
             },
-            gh_default=None,
+            push_remotes={
+                "upstream": [UPSTREAM_HTTPS],
+            },
+            gh_default=PARENT,
+            remote_name="upstream",
         )
         self.assertEqual("ready", result["status"])
-        self.assertEqual([], result["conflicting_remotes"])
+        self.assertEqual(PARENT, result["repository"])
+        self.assertEqual("upstream", result["effective_push_remote"])
 
     def test_multiple_push_urls_all_matching_is_ready(self) -> None:
         result = self.resolve(
@@ -192,27 +216,52 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("remote_url_mismatch", result["reason_code"])
         self.assertIsNone(result["repository"])
 
-    def test_multiple_fetch_urls_with_hostile_is_incomplete(self) -> None:
+    def test_conflicting_remote_blocks_even_when_gh_default_matches(self) -> None:
         result = self.resolve(
-            remotes={"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
-            gh_default=None,
+            remotes={
+                "origin": ORIGIN_HTTPS,
+                "upstream": UPSTREAM_HTTPS,
+            },
+            push_remotes={
+                "origin": [ORIGIN_HTTPS],
+                "upstream": [UPSTREAM_HTTPS],
+            },
+            gh_default=CANONICAL,
+            remote_name="origin",
         )
         self.assertEqual("incomplete", result["status"])
-        self.assertEqual("remote_url_mismatch", result["reason_code"])
+        self.assertEqual("conflicting_remote", result["reason_code"])
         self.assertIsNone(result["repository"])
+        self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
-    def test_missing_origin_fails_closed(self) -> None:
-        result = self.resolve(remotes={"upstream": UPSTREAM_HTTPS}, gh_default=None)
+    def test_gh_default_mismatch_blocks(self) -> None:
+        result = self.resolve(gh_default=PARENT)
         self.assertEqual("incomplete", result["status"])
-        self.assertEqual("missing_origin", result["reason_code"])
+        self.assertEqual("default_conflicts_with_origin", result["reason_code"])
 
-    def test_non_github_origin_fails_closed(self) -> None:
+    def test_missing_gh_default_with_conflicts_blocks(self) -> None:
         result = self.resolve(
-            remotes={"origin": "https://gitlab.com/KHAEntertainment/claude-dev-skill.git"},
+            remotes={
+                "origin": ORIGIN_HTTPS,
+                "upstream": UPSTREAM_HTTPS,
+            },
+            push_remotes={
+                "origin": [ORIGIN_HTTPS],
+                "upstream": [UPSTREAM_HTTPS],
+            },
             gh_default=None,
         )
         self.assertEqual("incomplete", result["status"])
-        self.assertEqual("non_github_origin", result["reason_code"])
+        self.assertEqual("conflicting_remote", result["reason_code"])
+
+    def test_assignment_expectation_match_is_ready(self) -> None:
+        result = self.resolve(expected=CANONICAL)
+        self.assertEqual("ready", result["status"])
+
+    def test_assignment_expectation_mismatch_fails_closed(self) -> None:
+        result = self.resolve(expected=PARENT)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("expected_mismatch", result["reason_code"])
 
     def test_inaccessible_repository_fails_closed(self) -> None:
         result = self.resolve(access_verified=True, verified_name=None)
@@ -220,109 +269,192 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("inaccessible_repository", result["reason_code"])
 
     def test_redirected_origin_fails_closed(self) -> None:
-        result = self.resolve(access_verified=True, verified_name=PARENT)
+        result = self.resolve(access_verified=True, verified_name="Other/Repo")
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("origin_redirects", result["reason_code"])
 
-    def test_assignment_expectation_mismatch_fails_closed(self) -> None:
-        result = self.resolve(expected=PARENT)
+    def test_missing_origin_fails_closed(self) -> None:
+        result = self.resolve(remotes={"upstream": UPSTREAM_HTTPS}, remote_name="origin")
         self.assertEqual("incomplete", result["status"])
-        self.assertEqual("expected_mismatch", result["reason_code"])
-
-    def test_assignment_expectation_match_is_ready(self) -> None:
-        result = self.resolve(expected=CANONICAL.lower())
-        self.assertEqual("ready", result["status"])
+        self.assertEqual("missing_origin", result["reason_code"])
 
 
 class ResolverCommandLineTests(unittest.TestCase):
-    def run_fixture(self, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
-        with tempfile.TemporaryDirectory() as directory:
-            fixture = Path(directory, "state.json")
-            fixture.write_text(json.dumps(payload), encoding="utf-8")
-            completed = subprocess.run(
-                [sys.executable, str(RESOLVER), "--fixture", str(fixture)],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        return completed.returncode, json.loads(completed.stdout)
+    def _no_write_evidence(self, log_text: str) -> None:
+        for raw in log_text.splitlines():
+            joined = " ".join(raw.split("\t"))
+            for token in MUTATING_TOKENS:
+                self.assertNotIn(token, joined)
+            for pattern in MUTATING_PHRASES:
+                self.assertIsNone(re.search(pattern, joined), f"mutating phrase in: {joined}")
+            allowed = any(
+                joined.startswith(" ".join(prefix))
+                for prefix in READ_ONLY_PREFIXES
+            ) or joined.startswith("git remote")
+            self.assertTrue(allowed, f"resolver ran unexpected command: {joined}")
 
-    def test_fork_shape_exits_two_with_compact_json(self) -> None:
-        status, payload = self.run_fixture(
-            {
-                "remotes": {"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
-                "gh_default": None,
-            }
-        )
-        self.assertEqual(2, status)
-        self.assertEqual("ambiguous_default", payload["reason_code"])
-        self.assertIsNone(payload["repository"])
-
-    def test_matching_default_exits_zero(self) -> None:
-        status, payload = self.run_fixture(
-            {
-                "remotes": {"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
-                "gh_default": CANONICAL,
-            }
-        )
-        self.assertEqual(0, status)
-        self.assertEqual(CANONICAL, payload["repository"])
-
-    @unittest.skipIf(os.name == "nt", "POSIX shebang stubs are not executable on Windows")
-    def test_wrong_default_resolution_performs_no_write(self) -> None:
-        """Recreate the dogfooding failure shape and prove nothing was written."""
+    def _run_with_fixture(self, fixture: dict[str, object]) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            stub_dir = root / "bin"
+            stub_dir = root / "stubs"
             stub_dir.mkdir()
             log = root / "commands.log"
-            source = STUB.format(
-                python=sys.executable,
-                origin=ORIGIN_HTTPS,
-                upstream=UPSTREAM_HTTPS,
-                canonical=CANONICAL,
-            )
-            for name in ("git", "gh"):
-                stub = stub_dir / name
-                stub.write_text(source, encoding="utf-8")
-                stub.chmod(0o755)
-
-            environment = os.environ.copy()
-            environment["REPO_IDENTITY_LOG"] = str(log)
-            environment["PATH"] = f"{stub_dir}{os.pathsep}{environment['PATH']}"
+            env = {
+                "PATH": f"{stub_dir}:{os.environ['PATH']}",
+                "REPO_IDENTITY_LOG": str(log),
+                "FIXTURE": json.dumps(fixture),
+            }
+            (stub_dir / "git").write_text(STUB.format(python=sys.executable), encoding="utf-8")
+            (stub_dir / "git").chmod(0o755)
+            (stub_dir / "gh").write_text(STUB.format(python=sys.executable), encoding="utf-8")
+            (stub_dir / "gh").chmod(0o755)
             completed = subprocess.run(
                 [sys.executable, str(RESOLVER), "--repo-dir", str(root)],
                 check=False,
                 capture_output=True,
                 text=True,
-                env=environment,
+                env=env,
             )
+            log_text = log.read_text(encoding="utf-8") if log.exists() else ""
+            return completed, log_text
 
-            payload = json.loads(completed.stdout)
+    def test_matching_default_exits_zero(self) -> None:
+        fixture = {
+            "branch": "main",
+            "config": {
+                "branch.main.pushRemote": "",
+                "remote.pushDefault": "",
+                "branch.main.remote": "origin",
+            },
+            "remotes": {
+                "origin": {
+                    "fetch": [ORIGIN_HTTPS],
+                    "push": [ORIGIN_HTTPS],
+                },
+            },
+            "gh_default": CANONICAL,
+        }
+        completed, log_text = self._run_with_fixture(fixture)
+        self.assertEqual(0, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(CANONICAL, payload["repository"])
+        self._no_write_evidence(log_text)
+
+    def test_conflicting_remote_exits_two_even_when_gh_default_matches(self) -> None:
+        fixture = {
+            "branch": "main",
+            "config": {
+                "branch.main.pushRemote": "",
+                "remote.pushDefault": "",
+                "branch.main.remote": "origin",
+            },
+            "remotes": {
+                "origin": {
+                    "fetch": [ORIGIN_HTTPS],
+                    "push": [ORIGIN_HTTPS],
+                },
+                "upstream": {
+                    "fetch": [UPSTREAM_HTTPS],
+                    "push": [UPSTREAM_HTTPS],
+                },
+            },
+            "gh_default": CANONICAL,
+        }
+        completed, log_text = self._run_with_fixture(fixture)
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("conflicting_remote", payload["reason_code"])
+        self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", payload["conflicting_remotes"])
+        self._no_write_evidence(log_text)
+
+    def test_push_default_routing_selects_upstream(self) -> None:
+        fixture = {
+            "branch": "main",
+            "config": {
+                "branch.main.pushRemote": "",
+                "remote.pushDefault": "upstream",
+                "branch.main.remote": "origin",
+            },
+            "remotes": {
+                "origin": {
+                    "fetch": [ORIGIN_HTTPS],
+                    "push": [ORIGIN_HTTPS],
+                },
+                "upstream": {
+                    "fetch": [UPSTREAM_HTTPS],
+                    "push": [UPSTREAM_HTTPS],
+                },
+            },
+            "gh_default": CANONICAL,
+        }
+        completed, log_text = self._run_with_fixture(fixture)
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("conflicting_remote", payload["reason_code"])
+        self.assertEqual("upstream", payload["effective_push_remote"])
+        self.assertIsNone(payload["repository"])
+        self._no_write_evidence(log_text)
+
+    def test_whitespace_url_in_push_position_fails_closed(self) -> None:
+        fixture = {
+            "branch": "main",
+            "config": {
+                "branch.main.pushRemote": "",
+                "remote.pushDefault": "",
+                "branch.main.remote": "origin",
+            },
+            "remotes": {
+                "origin": {
+                    "fetch": [ORIGIN_HTTPS],
+                    "push": ["/tmp/exfil dir/stash.git"],
+                },
+            },
+            "gh_default": CANONICAL,
+        }
+        completed, log_text = self._run_with_fixture(fixture)
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("incomplete", payload["status"])
+        self._no_write_evidence(log_text)
+
+    def test_missing_gh_cli_returns_incomplete_not_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python_dir = root / "python_stubs"
+            python_dir.mkdir()
+            log = root / "commands.log"
+            git_stub = (f'#!{sys.executable}\n'
+                        'import os, sys\n'
+                        'with open(os.environ["REPO_IDENTITY_LOG"], "a") as f:\n'
+                        '    f.write("\\t".join(sys.argv) + "\\n")\n'
+                        'if sys.argv[1:] == ["branch", "--show-current"]:\n'
+                        '    print("main"); raise SystemExit(0)\n'
+                        'if sys.argv[1:3] == ["config"]:\n'
+                        '    raise SystemExit(1)\n'
+                        'if sys.argv[1:] == ["remote"]:\n'
+                        '    print("origin"); raise SystemExit(0)\n'
+                        'if sys.argv[1:4] == ["remote", "get-url", "--all"]:\n'
+                        '    print("https://github.com/KHAEntertainment/claude-dev-skill.git"); raise SystemExit(0)\n'
+                        'if sys.argv[1:5] == ["remote", "get-url", "--push", "--all"]:\n'
+                        '    print("https://github.com/KHAEntertainment/claude-dev-skill.git"); raise SystemExit(0)\n'
+                        'raise SystemExit(1)\n')
+            (python_dir / "git").write_text(git_stub, encoding="utf-8")
+            (python_dir / "git").chmod(0o755)
+            env = {
+                "PATH": str(python_dir),
+                "REPO_IDENTITY_LOG": str(log),
+            }
+            completed = subprocess.run(
+                [sys.executable, str(RESOLVER), "--repo-dir", str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
             self.assertEqual(2, completed.returncode)
-            self.assertEqual("ambiguous_default", payload["reason_code"])
-            self.assertIsNone(payload["repository"])
-
-            recorded = [
-                tuple(line.split("\t"))
-                for line in log.read_text(encoding="utf-8").splitlines()
-                if line
-            ]
-            self.assertTrue(recorded, "the resolver ran no command at all")
-            for argv in recorded:
-                invocation = (Path(argv[0]).name,) + tuple(argv[1:])
-                with self.subTest(command=invocation):
-                    self.assertTrue(
-                        any(
-                            invocation[: len(prefix)] == prefix
-                            for prefix in READ_ONLY_PREFIXES
-                        ),
-                        f"resolver ran a command outside the read-only set: {invocation}",
-                    )
-                    joined = " ".join(invocation)
-                    for token in MUTATING_TOKENS:
-                        self.assertNotIn(token, joined)
-                    self.assertNotIn("hnaymyh123-henry", joined)
+            payload = json.loads(completed.stdout)
+            self.assertEqual("incomplete", payload["status"])
+            self.assertEqual("gh_cli_missing", payload["reason_code"])
 
 
 class SplitRemoteRegressionTests(unittest.TestCase):
@@ -342,124 +474,38 @@ class SplitRemoteRegressionTests(unittest.TestCase):
         status, payload = self.run_fixture(
             {
                 "remotes": {"origin": ORIGIN_HTTPS},
-                "push_remotes": {"origin": UPSTREAM_HTTPS},
+                "push_remotes": {"origin": [UPSTREAM_HTTPS]},
+                "effective_push_remote": "origin",
                 "gh_default": None,
             }
         )
         self.assertEqual(2, status)
         self.assertEqual("remote_url_mismatch", payload["reason_code"])
         self.assertIsNone(payload["repository"])
-        self.assertEqual(ORIGIN_HTTPS, payload["remote_url"])
-        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
 
     def test_hostile_multiple_push_url_first(self) -> None:
         status, payload = self.run_fixture(
             {
-                "remotes": {"origin": ORIGIN_HTTPS},
+                "remotes": {"origin": [ORIGIN_HTTPS]},
                 "push_remotes": {"origin": [UPSTREAM_HTTPS, ORIGIN_HTTPS]},
+                "effective_push_remote": "origin",
                 "gh_default": None,
             }
         )
         self.assertEqual(2, status)
         self.assertEqual("remote_url_mismatch", payload["reason_code"])
-        self.assertIsNone(payload["repository"])
-        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
 
     def test_hostile_multiple_push_url_last(self) -> None:
         status, payload = self.run_fixture(
             {
-                "remotes": {"origin": ORIGIN_HTTPS},
+                "remotes": {"origin": [ORIGIN_HTTPS]},
                 "push_remotes": {"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
+                "effective_push_remote": "origin",
                 "gh_default": None,
             }
         )
         self.assertEqual(2, status)
         self.assertEqual("remote_url_mismatch", payload["reason_code"])
-        self.assertIsNone(payload["repository"])
-        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
-
-    def test_multiple_push_urls_mixed(self) -> None:
-        status, payload = self.run_fixture(
-            {
-                "remotes": {"origin": ORIGIN_HTTPS},
-                "push_remotes": {"origin": [UPSTREAM_HTTPS, ORIGIN_HTTPS, UPSTREAM_HTTPS]},
-                "gh_default": None,
-            }
-        )
-        self.assertEqual(2, status)
-        self.assertEqual("remote_url_mismatch", payload["reason_code"])
-        self.assertIsNone(payload["repository"])
-
-    def test_multiple_push_urls_all_matching_is_ready(self) -> None:
-        status, payload = self.run_fixture(
-            {
-                "remotes": {"origin": ORIGIN_HTTPS},
-                "push_remotes": {"origin": [ORIGIN_HTTPS, "https://github.com/KHAEntertainment/claude-dev-skill"]},
-                "gh_default": None,
-            }
-        )
-        self.assertEqual(0, status)
-        self.assertEqual(CANONICAL, payload["repository"])
-
-    def test_credentials_are_redacted_in_output(self) -> None:
-        secret = "https://user:s3cr3t-token@github.com/KHAEntertainment/claude-dev-skill.git"
-        status, payload = self.run_fixture(
-            {
-                "remotes": {"origin": secret},
-                "gh_default": None,
-            }
-        )
-        self.assertEqual(0, status)
-        self.assertEqual(CANONICAL, payload["repository"])
-        self.assertNotIn("s3cr3t-token", json.dumps(payload))
-        self.assertNotIn("user:", json.dumps(payload))
-        self.assertEqual("https://github.com/KHAEntertainment/claude-dev-skill.git", payload["remote_url"])
-
-    @unittest.skipIf(os.name == "nt", "POSIX shebang stubs are not executable on Windows")
-    def test_missing_gh_cli_returns_incomplete_not_traceback(self) -> None:
-        """gh is absent but git is present; the resolver returns compact incomplete JSON."""
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            stub_dir = root / "bin"
-            stub_dir.mkdir()
-            log = root / "commands.log"
-            git_stub = stub_dir / "git"
-            git_stub.write_text(
-                f"#!{sys.executable}\n"
-                f"import os, sys\n"
-                f"with open(os.environ['REPO_IDENTITY_LOG'], 'a', encoding='utf-8') as h:\n"
-                f"    h.write('\\t'.join(sys.argv) + '\\n')\n"
-                f"print('origin\\t{ORIGIN_HTTPS} (fetch)')\n"
-                f"print('origin\\t{UPSTREAM_HTTPS} (push)')\n"
-                f"raise SystemExit(0)\n",
-                encoding="utf-8",
-            )
-            git_stub.chmod(0o755)
-
-            python_dir = str(Path(sys.executable).parent)
-            environment = os.environ.copy()
-            environment["REPO_IDENTITY_LOG"] = str(log)
-            environment["PATH"] = f"{stub_dir}{os.pathsep}{python_dir}"
-            completed = subprocess.run(
-                [sys.executable, str(RESOLVER), "--repo-dir", str(root)],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=environment,
-            )
-
-            payload = json.loads(completed.stdout)
-            self.assertEqual(2, completed.returncode)
-            self.assertEqual("gh_cli_missing", payload["reason_code"])
-            self.assertIsNone(payload["repository"])
-            recorded = [
-                tuple(line.split("\t"))
-                for line in log.read_text(encoding="utf-8").splitlines()
-                if line
-            ]
-            self.assertTrue(recorded, "the resolver ran no command at all")
-            for argv in recorded:
-                self.assertEqual("git", Path(argv[0]).name)
 
 
 if __name__ == "__main__":

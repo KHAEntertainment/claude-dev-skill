@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Resolve the canonical GitHub repository before any /dev GitHub operation.
 
-Read-only by construction. This helper runs at most three commands — `git remote
--v`, `gh repo set-default --view`, and `gh repo view OWNER/REPO --json
-nameWithOwner` — and never creates, comments on, reviews, merges, or otherwise
-mutates a repository. When it cannot establish one unambiguous identity it exits
-2 so the caller pauses before the write instead of letting `gh` pick a base
-repository for it.
+Read-only by construction. This helper asks git for the effective push remote,
+enumerates that remote's real fetch and push URLs, and verifies they all resolve
+to one canonical `OWNER/REPO`. It never creates, comments on, reviews, merges, or
+otherwise mutates a repository. When it cannot establish one unambiguous identity
+it exits 2 so the caller pauses before the write instead of letting `gh` or `git`
+pick a base repository for it.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -172,6 +171,7 @@ def resolve_repository(
     result: dict[str, object] = {
         "status": "incomplete",
         "repository": None,
+        "effective_push_remote": remote_name,
         "remote": remote_name,
         "remote_url": None,
         "push_url": None,
@@ -183,12 +183,12 @@ def resolve_repository(
 
     fetch_urls = _as_list(remotes.get(remote_name, []))
     push_urls = _as_list(push_lookup.get(remote_name, []))
-    origin_urls = fetch_urls + push_urls
+    origin_urls = push_urls + fetch_urls
 
     if not origin_urls:
         result["reason_code"] = "missing_origin"
         result["reason"] = (
-            f"no `{remote_name}` remote is configured; "
+            f"effective push remote `{remote_name}` has no configured fetch or push URLs; "
             "repository identity cannot be established"
         )
         return result
@@ -239,7 +239,18 @@ def resolve_repository(
                 continue
             if not same_repository(other, candidate):
                 conflicts.add(f"{name}={other}")
-    result["conflicting_remotes"] = sorted(conflicts)
+
+    # Conflicts are enforced unconditionally; a correct gh default must not skip them.
+    if conflicts:
+        result["conflicting_remotes"] = sorted(conflicts)
+        result["repository"] = None
+        result["reason_code"] = "conflicting_remote"
+        result["reason"] = (
+            f"`{remote_name}` resolves to {candidate} but other GitHub remotes "
+            f"disagree ({', '.join(sorted(conflicts))}); refusing to run any "
+            "GitHub operation until all remote targets resolve to the same canonical repository"
+        )
+        return result
 
     if gh_default is not None:
         try:
@@ -253,21 +264,11 @@ def resolve_repository(
             result["repository"] = None
             result["reason_code"] = "default_conflicts_with_origin"
             result["reason"] = (
-                f"the configured gh default repository is {default} but "
-                f"`{remote_name}` is {candidate}; refusing to run any GitHub "
-                "operation until they agree"
+                f"the configured gh default repository is {default} but the "
+                f"effective push remote `{remote_name}` is {candidate}; refusing "
+                "to run any GitHub operation until they agree"
             )
             return result
-    elif conflicts:
-        result["repository"] = None
-        result["reason_code"] = "ambiguous_default"
-        result["reason"] = (
-            f"no gh default repository is configured and `{remote_name}` is "
-            f"{candidate} while other GitHub remotes point elsewhere "
-            f"({', '.join(conflicts)}); gh would be free to resolve a "
-            "different base repository"
-        )
-        return result
 
     if access_verified:
         if verified_name is None:
@@ -281,8 +282,8 @@ def resolve_repository(
             result["repository"] = None
             result["reason_code"] = "origin_redirects"
             result["reason"] = (
-                f"`{remote_name}` is {candidate} but GitHub resolves it to "
-                f"{verified_name}; update the remote before continuing"
+                f"the effective push remote `{remote_name}` is {candidate} but "
+                f"GitHub resolves it to {verified_name}; update the remote before continuing"
             )
             return result
 
@@ -291,7 +292,7 @@ def resolve_repository(
         result["reason_code"] = "expected_mismatch"
         result["reason"] = (
             f"the assignment names {expected} but this checkout's "
-            f"`{remote_name}` is {candidate}"
+            f"effective push remote `{remote_name}` is {candidate}"
         )
         return result
 
@@ -299,24 +300,26 @@ def resolve_repository(
     if gh_default is not None:
         result["reason_code"] = "origin_matches_default"
         result["reason"] = (
-            f"`{remote_name}` and the gh default repository both resolve to {candidate}"
+            f"effective push remote `{remote_name}` and the gh default repository "
+            f"both resolve to {candidate}"
         )
     else:
         result["reason_code"] = "origin_is_only_github_remote"
         result["reason"] = (
-            f"`{remote_name}` resolves to {candidate} and no other GitHub remote "
-            "or gh default disagrees"
+            f"effective push remote `{remote_name}` resolves to {candidate} and "
+            "no other GitHub remote or gh default disagrees"
         )
     return result
 
 
 def read_command(command: list[str], *, cwd: Path) -> tuple[int, str]:
-    """Run one read-only command and return its exit status and stdout."""
+    """Run one read-only command and return its exit status and combined output."""
     try:
         completed = subprocess.run(
             command,
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             check=False,
             timeout=COMMAND_TIMEOUT,
@@ -329,32 +332,62 @@ def read_command(command: list[str], *, cwd: Path) -> tuple[int, str]:
 
 
 def collect_remotes(repo_dir: Path) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    status, output = read_command(["git", "remote", "-v"], cwd=repo_dir)
+    status, output = read_command(["git", "remote"], cwd=repo_dir)
     if status == -1:
         raise RepositoryError("git_cli_missing", "git CLI is not installed or not in PATH")
     if status != 0:
-        raise RepositoryError("missing_origin", "`git remote -v` failed in this checkout")
+        raise RepositoryError("missing_origin", "`git remote` failed in this checkout")
+
+    names = [line.strip() for line in output.splitlines() if line.strip()]
     fetch: dict[str, list[str]] = {}
     push: dict[str, list[str]] = {}
-    for line in output.splitlines():
-        parts = line.split()
-        if len(parts) < 3:
-            continue
-        name, url, kind = parts[0], parts[1], parts[2].strip("()")
-        if kind == "fetch":
-            fetch.setdefault(name, []).append(url)
-        elif kind == "push":
-            push.setdefault(name, []).append(url)
+    for name in names:
+        fetch_status, fetch_output = read_command(["git", "remote", "get-url", "--all", name], cwd=repo_dir)
+        if fetch_status == 0:
+            fetch[name] = [line.strip() for line in fetch_output.splitlines() if line.strip()]
+        else:
+            fetch[name] = []
+
+        push_status, push_output = read_command(["git", "remote", "get-url", "--push", "--all", name], cwd=repo_dir)
+        if push_status == 0:
+            push[name] = [line.strip() for line in push_output.splitlines() if line.strip()]
+        else:
+            push[name] = []
     return fetch, push
 
 
+def get_effective_push_remote(repo_dir: Path, *, fallback: str = "origin") -> str:
+    """Resolve the git remote that will receive a push for the current branch."""
+    status, output = read_command(["git", "branch", "--show-current"], cwd=repo_dir)
+    if status == -1:
+        raise RepositoryError("git_cli_missing", "git CLI is not installed or not in PATH")
+    current_branch = output.splitlines()[0].strip() if status == 0 and output else ""
+
+    for key in (
+        f"branch.{current_branch}.pushRemote",
+        "remote.pushDefault",
+        f"branch.{current_branch}.remote",
+    ):
+        if not current_branch and key.startswith("branch."):
+            continue
+        status, output = read_command(["git", "config", key], cwd=repo_dir)
+        if status == 0 and output:
+            return output.splitlines()[0].strip()
+    return fallback
+
+
 def collect_gh_default(repo_dir: Path) -> str | None:
+    """`gh repo set-default --view` takes no repository argument."""
     status, output = read_command(["gh", "repo", "set-default", "--view"], cwd=repo_dir)
     if status == -1:
         raise RepositoryError("gh_cli_missing", "gh CLI is not installed or not in PATH")
-    if status != 0 or not output or "no default repository" in output.lower():
+    if status == 0 and output:
+        return output.splitlines()[0].strip()
+    if status != 0 and output and ("no default" in output.lower() or "no default repository" in output.lower()):
         return None
-    return output.splitlines()[0].strip()
+    if status != 0:
+        raise RepositoryError("gh_default_unreadable", f"could not read gh default: {output[:200]}")
+    return None
 
 
 def collect_verified_name(repo_dir: Path, repository: str) -> str | None:
@@ -416,15 +449,17 @@ def main() -> int:
             access_verified = bool(fixture.get("access_verified", False))
             raw_verified = fixture.get("verified_name")
             verified_name = None if raw_verified is None else str(raw_verified)
+            remote_name = str(fixture.get("effective_push_remote", args.remote))
         else:
             repo_dir = args.repo_dir.resolve()
             remotes, push_remotes = collect_remotes(repo_dir)
+            remote_name = get_effective_push_remote(repo_dir)
             gh_default = collect_gh_default(repo_dir)
             access_verified = not args.no_verify_access
             verified_name = None
             if access_verified:
                 try:
-                    canonical = _first_canonical(remotes, push_remotes, args.remote)
+                    canonical = _first_canonical(remotes, push_remotes, remote_name)
                 except RepositoryError:
                     access_verified = False
                 else:
@@ -438,12 +473,13 @@ def main() -> int:
             verified_name=verified_name,
             access_verified=access_verified,
             expected=args.expect,
-            remote_name=args.remote,
+            remote_name=remote_name,
         )
     except RepositoryError as exc:
         decision = {
             "status": "incomplete",
             "repository": None,
+            "effective_push_remote": None,
             "remote": args.remote,
             "remote_url": None,
             "push_url": None,
