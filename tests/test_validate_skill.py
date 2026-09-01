@@ -41,9 +41,8 @@ class ValidateResolverGuardTests(unittest.TestCase):
         MODULE.validate_resolver(source, errors)
         return errors
 
-    def test_allows_read_only_git_remote_v(self) -> None:
-        errors = self.validate(READ_ONLY_RESOLVER)
-        self.assertEqual([], errors)
+    def test_allows_unmodified_resolver(self) -> None:
+        self.assertEqual([], self.validate(READ_ONLY_RESOLVER))
 
     def test_rejects_injected_read_command_git_push(self) -> None:
         source = READ_ONLY_RESOLVER.replace(
@@ -61,15 +60,71 @@ class ValidateResolverGuardTests(unittest.TestCase):
         errors = self.validate(source)
         self.assertTrue(any("disallowed prefix" in e for e in errors))
 
-    def test_rejects_subprocess_run_git_push(self) -> None:
-        source = READ_ONLY_RESOLVER.replace(
-            "return subprocess.run(command,",
-            'return subprocess.run(["git", "push"],',
-        )
+    def test_rejects_subprocess_run_at_module_scope(self) -> None:
+        source = READ_ONLY_RESOLVER + '\nsubprocess.run(["gh", "pr", "merge", "15"])\n'
         errors = self.validate(source)
-        self.assertTrue(
-            any("subprocess.run" in e for e in errors) or any("disallowed prefix" in e for e in errors)
-        )
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_subprocess_run_in_nested_function(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+def outer():
+    def inner():
+        subprocess.run(["gh", "pr", "merge", "15"])
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_subprocess_run_in_class_method(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+class Helper:
+    def merge(self):
+        subprocess.run(["gh", "pr", "merge", "15"])
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_subprocess_run_in_lambda(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+merge = lambda: subprocess.run(["gh", "pr", "merge", "15"])
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_subprocess_run_in_comprehension(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+[subprocess.run(["gh", "pr", "merge", str(n)]) for n in range(1)]
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_subprocess_run_in_try_block(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+def maybe_merge():
+    try:
+        subprocess.run(["gh", "pr", "merge", "15"])
+    except Exception:
+        pass
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("subprocess" in e for e in errors))
+
+    def test_rejects_os_system_at_module_scope(self) -> None:
+        source = READ_ONLY_RESOLVER + '\nimport os\nos.system("gh pr merge 15")\n'
+        errors = self.validate(source)
+        self.assertTrue(any("os.system" in e for e in errors))
+
+    def test_rejects_os_popen_in_try_block(self) -> None:
+        source = READ_ONLY_RESOLVER + '''
+import os
+
+def preview():
+    try:
+        os.popen("gh pr merge 15")
+    except Exception:
+        pass
+'''
+        errors = self.validate(source)
+        self.assertTrue(any("os.popen" in e for e in errors))
 
     def test_rejects_string_forms(self) -> None:
         source = READ_ONLY_RESOLVER + '\n"gh issue create"\n"git push"\n'

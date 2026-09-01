@@ -70,6 +70,75 @@ def _prefix_of_literal_list(node: ast.List | ast.Tuple) -> tuple[str, ...]:
     return tuple(constants)
 
 
+class _ResolverCallVisitor(ast.NodeVisitor):
+    """Walk every call site in the resolver, regardless of scope.
+
+    The guard is a property of the call, not of the container. `subprocess.run`
+    (and friends) are only allowed inside `read_command` using the `command`
+    parameter; `read_command` calls must use a literal list whose prefix is on
+    the read-only allowlist. `os.system`/`os.popen` are never allowed.
+    """
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = errors
+        self._function_stack: list[str] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._function_stack.append(node.name)
+        self.generic_visit(node)
+        self._function_stack.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._function_stack.append("<lambda>")
+        self.generic_visit(node)
+        self._function_stack.pop()
+
+    def _current_function(self) -> str | None:
+        return self._function_stack[-1] if self._function_stack else None
+
+    def _disallow(self, message: str) -> None:
+        fail(self.errors, message)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.generic_visit(node)
+        func = node.func
+
+        if isinstance(func, ast.Name) and func.id == "read_command":
+            first = node.args[0] if node.args else None
+            if not isinstance(first, (ast.List, ast.Tuple)):
+                self._disallow("repository resolver read_command calls must use a literal argument list")
+                return
+            prefix = _prefix_of_literal_list(first)
+            if prefix not in READ_ONLY_PREFIXES:
+                self._disallow(f"repository resolver read_command has disallowed prefix: {prefix!r}")
+            return
+
+        proc_attr: str | None = None
+        os_attr: str | None = None
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            if func.value.id == "subprocess" and func.attr in {"run", "Popen", "call", "check_call", "check_output"}:
+                proc_attr = func.attr
+            elif func.value.id == "os" and func.attr in {"system", "popen"}:
+                os_attr = func.attr
+        elif isinstance(func, ast.Name) and func.id in {"run", "Popen", "call", "check_call", "check_output", "system", "popen"}:
+            # Covers `from subprocess import run`, `from os import system`, etc.
+            proc_attr = os_attr = func.id
+
+        if os_attr:
+            self._disallow(f"repository resolver must not call os.{os_attr}")
+            return
+
+        if proc_attr:
+            current = self._current_function()
+            first = node.args[0] if node.args else None
+            if current != "read_command" or not isinstance(first, ast.Name) or first.id != "command":
+                self._disallow(
+                    f"repository resolver subprocess.{proc_attr} must live in read_command and use the `command` parameter"
+                )
+
+
 def validate_resolver(resolver_text: str, errors: list[str]) -> None:
     """Ensure the repository resolver only executes read-only commands.
 
@@ -83,37 +152,7 @@ def validate_resolver(resolver_text: str, errors: list[str]) -> None:
         fail(errors, f"repository resolver is not valid Python: {exc}")
         return
 
-    function_stack: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            function_stack.append(node.name)
-            # Every subprocess.run in the file must live inside read_command and
-            # use the parameter named `command` (which comes from a literal
-            # read_command call site).
-            for child in ast.walk(node):
-                if (
-                    isinstance(child, ast.Call)
-                    and isinstance(child.func, ast.Attribute)
-                    and child.func.attr == "run"
-                    and isinstance(child.func.value, ast.Name)
-                    and child.func.value.id == "subprocess"
-                ):
-                    first = child.args[0] if child.args else None
-                    if node.name != "read_command" or not isinstance(first, ast.Name) or first.id != "command":
-                        fail(
-                            errors,
-                            "repository resolver subprocess.run must live in read_command and use the `command` parameter",
-                        )
-            function_stack.pop()
-
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "read_command":
-            first = node.args[0] if node.args else None
-            if not isinstance(first, (ast.List, ast.Tuple)):
-                fail(errors, "repository resolver read_command calls must use a literal argument list")
-                continue
-            prefix = _prefix_of_literal_list(first)
-            if prefix not in READ_ONLY_PREFIXES:
-                fail(errors, f"repository resolver read_command has disallowed prefix: {prefix!r}")
+    _ResolverCallVisitor(errors).visit(tree)
 
     for verb in MUTATING_PROSE:
         if re.search(rf"\b{re.escape(verb)}\b", resolver_text):
