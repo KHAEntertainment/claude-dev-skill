@@ -15,6 +15,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -155,7 +156,7 @@ def _first_canonical(
     return None
 
 
-def resolve_repository(
+def _decide_repository(
     *,
     remotes: dict[str, list[str] | str],
     push_remotes: dict[str, list[str] | str] | None = None,
@@ -313,6 +314,27 @@ def resolve_repository(
     return result
 
 
+def resolve_repository(**kwargs: object) -> dict[str, object]:
+    """Decide the canonical repository and enforce the do-not-act invariant.
+
+    `_decide_repository` has nine failure returns. Rather than remember to clear
+    the actionable field at each one -- the enumerate-the-cases habit that this
+    guard has lost to repeatedly -- the invariant is enforced once, here, on the
+    way out: a verdict whose status is not `ready` carries no push target.
+    A consumer that ignores the status still cannot harvest a usable remote.
+    """
+    result = _decide_repository(**kwargs)  # type: ignore[arg-type]
+    if result.get("status") != "ready":
+        # Null every field that names a remote a caller could substitute into a
+        # command. `remote` is an identical twin of `effective_push_remote` --
+        # nulling only one would leave the same exploit one field sideways. The
+        # rejected remote is still named inside `reason`, which is prose for a
+        # human, not a value a script interpolates.
+        for actionable in ("effective_push_remote", "remote"):
+            result[actionable] = None
+    return result
+
+
 def read_command(
     command: list[str], *, cwd: Path, merge_stderr: bool = True
 ) -> tuple[int, str]:
@@ -449,6 +471,14 @@ def parse_args() -> argparse.Namespace:
         help="read deterministic remote/default state instead of running commands",
     )
     parser.add_argument(
+        "--print-push-remote",
+        action="store_true",
+        help=(
+            "print only the validated push remote name, and only when the verdict "
+            "is `ready`; otherwise print nothing on stdout and exit 2"
+        ),
+    )
+    parser.add_argument(
         "--no-verify-access",
         action="store_true",
         help="skip the read-only gh accessibility check",
@@ -512,8 +542,22 @@ def main() -> int:
             "reason": str(exc),
         }
 
+    ready = decision["status"] == "ready"
+
+    if args.print_push_remote:
+        # Capability-shaped output: on `ready` stdout is the remote name and
+        # nothing else, so `$(...)` yields a usable value. On any other verdict
+        # stdout is empty and the reason goes to stderr, so a caller that pipes
+        # this command -- and thereby loses its exit status -- still gets an
+        # empty target and fails loudly instead of pushing somewhere rejected.
+        if ready:
+            print(decision["effective_push_remote"])
+        else:
+            print(decision["reason"], file=sys.stderr)
+        return 0 if ready else 2
+
     print(json.dumps(decision, sort_keys=True, separators=(",", ":")))
-    return 0 if decision["status"] == "ready" else 2
+    return 0 if ready else 2
 
 
 if __name__ == "__main__":

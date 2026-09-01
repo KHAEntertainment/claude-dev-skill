@@ -427,7 +427,11 @@ class ResolverCommandLineTests(unittest.TestCase):
         self.assertEqual(2, completed.returncode)
         payload = json.loads(completed.stdout)
         self.assertEqual("default_conflicts_with_origin", payload["reason_code"])
-        self.assertEqual("upstream", payload["effective_push_remote"])
+        # A rejected verdict must not hand back a usable remote. The rejected
+        # remote is still named in `reason` for diagnosis.
+        self.assertIsNone(payload["effective_push_remote"])
+        self.assertIsNone(payload["remote"])
+        self.assertIn("upstream", payload["reason"])
         self.assertIsNone(payload["repository"])
         self.assertIn("origin=KHAEntertainment/claude-dev-skill", payload["conflicting_remotes"])
         self._no_write_evidence(log_text)
@@ -573,3 +577,106 @@ class SplitRemoteRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DoNotActInvariantTests(unittest.TestCase):
+    """A verdict that says "do not act" must carry no actionable push target.
+
+    `_decide_repository` has nine failure returns. These tests pin the invariant
+    at the boundary rather than at each return site, so a tenth failure path
+    added later cannot reintroduce the field by omission.
+    """
+
+    def _run(self, payload: dict[str, object], *extra: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory, "state.json")
+            fixture.write_text(json.dumps(payload), encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(RESOLVER), "--fixture", str(fixture), *extra],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+    # Fixtures that must each produce a non-ready verdict, via different paths.
+    NON_READY: tuple[tuple[str, dict[str, object]], ...] = (
+        (
+            "push_url_disagrees",
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": [UPSTREAM_HTTPS]},
+                "effective_push_remote": "origin",
+                "gh_default": None,
+            },
+        ),
+        (
+            "gh_default_disagrees",
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "effective_push_remote": "origin",
+                "gh_default": "hnaymyh123-henry/claude-dev-skill",
+            },
+        ),
+        (
+            "unparseable_origin",
+            {
+                "remotes": {"origin": "not a url at all"},
+                "effective_push_remote": "origin",
+                "gh_default": None,
+            },
+        ),
+    )
+
+    def test_non_ready_verdicts_carry_no_push_remote(self) -> None:
+        for label, payload in self.NON_READY:
+            with self.subTest(label):
+                completed = self._run(payload)
+                verdict = json.loads(completed.stdout)
+                self.assertNotEqual("ready", verdict["status"])
+                self.assertEqual(2, completed.returncode)
+                for actionable in ("effective_push_remote", "remote"):
+                    self.assertIsNone(
+                        verdict[actionable],
+                        f"{label}: a do-not-act verdict handed back a usable "
+                        f"remote in `{actionable}`",
+                    )
+
+    def test_print_push_remote_is_empty_and_fails_when_not_ready(self) -> None:
+        for label, payload in self.NON_READY:
+            with self.subTest(label):
+                completed = self._run(payload, "--print-push-remote")
+                self.assertEqual(2, completed.returncode)
+                self.assertEqual(
+                    "",
+                    completed.stdout.strip(),
+                    f"{label}: stdout must be empty so `$(...)` yields no push target",
+                )
+                self.assertNotEqual("", completed.stderr.strip())
+
+    def test_print_push_remote_emits_only_the_name_when_ready(self) -> None:
+        completed = self._run(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "effective_push_remote": "origin",
+                "gh_default": "KHAEntertainment/claude-dev-skill",
+                "access_verified": True,
+                "verified_name": "KHAEntertainment/claude-dev-skill",
+            },
+            "--print-push-remote",
+        )
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual("origin", completed.stdout.strip())
+
+    def test_piping_the_json_verdict_cannot_yield_a_usable_remote(self) -> None:
+        """The historical exploit: a pipe discards exit 2, so the consumer read
+        the rejected remote out of the JSON and pushed there."""
+        for label, payload in self.NON_READY:
+            with self.subTest(label):
+                verdict = json.loads(self._run(payload).stdout)
+                for actionable in ("effective_push_remote", "remote"):
+                    harvested = verdict[actionable]
+                    self.assertFalse(
+                        isinstance(harvested, str) and harvested.strip(),
+                        f"{label}: harvested {harvested!r} from `{actionable}` "
+                        "on a rejected verdict",
+                    )

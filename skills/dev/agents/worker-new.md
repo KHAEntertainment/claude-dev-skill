@@ -113,7 +113,13 @@ Whether launched through Claude-native or Traycer execution:
 
 13. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
 14. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
-15. Re-run the repository identity check immediately before pushing: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO`; a non-zero exit is a blocker. If it is `ready`, the resolver emits the validated `effective_push_remote`; push only to that remote. Extract it with `PUSH_REMOTE=$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO | rtk proxy python3 -c 'import json,sys; print(json.load(sys.stdin)["effective_push_remote"])')` and push the assigned branch with `rtk git push --set-upstream "$PUSH_REMOTE" $(rtk git branch --show-current)`. Then use `rtk gh pr create --repo OWNER/REPO`:
+15. Push only to the remote the resolver validated. Obtain it with `--print-push-remote`, which writes the remote name to stdout **only** when the verdict is `ready`, and otherwise writes the reason to stderr and exits 2 with empty stdout:
+    ```bash
+    PUSH_REMOTE=$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --expect OWNER/REPO --print-push-remote) || { echo "repository identity check failed; stopping"; exit 1; }
+    [ -n "$PUSH_REMOTE" ] || { echo "no validated push remote; stopping"; exit 1; }
+    rtk git push --set-upstream "$PUSH_REMOTE" "$(rtk git branch --show-current)"
+    ```
+    Do not read `effective_push_remote` out of the JSON verdict through a pipe: a pipeline's exit status is the *last* command's, so the resolver's exit 2 is discarded. Never substitute a remote name of your own, including `origin` — the validated remote is not always `origin`. Then use `rtk gh pr create --repo OWNER/REPO`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N`, change rationale, AC completion status, complete test output, coverage-path audit, and caller impact
 16. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown
