@@ -46,7 +46,7 @@ READ_ONLY_PREFIXES = (
     ("gh", "repo", "view"),
 )
 
-STUB = """#!/usr/bin/env python3
+STUB = """#!{python}
 import os
 import sys
 
@@ -173,6 +173,34 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("ready", result["status"])
         self.assertEqual([], result["conflicting_remotes"])
 
+    def test_multiple_push_urls_all_matching_is_ready(self) -> None:
+        result = self.resolve(
+            remotes={"origin": ORIGIN_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS, "https://github.com/KHAEntertainment/claude-dev-skill"]},
+            gh_default=None,
+        )
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(CANONICAL, result["repository"])
+
+    def test_multiple_push_urls_with_hostile_is_incomplete(self) -> None:
+        result = self.resolve(
+            remotes={"origin": ORIGIN_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
+            gh_default=None,
+        )
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("remote_url_mismatch", result["reason_code"])
+        self.assertIsNone(result["repository"])
+
+    def test_multiple_fetch_urls_with_hostile_is_incomplete(self) -> None:
+        result = self.resolve(
+            remotes={"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
+            gh_default=None,
+        )
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("remote_url_mismatch", result["reason_code"])
+        self.assertIsNone(result["repository"])
+
     def test_missing_origin_fails_closed(self) -> None:
         result = self.resolve(remotes={"upstream": UPSTREAM_HTTPS}, gh_default=None)
         self.assertEqual("incomplete", result["status"])
@@ -249,7 +277,10 @@ class ResolverCommandLineTests(unittest.TestCase):
             stub_dir.mkdir()
             log = root / "commands.log"
             source = STUB.format(
-                origin=ORIGIN_HTTPS, upstream=UPSTREAM_HTTPS, canonical=CANONICAL
+                python=sys.executable,
+                origin=ORIGIN_HTTPS,
+                upstream=UPSTREAM_HTTPS,
+                canonical=CANONICAL,
             )
             for name in ("git", "gh"):
                 stub = stub_dir / name
@@ -316,10 +347,59 @@ class SplitRemoteRegressionTests(unittest.TestCase):
             }
         )
         self.assertEqual(2, status)
-        self.assertEqual("push_mismatch", payload["reason_code"])
+        self.assertEqual("remote_url_mismatch", payload["reason_code"])
         self.assertIsNone(payload["repository"])
         self.assertEqual(ORIGIN_HTTPS, payload["remote_url"])
         self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
+
+    def test_hostile_multiple_push_url_first(self) -> None:
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": [UPSTREAM_HTTPS, ORIGIN_HTTPS]},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(2, status)
+        self.assertEqual("remote_url_mismatch", payload["reason_code"])
+        self.assertIsNone(payload["repository"])
+        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
+
+    def test_hostile_multiple_push_url_last(self) -> None:
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(2, status)
+        self.assertEqual("remote_url_mismatch", payload["reason_code"])
+        self.assertIsNone(payload["repository"])
+        self.assertEqual(UPSTREAM_HTTPS, payload["push_url"])
+
+    def test_multiple_push_urls_mixed(self) -> None:
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": [UPSTREAM_HTTPS, ORIGIN_HTTPS, UPSTREAM_HTTPS]},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(2, status)
+        self.assertEqual("remote_url_mismatch", payload["reason_code"])
+        self.assertIsNone(payload["repository"])
+
+    def test_multiple_push_urls_all_matching_is_ready(self) -> None:
+        status, payload = self.run_fixture(
+            {
+                "remotes": {"origin": ORIGIN_HTTPS},
+                "push_remotes": {"origin": [ORIGIN_HTTPS, "https://github.com/KHAEntertainment/claude-dev-skill"]},
+                "gh_default": None,
+            }
+        )
+        self.assertEqual(0, status)
+        self.assertEqual(CANONICAL, payload["repository"])
 
     def test_credentials_are_redacted_in_output(self) -> None:
         secret = "https://user:s3cr3t-token@github.com/KHAEntertainment/claude-dev-skill.git"
@@ -345,7 +425,7 @@ class SplitRemoteRegressionTests(unittest.TestCase):
             log = root / "commands.log"
             git_stub = stub_dir / "git"
             git_stub.write_text(
-                f"#!/usr/bin/env python3\n"
+                f"#!{sys.executable}\n"
                 f"import os, sys\n"
                 f"with open(os.environ['REPO_IDENTITY_LOG'], 'a', encoding='utf-8') as h:\n"
                 f"    h.write('\\t'.join(sys.argv) + '\\n')\n"
