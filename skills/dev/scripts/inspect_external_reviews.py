@@ -435,7 +435,7 @@ def inspect(
             (candidate_reviewer, candidate)
             for candidate_reviewer, candidate in trusted_comments
             if head_oid and commit_oid(candidate) == head_oid
-            and normalize(candidate.get("state")) in {"approved", "changes_requested", "commented"}
+            and normalize(candidate.get("state")) == "submitted"
             and not resolved and not outdated and not bool(candidate.get("isMinimized"))
         ]
         active = bool(active_comments)

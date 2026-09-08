@@ -76,7 +76,7 @@
                 "commit": {
                   "oid": "head-11"
                 },
-                "state": "COMMENTED"
+                "state": "SUBMITTED"
               }
             ]
           }
@@ -99,7 +99,7 @@
                 "commit": {
                   "oid": "head-11"
                 },
-                "state": "COMMENTED"
+                "state": "SUBMITTED"
               }
             ]
           }
@@ -121,7 +121,7 @@
                 "commit": {
                   "oid": "old-head"
                 },
-                "state": "COMMENTED"
+                "state": "SUBMITTED"
               }
             ]
           }

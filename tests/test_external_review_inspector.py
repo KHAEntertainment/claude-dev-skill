@@ -38,6 +38,16 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_submitted_head_thread_comment_completes(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = []
+        threads = [{"id": "submitted", "comments": {"nodes": [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "finding"}]}}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"submitted": "advisory"})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+        self.assertEqual(result["stale_reviewers"], [])
+
     def test_pending_head_thread_comment_does_not_complete(self):
         current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         current["statusCheckRollup"] = []
@@ -64,10 +74,10 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_thread_comment_order_cannot_hide_active_finding(self):
         current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         for nodes in (
-            [{"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "visible"},
-             {"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"}],
-            [{"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"},
-             {"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "visible"}],
+            [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "visible"},
+             {"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"}],
+            [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"},
+             {"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "visible"}],
         ):
             result = MODULE.inspect(current, [{"id": "thread", "comments": {"nodes": nodes}}], recent, policy(), {})
             self.assertEqual(result["state"], "pending")
@@ -195,7 +205,7 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_green_check_with_head_thread_counts_as_evidence(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         threads = [{"id": "thread", "comments": [{"author": {"login": "coderabbitai"},
-                    "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "Finding"}]}]
+                    "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "Finding"}]}]
         result = MODULE.inspect(current, threads, recent, policy(), {"thread": "advisory"})
         self.assertEqual(result["state"], "clear")
         self.assertEqual(result["completed_on_head"], ["coderabbit"])
