@@ -99,7 +99,14 @@ A change is not complete until every command above exits clean.
 - **Ignored reviewers**: none
 - **Additional reviewer identities**: none
 - **Default wait minutes**: 10
-- **Allow automatic review requests**: false
+- **Allow automatic review requests**: `coderabbit` only
+
+Automatic re-request is enabled for `coderabbit` alone, decided 2026-09-08. The
+lead may post a re-review request for that reviewer without pausing for approval;
+every other reviewer still requires explicit approval per
+`phases/external-review.md`. The narrow scope is deliberate — it covers the one
+reviewer this repository actually uses, and does not become a general licence to
+spend review credits.
 
 CodeRabbit reviewed PR #1 in the prior round and is the expected reviewer here.
 
