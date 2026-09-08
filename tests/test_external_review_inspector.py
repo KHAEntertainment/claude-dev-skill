@@ -465,13 +465,17 @@ class VerdictRegressionTests(unittest.TestCase):
         current["statusCheckRollup"] = []
         current["reviews"] = [{"author":{"login":"coderabbitai"},"state":s,"commit":{"oid":"current-head"},"submittedAt":t} for s,t in states]
         return MODULE.inspect(current, threads, recent, policy(), {})
-    def test_head_verdicts(self):
-        self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
-        self.assertEqual(self.make([("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
-        self.assertEqual(self.make([("COMMENTED","2026-09-08T20:00:00Z")])["state"], "clear")
-        self.assertEqual(self.make([("DISMISSED","2026-09-08T20:00:00Z")])["state"], "pending")
-        self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T19:00:00Z"),("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
-        self.assertEqual(self.make([("APPROVED","2026-09-08T19:00:00Z"),("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
+    def test_changes_requested_blocks(self): self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
+    def test_approved_clears(self): self.assertEqual(self.make([("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_commented_clears(self): self.assertEqual(self.make([("COMMENTED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_dismissed_pending(self): self.assertEqual(self.make([("DISMISSED","2026-09-08T20:00:00Z")])["state"], "pending")
+    def test_approval_after_rejection_clears(self): self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T19:00:00Z"),("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_rejection_after_approval_blocks(self): self.assertEqual(self.make([("APPROVED","2026-09-08T19:00:00Z"),("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
+    def test_rejection_with_green_check_blocks(self):
+        result = self.make([("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T20:00:00Z"}]
+        self.assertEqual(MODULE.inspect(current, [], recent, policy(), {})["state"], "blocking")
     def test_older_rejection_is_pending(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json"); current["statusCheckRollup"]=[]; current["reviews"]=[{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
         self.assertEqual(MODULE.inspect(current,threads,recent,policy(),{})["state"],"pending")
