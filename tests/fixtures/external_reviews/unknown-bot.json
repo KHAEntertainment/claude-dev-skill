@@ -6,7 +6,15 @@
     "reviews": [],
     "latestReviews": [],
     "statusCheckRollup": [],
-    "comments": [{"id": "unknown-comment", "author": {"login": "excellent-review-bot[bot]"}, "body": "A review appeared."}]
+    "comments": [
+      {
+        "id": "unknown-comment",
+        "author": {
+          "login": "excellent-review-bot[bot]"
+        },
+        "body": "A review appeared."
+      }
+    ]
   },
   "threads": [],
   "recent": []

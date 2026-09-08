@@ -38,6 +38,48 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_pending_head_thread_comment_does_not_complete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"id": "old", "author": {"login": "coderabbitai"}, "state": "CHANGES_REQUESTED", "commit": {"oid": "old-head"}}]
+        threads = [{"id": "draft", "comments": {"nodes": [{"author": {"login": "coderabbitai"}, "state": "PENDING", "commit": {"oid": "current-head"}, "body": "draft"}]}}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"draft": "advisory"})
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_inactive_head_thread_comments_do_not_erase_stale_review(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"id": "old", "author": {"login": "coderabbitai"}, "state": "CHANGES_REQUESTED", "commit": {"oid": "old-head"}}]
+        for resolved, outdated, minimized in ((True, False, False), (False, True, False), (False, False, True)):
+            with self.subTest(resolved=resolved, outdated=outdated, minimized=minimized):
+                threads = [{"id": "thread", "isResolved": resolved, "isOutdated": outdated,
+                            "comments": {"nodes": [{"author": {"login": "coderabbitai"},
+                            "commit": {"oid": "current-head"}, "isMinimized": minimized}]}}]
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_thread_comment_order_cannot_hide_active_finding(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for nodes in (
+            [{"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "visible"},
+             {"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"}],
+            [{"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"},
+             {"author": {"login": "coderabbitai"}, "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "visible"}],
+        ):
+            result = MODULE.inspect(current, [{"id": "thread", "comments": {"nodes": nodes}}], recent, policy(), {})
+            self.assertEqual(result["state"], "pending")
+            self.assertEqual(len(result["untriaged_findings"]), 1)
+
+    def test_full_nested_comment_page_is_incomplete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        comments = [{"author": {"login": "coderabbitai"}, "commit": {"oid": "current-head"}}] * 100
+        result = MODULE.inspect(current, [{"id": "full", "comments": {"nodes": comments}}], recent, policy(), {})
+        self.assertEqual(result["state"], "incomplete")
+        self.assertIn("page limit", result["errors"][0])
+
     def test_older_unsubmitted_reviews_remain_pending_without_stale_claim(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         for with_check in (True, False):
@@ -153,7 +195,7 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_green_check_with_head_thread_counts_as_evidence(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         threads = [{"id": "thread", "comments": [{"author": {"login": "coderabbitai"},
-                    "commit": {"oid": "current-head"}, "body": "Finding"}]}]
+                    "state": "COMMENTED", "commit": {"oid": "current-head"}, "body": "Finding"}]}]
         result = MODULE.inspect(current, threads, recent, policy(), {"thread": "advisory"})
         self.assertEqual(result["state"], "clear")
         self.assertEqual(result["completed_on_head"], ["coderabbit"])

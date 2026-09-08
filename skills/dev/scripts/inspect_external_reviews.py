@@ -231,11 +231,12 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
         nodes{
           id isResolved isOutdated path line
           comments(first:100){nodes{
-            id body url createdAt isMinimized minimizedReason
+            id body url state createdAt isMinimized minimizedReason
             author{login}
             commit{oid}
             originalCommit{oid}
-          }}
+          } pageInfo{hasNextPage}
+        }
         }
         pageInfo{hasNextPage endCursor}
       }
@@ -266,6 +267,10 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
         connection = nested(response, "data", "repository", "pullRequest", "reviewThreads")
         if not isinstance(connection, dict):
             raise InspectionError("GitHub GraphQL response omitted pullRequest.reviewThreads")
+        for node in list_value(connection):
+            comments = node.get("comments") if isinstance(node, dict) else None
+            if isinstance(comments, dict) and (comments.get("pageInfo") or {}).get("hasNextPage"):
+                raise InspectionError("review thread comments exceed the fetched page; evidence is incomplete")
         threads.extend(node for node in list_value(connection) if isinstance(node, dict))
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
@@ -410,23 +415,36 @@ def inspect(
     completed_on_head: set[str] = set()
     for thread in threads:
         comments = [item for item in list_value(thread.get("comments")) if isinstance(item, dict)]
+        raw_comments = thread.get("comments")
+        if isinstance(raw_comments, dict):
+            page_info = raw_comments.get("pageInfo") or {}
+            if page_info.get("hasNextPage") or len(list_value(raw_comments)) >= 100:
+                errors.append("review thread comments reached the page limit; evidence is incomplete")
         trusted_comments: list[tuple[str, dict[str, Any]]] = []
         for comment in comments:
             reviewer = reviewer_for_login(login_from(comment), policy)
             if reviewer:
                 trusted_comments.append((reviewer, comment))
                 thread_reviewers.add(reviewer)
-                if head_oid and commit_oid(comment) == head_oid:
-                    completed_on_head.add(reviewer)
         if not trusted_comments:
             continue
-        reviewer, latest = trusted_comments[-1]
-        finding_id = str(thread.get("id") or latest.get("id") or latest.get("url") or "unknown")
+        reviewer = trusted_comments[-1][0]
         resolved = bool(thread.get("isResolved"))
         outdated = bool(thread.get("isOutdated"))
+        active_comments = [
+            (candidate_reviewer, candidate)
+            for candidate_reviewer, candidate in trusted_comments
+            if head_oid and commit_oid(candidate) == head_oid
+            and normalize(candidate.get("state")) in {"approved", "changes_requested", "commented"}
+            and not resolved and not outdated and not bool(candidate.get("isMinimized"))
+        ]
+        active = bool(active_comments)
+        latest = active_comments[-1][1] if active_comments else trusted_comments[-1][1]
+        finding_id = str(thread.get("id") or latest.get("id") or latest.get("url") or "unknown")
         minimized = bool(latest.get("isMinimized"))
         current_head = bool(head_oid and commit_oid(latest) == head_oid)
-        active = not resolved and not outdated and not minimized and current_head
+        if active:
+            completed_on_head.update(candidate_reviewer for candidate_reviewer, _ in active_comments)
         disposition = dispositions.get(finding_id)
         if disposition and disposition not in VALID_DISPOSITIONS:
             errors.append(f"invalid disposition for {finding_id}: {disposition}")
