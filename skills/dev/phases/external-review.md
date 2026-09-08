@@ -34,8 +34,10 @@ Record the PR number, `headRefOid`, expected/requested/observed reviewers, the d
 Run the deterministic inspector from the target repository:
 
 ```bash
-rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/inspect_external_reviews.py" --repo OWNER/REPO --pr N
+rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/inspect_external_reviews.py" --repo OWNER/REPO --pr N --payload-snapshot NEW_SNAPSHOT_PATH
 ```
+
+For every gate run, including disposition reruns, the lead supplies a new snapshot path and records it in `external_review_payload_snapshots` in `.agent/dev-state.md`, together with the observation timestamp and `headRefOid`. The inspector writes the verbatim current-PR JSON it actually parses before deriving a verdict. Existing files are never overwritten; a persistence failure is `incomplete`. Create the parent directory first. Preserve the raw file unchanged: do not summarise, diff, or interpret it in place. The snapshot includes the fields from `gh pr view N --repo OWNER/REPO --json statusCheckRollup,reviews,latestReviews,comments`, plus the PR number, head, and review requests needed by the inspector. Record retrieval failures as failures, never as an empty successful snapshot. Thread evidence and recent-PR inference are separate from this current-PR snapshot.
 
 Translate the External Review Policy from `PROJECT_CONTEXT.md` into arguments:
 
@@ -53,6 +55,9 @@ The helper deep-reads only the target PR. For inference, it lists a maximum of f
 - `clear`: every expected reviewer is current and every active finding has a non-blocking disposition
 - `blocking`: at least one active current-head finding is classified as blocking
 - `incomplete`: permissions, pagination, malformed data, or a failed check without readable findings prevented a reliable decision
+
+A trusted reviewer's status check alone never satisfies this gate.
+A green check without a submitted current-head review or a review-thread comment at head is `pending`. Status checks still inform pending and failed states; they never establish review completion or erase stale reviews. A reviewer without a published check can complete through review evidence, as with Copilot. `check_only_reviewers` and `pending_reasons` name reviewers whose checks completed without current-head review evidence. `parked_comments` reports their PR-level comment existence and URLs only; it does not establish a cause or count as review evidence. Never infer parked status from vendor wording or regex comment bodies.
 
 Never reinterpret `incomplete` as no reviewers. Required branch-protection checks remain hard gates independently of this helper.
 

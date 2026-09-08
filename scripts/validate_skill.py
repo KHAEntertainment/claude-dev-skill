@@ -143,6 +143,7 @@ def main() -> int:
         "head changed",
         "distinct agent ID",
         "lead is the sole ledger writer",
+        "A trusted reviewer's status check alone never satisfies this gate.",
     )
     for token in required_policy:
         if token not in combined:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import errno
 import json
 import subprocess
 import sys
@@ -37,6 +38,205 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_submitted_head_thread_comment_completes(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = []
+        threads = [{"id": "submitted", "comments": {"nodes": [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "finding"}]}}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"submitted": "advisory"})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+        self.assertEqual(result["stale_reviewers"], [])
+
+    def test_pending_head_thread_comment_does_not_complete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"id": "old", "author": {"login": "coderabbitai"}, "state": "CHANGES_REQUESTED", "commit": {"oid": "old-head"}}]
+        threads = [{"id": "draft", "comments": {"nodes": [{"author": {"login": "coderabbitai"}, "state": "PENDING", "commit": {"oid": "current-head"}, "body": "draft"}]}}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"draft": "advisory"})
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_inactive_head_thread_comments_do_not_erase_stale_review(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"id": "old", "author": {"login": "coderabbitai"}, "state": "CHANGES_REQUESTED", "commit": {"oid": "old-head"}}]
+        for resolved, outdated, minimized in ((True, False, False), (False, True, False), (False, False, True)):
+            with self.subTest(resolved=resolved, outdated=outdated, minimized=minimized):
+                threads = [{"id": "thread", "isResolved": resolved, "isOutdated": outdated,
+                            "comments": {"nodes": [{"author": {"login": "coderabbitai"},
+                            "commit": {"oid": "current-head"}, "isMinimized": minimized}]}}]
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_thread_comment_order_cannot_hide_active_finding(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for nodes in (
+            [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "visible"},
+             {"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"}],
+            [{"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "isMinimized": True, "body": "hidden"},
+             {"author": {"login": "coderabbitai"}, "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "visible"}],
+        ):
+            result = MODULE.inspect(current, [{"id": "thread", "comments": {"nodes": nodes}}], recent, policy(), {})
+            self.assertEqual(result["state"], "pending")
+            self.assertEqual(len(result["untriaged_findings"]), 1)
+
+    def test_full_nested_comment_page_is_incomplete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        comments = [{"author": {"login": "coderabbitai"}, "commit": {"oid": "current-head"}}] * 100
+        result = MODULE.inspect(current, [{"id": "full", "comments": {"nodes": comments}}], recent, policy(), {})
+        self.assertEqual(result["state"], "incomplete")
+        self.assertIn("page limit", result["errors"][0])
+
+    def test_older_unsubmitted_reviews_remain_pending_without_stale_claim(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for with_check in (True, False):
+            if not with_check:
+                current["statusCheckRollup"] = []
+            for state in ("PENDING", "DISMISSED", None, "UNKNOWN", "CHANGES_REQUESTED"):
+                with self.subTest(state=state, with_check=with_check):
+                    current["reviews"] = [{
+                        "id": "older", "author": {"login": "coderabbitai"},
+                        "state": state, "commit": {"oid": "older-head"},
+                    }]
+                    result = MODULE.inspect(current, threads, recent, policy(), {})
+                    self.assertEqual(result["state"], "pending")
+                    self.assertEqual(result["pending_reviewers"], ["coderabbit"])
+                    self.assertEqual(result["completed_on_head"], [])
+                    submitted = state == "CHANGES_REQUESTED"
+                    self.assertEqual(result["stale_reviewers"], ["coderabbit"] if submitted else [])
+                    reasons = result["pending_reasons"]["coderabbit"]
+                    if submitted:
+                        self.assertIn("submitted review exists only at an earlier head", reasons)
+                    else:
+                        self.assertNotIn("submitted review exists only at an earlier head", reasons)
+                        self.assertTrue(any("no " in reason for reason in reasons))
+
+    def test_unsubmitted_head_review_does_not_erase_old_objection(self):
+        result = inspect_fixture("unsubmitted-review-at-head.json")
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_only_explicit_submitted_states_count(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "unsubmitted-review-at-head.json")
+        review = current["reviews"][-1]
+        for state in (None, "", "UNKNOWN", "PENDING", "DISMISSED"):
+            with self.subTest(state=state):
+                review["state"] = state
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+        del review["state"]
+        self.assertEqual(MODULE.inspect(current, threads, recent, policy(), {})["state"], "pending")
+        for state in ("COMMENTED", "APPROVED", "CHANGES_REQUESTED"):
+            with self.subTest(state=state):
+                review["state"] = state
+                review["submittedAt"] = "2026-09-08T20:00:00Z"
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["completed_on_head"], ["coderabbit"])
+                self.assertEqual(result["stale_reviewers"], [])
+
+    def test_failed_snapshot_write_leaves_no_partial_and_retry_succeeds(self):
+        raw = ' { "number": 21, "headRefOid": "head" }\n'
+        original = MODULE.tempfile.NamedTemporaryFile
+        def disk_full_file(*args, **kwargs):
+            output = original(*args, **kwargs)
+            real_write = output.write
+            def partial_write(value):
+                real_write(value[:12])
+                output.flush()
+                raise OSError(errno.ENOSPC, "disk full")
+            output.write = partial_write
+            return output
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "payload.json"
+            with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw, "")):
+                with mock.patch.object(MODULE.tempfile, "NamedTemporaryFile", side_effect=disk_full_file):
+                    with self.assertRaisesRegex(MODULE.InspectionError, "disk full"):
+                        MODULE.fetch_pr("owner/repo", 21, snapshot)
+                self.assertFalse(snapshot.exists())
+                self.assertEqual(list(Path(directory).iterdir()), [])
+                MODULE.fetch_pr("owner/repo", 21, snapshot)
+                self.assertEqual(snapshot.read_text(), raw)
+                self.assertEqual(list(Path(directory).iterdir()), [snapshot])
+
+    def test_green_check_preserves_stale_review(self):
+        result = inspect_fixture("green-check-stale-review.json")
+        self.assertEqual(result["state"], "pending", result)
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+        self.assertEqual(result["completed_on_head"], [])
+
+    def test_green_check_without_review_is_pending(self):
+        result = inspect_fixture("green-check-no-review.json")
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["check_only_reviewers"], ["coderabbit"])
+        self.assertIn("no submitted review or review thread", result["pending_reasons"]["coderabbit"][0])
+        self.assertEqual(result["parked_comments"], [{
+            "reviewer": "coderabbit",
+            "url": "https://github.com/example/project/pull/21#issuecomment-1",
+        }])
+
+    def test_check_only_comment_detection_is_body_independent(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for body in (None, "", "rate limit", "Review complete", "unrelated"):
+            with self.subTest(body=body):
+                current["comments"][0]["body"] = body
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(len(result["parked_comments"]), 1)
+        current["comments"] = None
+        result = MODULE.inspect(current, threads, recent, policy(), {})
+        self.assertEqual(result["parked_comments"], [])
+        self.assertEqual(result["state"], "pending")
+
+    def test_green_check_with_real_head_review_clears(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
+        current["reviews"].append({"id": "new-review", "author": {"login": "coderabbitai"},
+                                   "state": "COMMENTED", "commit": {"oid": "current-head"}})
+        result = MODULE.inspect(current, threads, recent, policy(), {})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["check_only_reviewers"], [])
+        self.assertEqual(result["stale_reviewers"], [])
+
+    def test_green_check_with_head_thread_counts_as_evidence(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        threads = [{"id": "thread", "comments": [{"author": {"login": "coderabbitai"},
+                    "state": "SUBMITTED", "commit": {"oid": "current-head"}, "body": "Finding"}]}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"thread": "advisory"})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+
+    def test_failed_or_pending_status_is_not_completion(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
+        for status, state in (("PENDING", "pending"), ("FAILURE", "incomplete")):
+            with self.subTest(status=status):
+                current["statusCheckRollup"][0]["state"] = status
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], state)
+                self.assertEqual(result["completed_on_head"], [])
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_payload_snapshot_preserves_exact_response_and_cannot_overwrite(self):
+        raw = ' { "headRefOid": "head", "comments": [] }\n'
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "payload.json"
+            with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw, "")):
+                value = MODULE.fetch_pr("owner/repo", 1, snapshot)
+                self.assertEqual(value, json.loads(raw))
+                self.assertEqual(snapshot.read_text(), raw)
+                with self.assertRaises(MODULE.InspectionError):
+                    MODULE.fetch_pr("owner/repo", 1, snapshot)
+                self.assertEqual(snapshot.read_text(), raw)
+
+    def test_dependency_failure_is_not_empty_success(self):
+        with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "permission denied")):
+            with self.assertRaisesRegex(MODULE.InspectionError, "permission denied"):
+                MODULE.fetch_pr("owner/repo", 1)
+
     def test_no_reviewer_is_not_applicable(self):
         result = inspect_fixture("no-reviewer.json")
         self.assertEqual(result["state"], "not_applicable")
@@ -100,8 +300,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_current_review_supersedes_older_review_from_same_reviewer(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "no-reviewer.json")
         current["reviews"] = [
-            {"id": "old", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
-            {"id": "new", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
+            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
+            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
         ]
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")

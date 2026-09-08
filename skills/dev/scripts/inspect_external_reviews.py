@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -189,11 +191,28 @@ def parse_identity(
     check_markers.setdefault(reviewer, set()).update(aliases)
 
 
-def run_json(command: list[str]) -> Any:
+def run_json(command: list[str], *, snapshot: Path | None = None) -> Any:
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise InspectionError(f"command failed ({' '.join(command)}): {detail}")
+    if snapshot is not None:
+        temporary = None
+        try:
+            # Publish only a complete, closed file. A hard link creates the
+            # destination atomically without replacing an existing snapshot.
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="", dir=snapshot.parent,
+                prefix=f".{snapshot.name}.", delete=False,
+            ) as output:
+                temporary = Path(output.name)
+                output.write(completed.stdout)
+            os.link(temporary, snapshot)
+        except OSError as exc:
+            raise InspectionError(f"cannot persist payload snapshot {snapshot}: {exc}") from exc
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -212,11 +231,12 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
         nodes{
           id isResolved isOutdated path line
           comments(first:100){nodes{
-            id body url createdAt isMinimized minimizedReason
+            id body url state createdAt isMinimized minimizedReason
             author{login}
             commit{oid}
             originalCommit{oid}
-          }}
+          } pageInfo{hasNextPage}
+        }
         }
         pageInfo{hasNextPage endCursor}
       }
@@ -247,6 +267,10 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
         connection = nested(response, "data", "repository", "pullRequest", "reviewThreads")
         if not isinstance(connection, dict):
             raise InspectionError("GitHub GraphQL response omitted pullRequest.reviewThreads")
+        for node in list_value(connection):
+            comments = node.get("comments") if isinstance(node, dict) else None
+            if isinstance(comments, dict) and (comments.get("pageInfo") or {}).get("hasNextPage"):
+                raise InspectionError("review thread comments exceed the fetched page; evidence is incomplete")
         threads.extend(node for node in list_value(connection) if isinstance(node, dict))
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
@@ -257,7 +281,7 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
     return threads
 
 
-def fetch_pr(repo: str, pr_number: int) -> dict[str, Any]:
+def fetch_pr(repo: str, pr_number: int, snapshot: Path | None = None) -> dict[str, Any]:
     value = run_json(
         [
             "rtk",
@@ -269,7 +293,8 @@ def fetch_pr(repo: str, pr_number: int) -> dict[str, Any]:
             repo,
             "--json",
             "number,headRefOid,reviewRequests,reviews,latestReviews,statusCheckRollup,comments",
-        ]
+        ],
+        snapshot=snapshot,
     )
     if not isinstance(value, dict):
         raise InspectionError("gh pr view did not return an object")
@@ -390,23 +415,36 @@ def inspect(
     completed_on_head: set[str] = set()
     for thread in threads:
         comments = [item for item in list_value(thread.get("comments")) if isinstance(item, dict)]
+        raw_comments = thread.get("comments")
+        if isinstance(raw_comments, dict):
+            page_info = raw_comments.get("pageInfo") or {}
+            if page_info.get("hasNextPage") or len(list_value(raw_comments)) >= 100:
+                errors.append("review thread comments reached the page limit; evidence is incomplete")
         trusted_comments: list[tuple[str, dict[str, Any]]] = []
         for comment in comments:
             reviewer = reviewer_for_login(login_from(comment), policy)
             if reviewer:
                 trusted_comments.append((reviewer, comment))
                 thread_reviewers.add(reviewer)
-                if head_oid and commit_oid(comment) == head_oid:
-                    completed_on_head.add(reviewer)
         if not trusted_comments:
             continue
-        reviewer, latest = trusted_comments[-1]
-        finding_id = str(thread.get("id") or latest.get("id") or latest.get("url") or "unknown")
+        reviewer = trusted_comments[-1][0]
         resolved = bool(thread.get("isResolved"))
         outdated = bool(thread.get("isOutdated"))
+        active_comments = [
+            (candidate_reviewer, candidate)
+            for candidate_reviewer, candidate in trusted_comments
+            if head_oid and commit_oid(candidate) == head_oid
+            and normalize(candidate.get("state")) == "submitted"
+            and not resolved and not outdated and not bool(candidate.get("isMinimized"))
+        ]
+        active = bool(active_comments)
+        latest = active_comments[-1][1] if active_comments else trusted_comments[-1][1]
+        finding_id = str(thread.get("id") or latest.get("id") or latest.get("url") or "unknown")
         minimized = bool(latest.get("isMinimized"))
         current_head = bool(head_oid and commit_oid(latest) == head_oid)
-        active = not resolved and not outdated and not minimized and current_head
+        if active:
+            completed_on_head.update(candidate_reviewer for candidate_reviewer, _ in active_comments)
         disposition = dispositions.get(finding_id)
         if disposition and disposition not in VALID_DISPOSITIONS:
             errors.append(f"invalid disposition for {finding_id}: {disposition}")
@@ -452,7 +490,6 @@ def inspect(
             check_failed.add(reviewer)
         elif conclusion in {"success", "neutral", "skipped"} or status in {"success", "completed"}:
             check_complete.add(reviewer)
-            completed_on_head.add(reviewer)
 
     stale_reviewers: set[str] = set()
     for review in iter_reviews(current):
@@ -460,9 +497,14 @@ def inspect(
         if not reviewer or reviewer in policy.ignored:
             continue
         oid = commit_oid(review)
-        if oid and head_oid and oid == head_oid:
+        # Only explicit submitted states establish completion or staleness. Missing,
+        # unknown, draft, and dismissed states are not positive evidence.
+        # They intentionally enter neither set, even at head; observation still
+        # makes the reviewer expected and pending without claiming review work.
+        submitted = normalize(review.get("state")) in {"approved", "changes_requested", "commented"}
+        if oid and head_oid and oid == head_oid and submitted:
             completed_on_head.add(reviewer)
-        elif oid and head_oid and oid != head_oid:
+        elif oid and head_oid and oid != head_oid and submitted:
             stale_reviewers.add(reviewer)
     stale_reviewers -= completed_on_head
 
@@ -478,10 +520,37 @@ def inspect(
         )
 
     untriaged_reviewers = {finding["reviewer"] for finding in untriaged}
-    pending_reviewers = set(check_pending) | requested | stale_reviewers
-    pending_reviewers.update(expected - completed_on_head)
-    pending_reviewers.update(untriaged_reviewers)
-    pending_reviewers -= check_complete - stale_reviewers - requested - check_pending - untriaged_reviewers
+    pending_reviewers = (
+        check_pending | requested | stale_reviewers | untriaged_reviewers
+        | (expected - completed_on_head)
+    )
+    check_only_reviewers = check_complete - completed_on_head
+    pending_reasons: dict[str, list[str]] = {}
+    for reviewer in sorted(pending_reviewers):
+        reasons = []
+        if reviewer in check_only_reviewers:
+            reasons.append(
+                "status check succeeded or completed but no submitted review or review thread exists at head"
+            )
+        if reviewer in stale_reviewers:
+            reasons.append("submitted review exists only at an earlier head")
+        if reviewer in check_pending:
+            reasons.append("reviewer status check is pending")
+        if reviewer in requested:
+            reasons.append("review request is outstanding")
+        if reviewer in untriaged_reviewers:
+            reasons.append("current-head findings need a disposition")
+        pending_reasons[reviewer] = reasons or ["no review evidence at head"]
+
+    # This is a structural signal only; PR comments do not prove review work
+    # at head, and their wording does not establish why a reviewer is parked.
+    parked_comments = []
+    for comment in list_value(current.get("comments")):
+        if not isinstance(comment, dict):
+            continue
+        reviewer = reviewer_for_login(login_from(comment), policy)
+        if reviewer in check_only_reviewers:
+            parked_comments.append({"reviewer": reviewer, "url": str(comment.get("url") or "")})
 
     known_logins = {
         normalize(identity)
@@ -532,6 +601,9 @@ def inspect(
         "requested_reviewers": sorted(requested),
         "completed_on_head": sorted(completed_on_head),
         "pending_reviewers": sorted(pending_reviewers),
+        "check_only_reviewers": sorted(check_only_reviewers),
+        "pending_reasons": pending_reasons,
+        "parked_comments": parked_comments,
         "stale_reviewers": sorted(stale_reviewers),
         "findings": thread_findings,
         "blocking_findings": blocking,
@@ -574,6 +646,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ignored-reviewer", action="append", default=[])
     parser.add_argument("--identity", action="append", default=[], metavar="REVIEWER=LOGIN[,LOGIN]")
     parser.add_argument("--dispositions", type=Path)
+    parser.add_argument("--payload-snapshot", type=Path, help="save verbatim current-PR JSON to a new file (live mode)")
     return parser.parse_args()
 
 
@@ -581,6 +654,9 @@ def main() -> int:
     args = parse_args()
     if args.repo and not args.pr:
         print("ERROR: --pr is required with --repo", file=sys.stderr)
+        return 2
+    if args.fixture and args.payload_snapshot:
+        print("ERROR: --payload-snapshot requires live --repo mode", file=sys.stderr)
         return 2
     if args.recent_pr_limit < 0 or args.recent_pr_limit > 20:
         print("ERROR: --recent-pr-limit must be between 0 and 20", file=sys.stderr)
@@ -620,7 +696,7 @@ def main() -> int:
         if args.fixture:
             current, threads, recent = load_fixture(args.fixture)
         else:
-            current = fetch_pr(args.repo, args.pr)
+            current = fetch_pr(args.repo, args.pr, args.payload_snapshot)
             threads = fetch_threads(args.repo, args.pr)
             recent = fetch_recent(args.repo, args.pr, args.recent_pr_limit)
         result = inspect(
