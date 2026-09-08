@@ -479,12 +479,14 @@ def inspect(
         if not reviewer or reviewer in policy.ignored:
             continue
         oid = commit_oid(review)
-        # Only explicit submitted states establish completion. Missing,
+        # Only explicit submitted states establish completion or staleness. Missing,
         # unknown, draft, and dismissed states are not positive evidence.
+        # They intentionally enter neither set, even at head; observation still
+        # makes the reviewer expected and pending without claiming review work.
         submitted = normalize(review.get("state")) in {"approved", "changes_requested", "commented"}
         if oid and head_oid and oid == head_oid and submitted:
             completed_on_head.add(reviewer)
-        elif oid and head_oid and oid != head_oid:
+        elif oid and head_oid and oid != head_oid and submitted:
             stale_reviewers.add(reviewer)
     stale_reviewers -= completed_on_head
 

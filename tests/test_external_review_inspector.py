@@ -38,6 +38,30 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_older_unsubmitted_reviews_remain_pending_without_stale_claim(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for with_check in (True, False):
+            if not with_check:
+                current["statusCheckRollup"] = []
+            for state in ("PENDING", "DISMISSED", None, "UNKNOWN", "CHANGES_REQUESTED"):
+                with self.subTest(state=state, with_check=with_check):
+                    current["reviews"] = [{
+                        "id": "older", "author": {"login": "coderabbitai"},
+                        "state": state, "commit": {"oid": "older-head"},
+                    }]
+                    result = MODULE.inspect(current, threads, recent, policy(), {})
+                    self.assertEqual(result["state"], "pending")
+                    self.assertEqual(result["pending_reviewers"], ["coderabbit"])
+                    self.assertEqual(result["completed_on_head"], [])
+                    submitted = state == "CHANGES_REQUESTED"
+                    self.assertEqual(result["stale_reviewers"], ["coderabbit"] if submitted else [])
+                    reasons = result["pending_reasons"]["coderabbit"]
+                    if submitted:
+                        self.assertIn("submitted review exists only at an earlier head", reasons)
+                    else:
+                        self.assertNotIn("submitted review exists only at an earlier head", reasons)
+                        self.assertTrue(any("no " in reason for reason in reasons))
+
     def test_unsubmitted_head_review_does_not_erase_old_objection(self):
         result = inspect_fixture("unsubmitted-review-at-head.json")
         self.assertEqual(result["state"], "pending")
