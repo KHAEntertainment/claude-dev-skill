@@ -66,10 +66,11 @@ Python 3, optionally Traycer CLI/Host.
 
 ## Current Status
 
-- **Last updated**: 2026-08-31 (iteration closed)
-- **Current iteration goal**: COMPLETE. Shipped Claude Code plugin distribution (v2.0.1, install verified), stdlib-only packaging guards, and the repository's first CI Verification Gate. Homebrew tap deferred to the next round.
-- **Next iteration**: Homebrew tap (ADR-007) — needs a tagged tarball, which now exists at `v2.0.1`.
-- **Open PRs**: none
+- **Last updated**: 2026-09-05 (v2.1.0 round opened)
+- **Current iteration goal**: v2.1.0 — close the four open Issues and borrow code-minimalism and completion-evidence discipline into the role prompts. Seven PRs, forced serial: arch docs, Issue #16 (external-review inspector), Issue #20 (role-prompt discipline), Issue #3 (adapter-layer report-back), Issue #19 in two parts (repository identity, then liveness preflight with Issue #17), then the release.
+- **Architecture decisions this round**: ADR-008 reframes repository identity as a capability question rather than a verification question. ADR-009 reclassifies the read-only AST guard as a CI-time authorship lint rather than a security control. Both are recorded ahead of the implementation PRs that depend on them.
+- **Next iteration**: Homebrew tap (ADR-007) — needs a tagged tarball, which exists at `v2.0.1`. Two follow-ups will be filed by this round's release PR: a GitHub App installation token for true per-run credential scoping, and a loopback fake `gh` host for resolver fixtures.
+- **Open PRs**: see `gh pr list`; this round runs one PR at a time.
 - **Known tech debt**: see the bottom of `docs/feature-log.md`
 
 ---
