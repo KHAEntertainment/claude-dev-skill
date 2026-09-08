@@ -189,11 +189,17 @@ def parse_identity(
     check_markers.setdefault(reviewer, set()).update(aliases)
 
 
-def run_json(command: list[str]) -> Any:
+def run_json(command: list[str], *, snapshot: Path | None = None) -> Any:
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise InspectionError(f"command failed ({' '.join(command)}): {detail}")
+    if snapshot is not None:
+        try:
+            with snapshot.open("x", encoding="utf-8", newline="") as output:
+                output.write(completed.stdout)
+        except OSError as exc:
+            raise InspectionError(f"cannot persist payload snapshot {snapshot}: {exc}") from exc
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -257,7 +263,7 @@ query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
     return threads
 
 
-def fetch_pr(repo: str, pr_number: int) -> dict[str, Any]:
+def fetch_pr(repo: str, pr_number: int, snapshot: Path | None = None) -> dict[str, Any]:
     value = run_json(
         [
             "rtk",
@@ -269,7 +275,8 @@ def fetch_pr(repo: str, pr_number: int) -> dict[str, Any]:
             repo,
             "--json",
             "number,headRefOid,reviewRequests,reviews,latestReviews,statusCheckRollup,comments",
-        ]
+        ],
+        snapshot=snapshot,
     )
     if not isinstance(value, dict):
         raise InspectionError("gh pr view did not return an object")
@@ -452,7 +459,6 @@ def inspect(
             check_failed.add(reviewer)
         elif conclusion in {"success", "neutral", "skipped"} or status in {"success", "completed"}:
             check_complete.add(reviewer)
-            completed_on_head.add(reviewer)
 
     stale_reviewers: set[str] = set()
     for review in iter_reviews(current):
@@ -478,10 +484,37 @@ def inspect(
         )
 
     untriaged_reviewers = {finding["reviewer"] for finding in untriaged}
-    pending_reviewers = set(check_pending) | requested | stale_reviewers
-    pending_reviewers.update(expected - completed_on_head)
-    pending_reviewers.update(untriaged_reviewers)
-    pending_reviewers -= check_complete - stale_reviewers - requested - check_pending - untriaged_reviewers
+    pending_reviewers = (
+        check_pending | requested | stale_reviewers | untriaged_reviewers
+        | (expected - completed_on_head)
+    )
+    check_only_reviewers = check_complete - completed_on_head
+    pending_reasons: dict[str, list[str]] = {}
+    for reviewer in sorted(pending_reviewers):
+        reasons = []
+        if reviewer in check_only_reviewers:
+            reasons.append(
+                "status check succeeded or completed but no submitted review or review thread exists at head"
+            )
+        if reviewer in stale_reviewers:
+            reasons.append("submitted review exists only at an earlier head")
+        if reviewer in check_pending:
+            reasons.append("reviewer status check is pending")
+        if reviewer in requested:
+            reasons.append("review request is outstanding")
+        if reviewer in untriaged_reviewers:
+            reasons.append("current-head findings need a disposition")
+        pending_reasons[reviewer] = reasons or ["no review evidence at head"]
+
+    # This is a structural signal only; PR comments do not prove review work
+    # at head, and their wording does not establish why a reviewer is parked.
+    parked_comments = []
+    for comment in list_value(current.get("comments")):
+        if not isinstance(comment, dict):
+            continue
+        reviewer = reviewer_for_login(login_from(comment), policy)
+        if reviewer in check_only_reviewers:
+            parked_comments.append({"reviewer": reviewer, "url": str(comment.get("url") or "")})
 
     known_logins = {
         normalize(identity)
@@ -532,6 +565,9 @@ def inspect(
         "requested_reviewers": sorted(requested),
         "completed_on_head": sorted(completed_on_head),
         "pending_reviewers": sorted(pending_reviewers),
+        "check_only_reviewers": sorted(check_only_reviewers),
+        "pending_reasons": pending_reasons,
+        "parked_comments": parked_comments,
         "stale_reviewers": sorted(stale_reviewers),
         "findings": thread_findings,
         "blocking_findings": blocking,
@@ -574,6 +610,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ignored-reviewer", action="append", default=[])
     parser.add_argument("--identity", action="append", default=[], metavar="REVIEWER=LOGIN[,LOGIN]")
     parser.add_argument("--dispositions", type=Path)
+    parser.add_argument("--payload-snapshot", type=Path, help="save verbatim current-PR JSON to a new file (live mode)")
     return parser.parse_args()
 
 
@@ -581,6 +618,9 @@ def main() -> int:
     args = parse_args()
     if args.repo and not args.pr:
         print("ERROR: --pr is required with --repo", file=sys.stderr)
+        return 2
+    if args.fixture and args.payload_snapshot:
+        print("ERROR: --payload-snapshot requires live --repo mode", file=sys.stderr)
         return 2
     if args.recent_pr_limit < 0 or args.recent_pr_limit > 20:
         print("ERROR: --recent-pr-limit must be between 0 and 20", file=sys.stderr)
@@ -620,7 +660,7 @@ def main() -> int:
         if args.fixture:
             current, threads, recent = load_fixture(args.fixture)
         else:
-            current = fetch_pr(args.repo, args.pr)
+            current = fetch_pr(args.repo, args.pr, args.payload_snapshot)
             threads = fetch_threads(args.repo, args.pr)
             recent = fetch_recent(args.repo, args.pr, args.recent_pr_limit)
         result = inspect(

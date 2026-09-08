@@ -1,0 +1,26 @@
+{
+  "current": {
+    "number": 21,
+    "headRefOid": "current-head",
+    "reviewRequests": [],
+    "reviews": [],
+    "latestReviews": [],
+    "statusCheckRollup": [
+      {
+        "context": "CodeRabbit",
+        "state": "SUCCESS"
+      }
+    ],
+    "comments": [
+      {
+        "author": {
+          "login": "coderabbitai"
+        },
+        "body": "Reviewer status update.",
+        "url": "https://github.com/example/project/pull/21#issuecomment-1"
+      }
+    ]
+  },
+  "threads": [],
+  "recent": []
+}

@@ -37,6 +37,80 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_green_check_preserves_stale_review(self):
+        result = inspect_fixture("green-check-stale-review.json")
+        self.assertEqual(result["state"], "pending", result)
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+        self.assertEqual(result["completed_on_head"], [])
+
+    def test_green_check_without_review_is_pending(self):
+        result = inspect_fixture("green-check-no-review.json")
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["check_only_reviewers"], ["coderabbit"])
+        self.assertIn("no submitted review or review thread", result["pending_reasons"]["coderabbit"][0])
+        self.assertEqual(result["parked_comments"], [{
+            "reviewer": "coderabbit",
+            "url": "https://github.com/example/project/pull/21#issuecomment-1",
+        }])
+
+    def test_check_only_comment_detection_is_body_independent(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        for body in (None, "", "rate limit", "Review complete", "unrelated"):
+            with self.subTest(body=body):
+                current["comments"][0]["body"] = body
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(len(result["parked_comments"]), 1)
+        current["comments"] = None
+        result = MODULE.inspect(current, threads, recent, policy(), {})
+        self.assertEqual(result["parked_comments"], [])
+        self.assertEqual(result["state"], "pending")
+
+    def test_green_check_with_real_head_review_clears(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
+        current["reviews"].append({"id": "new-review", "author": {"login": "coderabbitai"},
+                                   "state": "COMMENTED", "commit": {"oid": "current-head"}})
+        result = MODULE.inspect(current, threads, recent, policy(), {})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["check_only_reviewers"], [])
+        self.assertEqual(result["stale_reviewers"], [])
+
+    def test_green_check_with_head_thread_counts_as_evidence(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        threads = [{"id": "thread", "comments": [{"author": {"login": "coderabbitai"},
+                    "commit": {"oid": "current-head"}, "body": "Finding"}]}]
+        result = MODULE.inspect(current, threads, recent, policy(), {"thread": "advisory"})
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+
+    def test_failed_or_pending_status_is_not_completion(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
+        for status, state in (("PENDING", "pending"), ("FAILURE", "incomplete")):
+            with self.subTest(status=status):
+                current["statusCheckRollup"][0]["state"] = status
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], state)
+                self.assertEqual(result["completed_on_head"], [])
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_payload_snapshot_preserves_exact_response_and_cannot_overwrite(self):
+        raw = ' { "headRefOid": "head", "comments": [] }\n'
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "payload.json"
+            with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw, "")):
+                value = MODULE.fetch_pr("owner/repo", 1, snapshot)
+                self.assertEqual(value, json.loads(raw))
+                self.assertEqual(snapshot.read_text(), raw)
+                with self.assertRaises(MODULE.InspectionError):
+                    MODULE.fetch_pr("owner/repo", 1, snapshot)
+                self.assertEqual(snapshot.read_text(), raw)
+
+    def test_dependency_failure_is_not_empty_success(self):
+        with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "permission denied")):
+            with self.assertRaisesRegex(MODULE.InspectionError, "permission denied"):
+                MODULE.fetch_pr("owner/repo", 1)
+
     def test_no_reviewer_is_not_applicable(self):
         result = inspect_fixture("no-reviewer.json")
         self.assertEqual(result["state"], "not_applicable")
