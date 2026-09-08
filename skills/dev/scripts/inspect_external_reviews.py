@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -195,11 +197,22 @@ def run_json(command: list[str], *, snapshot: Path | None = None) -> Any:
         detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise InspectionError(f"command failed ({' '.join(command)}): {detail}")
     if snapshot is not None:
+        temporary = None
         try:
-            with snapshot.open("x", encoding="utf-8", newline="") as output:
+            # Publish only a complete, closed file. A hard link creates the
+            # destination atomically without replacing an existing snapshot.
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="", dir=snapshot.parent,
+                prefix=f".{snapshot.name}.", delete=False,
+            ) as output:
+                temporary = Path(output.name)
                 output.write(completed.stdout)
+            os.link(temporary, snapshot)
         except OSError as exc:
             raise InspectionError(f"cannot persist payload snapshot {snapshot}: {exc}") from exc
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -466,7 +479,10 @@ def inspect(
         if not reviewer or reviewer in policy.ignored:
             continue
         oid = commit_oid(review)
-        if oid and head_oid and oid == head_oid:
+        # Only explicit submitted states establish completion. Missing,
+        # unknown, draft, and dismissed states are not positive evidence.
+        submitted = normalize(review.get("state")) in {"approved", "changes_requested", "commented"}
+        if oid and head_oid and oid == head_oid and submitted:
             completed_on_head.add(reviewer)
         elif oid and head_oid and oid != head_oid:
             stale_reviewers.add(reviewer)

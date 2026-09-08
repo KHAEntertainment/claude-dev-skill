@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import errno
 import json
 import subprocess
 import sys
@@ -37,6 +38,55 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
 
 
 class ExternalReviewInspectorTests(unittest.TestCase):
+    def test_unsubmitted_head_review_does_not_erase_old_objection(self):
+        result = inspect_fixture("unsubmitted-review-at-head.json")
+        self.assertEqual(result["state"], "pending")
+        self.assertEqual(result["completed_on_head"], [])
+        self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+
+    def test_only_explicit_submitted_states_count(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "unsubmitted-review-at-head.json")
+        review = current["reviews"][-1]
+        for state in (None, "", "UNKNOWN", "PENDING", "DISMISSED"):
+            with self.subTest(state=state):
+                review["state"] = state
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(result["stale_reviewers"], ["coderabbit"])
+        del review["state"]
+        self.assertEqual(MODULE.inspect(current, threads, recent, policy(), {})["state"], "pending")
+        for state in ("COMMENTED", "APPROVED", "CHANGES_REQUESTED"):
+            with self.subTest(state=state):
+                review["state"] = state
+                review["submittedAt"] = "2026-09-08T20:00:00Z"
+                result = MODULE.inspect(current, threads, recent, policy(), {})
+                self.assertEqual(result["completed_on_head"], ["coderabbit"])
+                self.assertEqual(result["stale_reviewers"], [])
+
+    def test_failed_snapshot_write_leaves_no_partial_and_retry_succeeds(self):
+        raw = ' { "number": 21, "headRefOid": "head" }\n'
+        original = MODULE.tempfile.NamedTemporaryFile
+        def disk_full_file(*args, **kwargs):
+            output = original(*args, **kwargs)
+            real_write = output.write
+            def partial_write(value):
+                real_write(value[:12])
+                output.flush()
+                raise OSError(errno.ENOSPC, "disk full")
+            output.write = partial_write
+            return output
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "payload.json"
+            with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw, "")):
+                with mock.patch.object(MODULE.tempfile, "NamedTemporaryFile", side_effect=disk_full_file):
+                    with self.assertRaisesRegex(MODULE.InspectionError, "disk full"):
+                        MODULE.fetch_pr("owner/repo", 21, snapshot)
+                self.assertFalse(snapshot.exists())
+                self.assertEqual(list(Path(directory).iterdir()), [])
+                MODULE.fetch_pr("owner/repo", 21, snapshot)
+                self.assertEqual(snapshot.read_text(), raw)
+                self.assertEqual(list(Path(directory).iterdir()), [snapshot])
+
     def test_green_check_preserves_stale_review(self):
         result = inspect_fixture("green-check-stale-review.json")
         self.assertEqual(result["state"], "pending", result)
@@ -174,8 +224,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_current_review_supersedes_older_review_from_same_reviewer(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "no-reviewer.json")
         current["reviews"] = [
-            {"id": "old", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
-            {"id": "new", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
+            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
+            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
         ]
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")
