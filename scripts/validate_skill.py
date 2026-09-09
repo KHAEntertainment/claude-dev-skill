@@ -261,6 +261,14 @@ def main() -> int:
         # happened was that nothing arrived. Precedence is part of the
         # taxonomy - two adapters deriving it independently is how they drift.
         "An empty read is never evidence of a reply's shape or of its transport.",
+        # Three adapters instructed recording a verdict and cause into a ledger
+        # with no field for either, so every lead would have invented a shape.
+        # The cause is the half that selects the remedy; a verdict without one
+        # records that something failed and discards what to do about it.
+        "A `report_back: incomplete` with a null cause is an invalid record.",
+        # And the clean lane records too, or "reported and verified" and "never
+        # checked" are the same absence - this contract's own failure mode.
+        "A lane is never `complete` by never having been looked at.",
     )
     for token in required_policy:
         if token not in combined:
@@ -299,6 +307,15 @@ def main() -> int:
             "Paging must be bounded",
             "decided by which condition ended the read",
             "An empty read is never evidence of a reply's shape or of its transport.",
+            "A verified report is recorded too, not only a failed one.",
+        ),
+        # The ledger is the other half of Issue #3's "recorded in
+        # .agent/dev-state.md": a contract pointing at a field that does not
+        # exist is not a recorded verdict.
+        "templates/DEV_STATE_TEMPLATE.md": (
+            "report_back_cause",
+            "A `report_back: incomplete` with a null cause is an invalid record.",
+            "A lane is never `complete` by never having been looked at.",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it

@@ -69,6 +69,12 @@ REPORT_BACK_SECTIONS = (
 )
 
 
+# The cause taxonomy, held once for the same reason as the section names: the
+# contract defines these and the ledger has to store exactly them. Two lists
+# would let the adapters record a cause the ledger cannot hold.
+REPORT_BACK_CAUSES = ("absent", "malformed", "truncated")
+
+
 def _markdown_section(text: str, heading: str) -> str | None:
     """Return the body under `heading` up to the next same-level heading."""
     match = re.search(
@@ -89,6 +95,16 @@ def _bullet(text: str, starts_with: str) -> str | None:
         rf"^- {re.escape(starts_with)}.*?(?=^- |\Z)", text, re.M | re.S
     )
     return match.group(0) if match else None
+
+
+def _line_starting(text: str, prefix: str) -> str | None:
+    """Return the single line beginning with `prefix`.
+
+    Same reason as `_bullet`: an enumeration has to be asserted against the
+    line that enumerates it, or a renamed value is still "found" in some other
+    field's vocabulary elsewhere in the file.
+    """
+    return next((line for line in text.splitlines() if line.startswith(prefix)), None)
 
 
 def _table_row(text: str, operation: str) -> str | None:
@@ -260,6 +276,63 @@ class BackendContractTests(unittest.TestCase):
             "stopped",
         ):
             self.assertIn(f"`{status}`", state)
+
+    def test_ledger_can_hold_the_verdict_the_adapters_record(self) -> None:
+        # All three adapters instructed recording `report_back` into
+        # `.agent/dev-state.md`, which had no such field - so every lead would
+        # have invented a shape and the record would be unusable as an audit
+        # trail. Issue #3's criterion is "recorded in .agent/dev-state.md";
+        # the ledger is the other half of it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        contract = self.read("backends/contract.md")
+        self.assertIn("`report_back`", state)
+        self.assertIn("`report_back_cause`", state)
+        # The field is on the per-lane record, not floating in prose.
+        workers = _markdown_section(state, "## Worker record schema")
+        self.assertIsNotNone(workers, "template has no worker record schema")
+        self.assertIn("`report_back`", workers)
+        self.assertIn("`report_back_cause`", workers)
+        # The ledger stores exactly the causes the contract defines. Asserted
+        # from one list so the two cannot drift into a cause the ledger cannot
+        # hold, or a field the adapters never produce.
+        # Scoped to the line that enumerates them. File-wide, `incomplete` and
+        # `complete` already appear as a `backend_source` result and a worker
+        # status, so a renamed cause here could still be "found" against an
+        # unrelated field's vocabulary.
+        allowed = _line_starting(state, "Allowed `report_back_cause` values:")
+        self.assertIsNotNone(allowed, "template does not enumerate the causes")
+        for cause in REPORT_BACK_CAUSES:
+            with self.subTest(cause=cause):
+                self.assertIn(f"`{cause}`", allowed)
+                self.assertIn(f"`{cause}`", contract)
+
+    def test_an_incomplete_verdict_cannot_discard_its_cause(self) -> None:
+        # The verdict says the lane is unverified; the cause is the only field
+        # that selects the remedy. A verdict with a null cause is the same
+        # defect one level down from the one this PR closes - recording that
+        # something failed while throwing away what to do about it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn(
+            "A `report_back: incomplete` with a null cause is an invalid record.",
+            state,
+        )
+
+    def test_a_clean_lane_is_recorded_not_left_blank(self) -> None:
+        # Without a positive record, "reported and verified" and "never looked
+        # at" are the same absence in the ledger - which is precisely the
+        # failure the report-back contract exists to detect, reappearing in the
+        # audit trail of the mechanism that detects it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        allowed = _line_starting(state, "Allowed `report_back` values:")
+        self.assertIsNotNone(allowed, "template does not enumerate report_back values")
+        for value in ("`pending`", "`complete`", "`incomplete`"):
+            with self.subTest(value=value):
+                self.assertIn(value, allowed)
+        self.assertIn("A lane is never `complete` by never having been looked at.", state)
+        self.assertIn(
+            "A verified report is recorded too, not only a failed one.",
+            self.read("backends/contract.md"),
+        )
 
     def test_qa_and_reviewer_are_distinct_clean_current_head_lanes(self) -> None:
         qa = self.read("agents/qa-agent.md")
@@ -518,9 +591,9 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("Absence of a report is not a report.", contract)
         self.assertIn("the same verdict, not a lesser case", contract)
         self.assertIn("report_back: incomplete", contract)
-        for cause in ("`absent`", "`malformed`", "`truncated`"):
+        for cause in REPORT_BACK_CAUSES:
             with self.subTest(cause=cause):
-                self.assertIn(cause, contract)
+                self.assertIn(f"`{cause}`", contract)
 
     def test_heading_presence_has_a_non_empty_floor(self) -> None:
         # Presence-only recognition is deliberate - the lead judges content -
