@@ -251,6 +251,17 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("Not test-executable", qa)
         self.assertIn("Test-executable but not executed", qa)
 
+    def test_coverage_term_does_not_double_count_failed_criteria(self) -> None:
+        # A failed criterion already reduced the ratio. Deducting coverage on
+        # top of it penalises the same fact twice and can push legitimate work
+        # under the 80 threshold for arithmetic reasons rather than quality.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("10 per PASSED test-executable acceptance criterion", qa)
+        self.assertIn("The coverage term applies only to criteria that passed.", qa)
+        self.assertIn(
+            "Never apply a coverage deduction to a criterion you marked failed.", qa
+        )
+
     def test_project_context_defers_role_routing_to_the_selection_guide(self) -> None:
         # PROJECT_CONTEXT.md outranks the agent selection guide in the adapter's
         # resolution order, so any route restated here silently overrides newer

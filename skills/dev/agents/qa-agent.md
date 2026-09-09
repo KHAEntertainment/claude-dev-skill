@@ -91,9 +91,11 @@ restating it.
    (passed acceptance criteria / total acceptance criteria) × 100
      - 20 per Critical/High
      - 5  per Medium
-     - 10 per test-executable acceptance criterion
+     - 10 per PASSED test-executable acceptance criterion
           not verified by test execution
    ```
+
+   **The coverage term applies only to criteria that passed.** A failed criterion has already reduced the first term by lowering the ratio; taking a coverage deduction on top of it counts the same fact twice and pushes legitimate work below 80 for arithmetic reasons rather than quality ones. Never apply a coverage deduction to a criterion you marked failed.
 
    The last term is the coverage term. Without it the score answers only "how much was found wrong", and a clean lane is indistinguishable from one that never ran. A lane that executed everything it could deducts nothing here and scores exactly as it would have before this term existed.
 
@@ -108,7 +110,7 @@ restating it.
 10. **Limitations are load-bearing.** Every entry in the Limitations section is unexecuted verification, and each entry must resolve to exactly one of:
 
     - **Not test-executable** — pinning it would need infrastructure this project does not have, or it lies outside the Tool Capability Boundary: cannot start a service, cannot drive a UI, cannot reproduce a race. No deduction. This is the only resolution that costs nothing, which is exactly why its basis is mandatory and must name the missing infrastructure.
-    - **Test-executable but not executed** — carries the step 9 coverage deduction against each acceptance criterion it leaves unverified. A lane that could have run the check and did not should not reach 80.
+    - **Test-executable but not executed** — carries the step 9 coverage deduction against each *passed* acceptance criterion it leaves unverified. A lane that could have run the check and did not should not reach 80.
     - **A procedure step you skipped** — this blocks the pass. Either run it, or fail the lane and say why it was not run.
 
     An entry that resolves to none of these is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.

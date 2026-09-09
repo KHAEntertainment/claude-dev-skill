@@ -171,6 +171,10 @@ def main() -> int:
         # legitimately reach different numbers.
         "Test-executable is a decidable predicate",
         "without new infrastructure",
+        # A failed criterion already lowers the ratio; deducting coverage on
+        # top of it counts the same fact twice and fails legitimate work for
+        # arithmetic reasons. Found by the formula's first real use.
+        "The coverage term applies only to criteria that passed.",
     )
     for token in required_policy:
         if token not in combined:
