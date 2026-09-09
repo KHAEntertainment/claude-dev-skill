@@ -28,10 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Keep these two lists in step with the ShellCheck and syntax checks in
+      # scripts/verify.sh. Omitting verify.sh here left it linted only by
+      # itself, so a lint error in the gate could reach main through CI.
       - name: Check Bash syntax
-        run: bash -n install.sh
+        run: |
+          bash -n install.sh
+          bash -n scripts/verify.sh
       - name: Lint shell scripts
-        run: shellcheck install.sh tests/test-install.sh scripts/check_plugin_root.sh
+        run: shellcheck install.sh tests/test-install.sh scripts/check_plugin_root.sh scripts/verify.sh
 
   installer:
     name: Bash installer (${{ matrix.os }})

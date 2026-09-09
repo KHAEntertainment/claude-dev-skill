@@ -2,11 +2,26 @@
 # Invoke directly; the shebang fixes the interpreter regardless of interactive shell.
 set -uo pipefail
 
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." || exit 1
 failed=0
 not_run=0
 passed=0
 skipped=0
+# Every skip records what it leaves unverified, so the terminal line can name
+# the gap instead of reporting a bare pass over untested code.
+skipped_notes=()
+
+# printf, not cat: usage must still print when PATH holds no external tools.
+usage() {
+    printf '%s\n' \
+        'Usage: scripts/verify.sh [--require-all]' \
+        '' \
+        '  --require-all   Treat any skipped check as a failure (exit non-zero).' \
+        '                  Equivalent to VERIFY_REQUIRE_ALL=1. Intended for CI and' \
+        '                  release checks, where "not run" must not read as "passed".' \
+        '' \
+        'By default an optional skip still exits 0, but the terminal line names the' \
+        'skip and what it leaves unverified.'
+}
 
 run_check() {
     local name=$1 code
@@ -22,6 +37,56 @@ run_check() {
         *) printf 'FAILED: %s (exit %s)\n' "$name" "$code"; failed=$((failed + 1)) ;;
     esac
 }
+
+# record_skip <reported reason> <what stays unverified>
+record_skip() {
+    printf '\nSKIPPED: %s\n' "$1"
+    skipped=$((skipped + 1))
+    skipped_notes+=("$2")
+}
+
+# report_summary [require_all] -- prints the summary and terminal line, and
+# returns the gate's exit status. A skip never hides behind a bare GATE PASSED.
+report_summary() {
+    local require_all=${1:-0} note notes=""
+
+    printf '\nSUMMARY: %s passed, %s failed, %s did-not-run, %s optional skipped\n' \
+        "$passed" "$failed" "$not_run" "$skipped"
+
+    if (( failed > 0 || not_run > 0 )); then
+        printf 'GATE FAILED\n'
+        return 1
+    fi
+
+    if (( skipped > 0 )); then
+        for note in "${skipped_notes[@]}"; do
+            [[ -n $notes ]] && notes+="; "
+            notes+="$note"
+        done
+        if (( require_all )); then
+            printf 'GATE FAILED (strict): %s skipped - %s\n' "$skipped" "$notes"
+            return 1
+        fi
+        printf 'GATE PASSED WITH %s SKIPPED - %s\n' "$skipped" "$notes"
+        return 0
+    fi
+
+    printf 'GATE PASSED\n'
+    return 0
+}
+
+require_all=0
+[[ ${VERIFY_REQUIRE_ALL:-0} == 1 ]] && require_all=1
+while (( $# > 0 )); do
+    case "$1" in
+        --require-all) require_all=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) printf 'verify.sh: unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." || exit 1
 
 run_check 'ShellCheck' shellcheck install.sh tests/test-install.sh scripts/check_plugin_root.sh scripts/verify.sh
 run_check 'Installer syntax' bash -n install.sh
@@ -39,13 +104,10 @@ if command -v pwsh >/dev/null 2>&1; then
 elif [[ ${OS:-} == Windows_NT ]]; then
     run_check 'PowerShell installer tests' pwsh tests/test-install.ps1
 else
-    printf '\nSKIPPED: PowerShell installer tests (pwsh absent; optional off Windows; exit n/a)\n'
-    skipped=$((skipped + 1))
+    record_skip \
+        'PowerShell installer tests (pwsh absent; optional off Windows; exit n/a)' \
+        'PowerShell installer tests did not run; install.ps1 is unverified'
 fi
 
-printf '\nSUMMARY: %s passed, %s failed, %s did-not-run, %s optional skipped\n' "$passed" "$failed" "$not_run" "$skipped"
-if (( failed > 0 || not_run > 0 )); then
-    printf 'GATE FAILED\n'
-    exit 1
-fi
-printf 'GATE PASSED\n'
+report_summary "$require_all"
+exit $?

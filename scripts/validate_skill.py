@@ -128,6 +128,7 @@ def main() -> int:
         "Allow automatic review requests",
         "--trusted-reviewer",
         "false_positive",
+        "review evidence alone never establishes satisfaction",
         "incomplete",
         "TRAYCER_AGENT_ID",
         "TRAYCER_EPIC_ID",

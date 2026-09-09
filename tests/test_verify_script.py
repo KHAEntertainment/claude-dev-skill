@@ -11,8 +11,11 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "verify.sh"
 
 
-class VerifyScriptTests(unittest.TestCase):
-    def run_gate(self, *, shellcheck=None, executable=True, pwsh=False, windows=False):
+class GateHarness:
+    """Runs the real gate entrypoint against stub tools. Mixin, not a TestCase."""
+
+    def run_gate(self, *, shellcheck=None, executable=True, pwsh=False, windows=False,
+                 args=(), env_extra=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
@@ -37,12 +40,23 @@ class VerifyScriptTests(unittest.TestCase):
                 tool = binaries / "pwsh"
                 tool.write_text("#!/bin/bash\nexit 0\n")
                 tool.chmod(0o755)
-            env = {**os.environ, "PATH": str(binaries), "OS": "Windows_NT" if windows else "Linux"}
+            # Pin strict mode off unless a case asks for it, so an ambient
+            # VERIFY_REQUIRE_ALL in the caller's environment cannot change
+            # what these assertions are measuring.
+            env = {**os.environ, "PATH": str(binaries), "OS": "Windows_NT" if windows else "Linux",
+                   "VERIFY_REQUIRE_ALL": "0"}
+            env.update(env_extra or {})
             return subprocess.run(
-                ["/bin/bash", str(root / "scripts" / "verify.sh")],
+                ["/bin/bash", str(root / "scripts" / "verify.sh"), *args],
                 cwd="/", env=env, text=True, capture_output=True, check=False,
             )
 
+    def terminal_line(self, result):
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        return lines[-1] if lines else ""
+
+
+class VerifyScriptTests(GateHarness, unittest.TestCase):
     def test_all_checks_pass(self):
         result = self.run_gate(shellcheck=0, pwsh=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -81,3 +95,72 @@ class VerifyScriptTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("NOT RUN (did-not-run): PowerShell installer tests (exit 127)", result.stdout)
         self.assertNotIn("SKIPPED", result.stdout)
+
+
+class VerifyScriptSkipReportingTests(GateHarness, unittest.TestCase):
+    """A skipped check must not hide behind a bare GATE PASSED (Issue #22 req 3)."""
+
+    SKIP_NOTE = "PowerShell installer tests did not run; install.ps1 is unverified"
+
+    def test_all_clear_terminal_line_is_bare_gate_passed(self):
+        self.assertEqual(
+            self.terminal_line(self.run_gate(shellcheck=0, pwsh=True)),
+            "GATE PASSED",
+        )
+
+    def test_skip_terminal_line_names_the_skip_and_what_is_unverified(self):
+        result = self.run_gate(shellcheck=0)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            self.terminal_line(result),
+            f"GATE PASSED WITH 1 SKIPPED - {self.SKIP_NOTE}",
+        )
+
+    def test_skip_terminal_line_differs_from_all_clear(self):
+        # The point of the change: the two outcomes cannot be confused.
+        self.assertNotEqual(
+            self.terminal_line(self.run_gate(shellcheck=0)),
+            self.terminal_line(self.run_gate(shellcheck=0, pwsh=True)),
+        )
+
+    def test_skip_still_exits_zero_by_default(self):
+        # Skips stay non-fatal by default; a gate people stop running is worse.
+        self.assertEqual(self.run_gate(shellcheck=0).returncode, 0)
+
+
+class VerifyScriptStrictModeTests(GateHarness, unittest.TestCase):
+    """--require-all / VERIFY_REQUIRE_ALL turn any skip into a failure."""
+
+    def test_require_all_flag_fails_on_skip(self):
+        result = self.run_gate(shellcheck=0, args=("--require-all",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GATE FAILED (strict)", self.terminal_line(result))
+        self.assertIn("install.ps1 is unverified", self.terminal_line(result))
+
+    def test_require_all_env_var_fails_on_skip(self):
+        result = self.run_gate(shellcheck=0, env_extra={"VERIFY_REQUIRE_ALL": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GATE FAILED (strict)", self.terminal_line(result))
+
+    def test_strict_mode_passes_when_nothing_is_skipped(self):
+        result = self.run_gate(shellcheck=0, pwsh=True, args=("--require-all",))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.terminal_line(result), "GATE PASSED")
+
+    def test_real_failure_still_reads_as_gate_failed_under_strict(self):
+        # A genuine failure must not be relabelled as a skip.
+        result = self.run_gate(shellcheck=1, args=("--require-all",))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.terminal_line(result), "GATE FAILED")
+
+    def test_unknown_argument_is_rejected_before_any_check_runs(self):
+        result = self.run_gate(shellcheck=0, args=("--nope",))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown argument", result.stderr)
+        self.assertNotIn("RUN:", result.stdout)
+
+    def test_help_exits_zero_without_running_checks(self):
+        result = self.run_gate(shellcheck=0, args=("--help",))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--require-all", result.stdout)
+        self.assertNotIn("RUN:", result.stdout)

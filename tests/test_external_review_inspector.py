@@ -109,9 +109,11 @@ class ExternalReviewInspectorTests(unittest.TestCase):
                     self.assertEqual(result["stale_reviewers"], ["coderabbit"] if submitted else [])
                     reasons = result["pending_reasons"]["coderabbit"]
                     if submitted:
-                        self.assertIn("submitted review exists only at an earlier head", reasons)
+                        self.assertIn("submitted review at an earlier head requested changes", reasons)
                     else:
-                        self.assertNotIn("submitted review exists only at an earlier head", reasons)
+                        # Stricter than matching one literal: no stale reason of
+                        # any wording may appear for an unsubmitted state.
+                        self.assertFalse(any("earlier head" in reason for reason in reasons))
                         self.assertTrue(any("no " in reason for reason in reasons))
 
     def test_unsubmitted_head_review_does_not_erase_old_objection(self):
@@ -196,7 +198,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_green_check_with_real_head_review_clears(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
         current["reviews"].append({"id": "new-review", "author": {"login": "coderabbitai"},
-                                   "state": "COMMENTED", "commit": {"oid": "current-head"}})
+                                   "state": "COMMENTED", "submittedAt": "2026-09-08T12:00:00Z",
+                                   "commit": {"oid": "current-head"}})
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")
         self.assertEqual(result["check_only_reviewers"], [])
@@ -268,6 +271,7 @@ class ExternalReviewInspectorTests(unittest.TestCase):
                 "id": "copilot-review",
                 "author": {"login": "copilot-pull-request-reviewer"},
                 "state": "COMMENTED",
+                "submittedAt": "2026-09-08T12:00:00Z",
                 "commit": {"oid": "head-10"},
             }
         ]
@@ -300,8 +304,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_current_review_supersedes_older_review_from_same_reviewer(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "no-reviewer.json")
         current["reviews"] = [
-            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
-            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
+            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "submittedAt": "2026-09-08T11:00:00Z", "commit": {"oid": "old-head"}},
+            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "submittedAt": "2026-09-08T12:00:00Z", "commit": {"oid": "head-10"}},
         ]
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")
@@ -454,6 +458,147 @@ class ExternalReviewInspectorTests(unittest.TestCase):
             )
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(json.loads(completed.stdout)["state"], "incomplete")
+
+
+class VerdictRegressionTests(unittest.TestCase):
+    def make(self, states):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":s,"commit":{"oid":"current-head"},"submittedAt":t} for s,t in states]
+        return MODULE.inspect(current, threads, recent, policy(), {})
+    def test_changes_requested_blocks(self): self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
+    def test_approved_clears(self): self.assertEqual(self.make([("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_commented_clears(self): self.assertEqual(self.make([("COMMENTED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_dismissed_pending(self): self.assertEqual(self.make([("DISMISSED","2026-09-08T20:00:00Z")])["state"], "pending")
+    def test_approval_after_rejection_clears(self): self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T19:00:00Z"),("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
+    def test_rejection_after_approval_blocks(self): self.assertEqual(self.make([("APPROVED","2026-09-08T19:00:00Z"),("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
+    def test_rejection_with_green_check_blocks(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T20:00:00Z"}]
+        self.assertEqual(MODULE.inspect(current, [], recent, policy(), {})["state"], "blocking")
+    def test_rejection_with_failing_check_stays_blocking_with_errors(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T20:00:00Z"}]
+        current["statusCheckRollup"] = [{"name":"CodeRabbit","status":"failure","conclusion":"failure"}]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "blocking")
+        self.assertTrue(result["errors"])
+
+    def test_errors_without_rejection_stay_incomplete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = [{"name":"CodeRabbit","status":"failure","conclusion":"failure"}]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "incomplete")
+
+    def head_review(self, state, submitted_at="__omit__"):
+        """One submitted review at head, with submittedAt controllable per case."""
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        review = {
+            "author": {"login": "coderabbitai"},
+            "state": state,
+            "commit": {"oid": "current-head"},
+        }
+        if submitted_at != "__omit__":
+            review["submittedAt"] = submitted_at
+        current["reviews"] = [review]
+        return MODULE.inspect(current, [], recent, policy(), {})
+
+    def assert_unorderable(self, result):
+        """A review with no usable timestamp never establishes completion."""
+        self.assertNotEqual(result["state"], "clear")
+        self.assertNotIn("coderabbit", result["completed_on_head"])
+        self.assertIn(
+            "submittedAt",
+            " ".join(result["pending_reasons"].get("coderabbit", [])),
+        )
+
+    def test_approval_at_head_with_valid_timestamp_still_clears(self):
+        result = self.head_review("APPROVED", "2026-09-08T20:00:00Z")
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+
+    def test_approval_at_head_with_missing_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED"))
+
+    def test_approval_at_head_with_null_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", None))
+
+    def test_approval_at_head_with_empty_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", ""))
+
+    def test_approval_at_head_with_blank_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", "   "))
+
+    def test_comment_at_head_with_missing_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("COMMENTED"))
+
+    def test_rejection_at_head_with_missing_timestamp_still_blocks(self):
+        # Fail closed both ways: an unorderable verdict cannot clear the gate,
+        # and it cannot soften a rejection we already read either.
+        result = self.head_review("CHANGES_REQUESTED")
+        self.assertEqual(result["state"], "blocking")
+        self.assertEqual(result["blocking_reviewers"], ["coderabbit"])
+
+    def test_untimestamped_approval_cannot_override_earlier_rejection(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [
+            {"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T19:00:00Z"},
+            {"author":{"login":"coderabbitai"},"state":"APPROVED","commit":{"oid":"current-head"}},
+        ]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "blocking")
+        self.assertEqual(result["blocking_reviewers"], ["coderabbit"])
+
+    def stale_review(self, state):
+        """One submitted review at an earlier head."""
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{
+            "author": {"login": "coderabbitai"},
+            "state": state,
+            "submittedAt": "2026-09-08T12:00:00Z",
+            "commit": {"oid": "old-head"},
+        }]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        return result, " ".join(result["pending_reasons"]["coderabbit"])
+
+    def test_stale_rejection_reason_names_the_rejection(self):
+        result, reasons = self.stale_review("CHANGES_REQUESTED")
+        self.assertEqual(result["state"], "pending")
+        self.assertIn("submitted review at an earlier head requested changes", reasons)
+
+    def test_stale_approval_reason_names_the_approval(self):
+        result, reasons = self.stale_review("APPROVED")
+        self.assertEqual(result["state"], "pending")
+        self.assertIn("submitted review at an earlier head approved", reasons)
+
+    def test_stale_rejection_and_approval_read_differently(self):
+        # Issue #29: these were byte-identical, so a lead recording a bypass
+        # could not say which kind of stale review they were waiving.
+        _, rejection = self.stale_review("CHANGES_REQUESTED")
+        _, approval = self.stale_review("APPROVED")
+        self.assertNotEqual(rejection, approval)
+
+    def test_stale_verdicts_do_not_change_merge_behaviour(self):
+        # Reporting only: both stay pending, exactly as before.
+        rejection, _ = self.stale_review("CHANGES_REQUESTED")
+        approval, _ = self.stale_review("APPROVED")
+        self.assertEqual(rejection["state"], "pending")
+        self.assertEqual(approval["state"], "pending")
+        self.assertEqual(rejection["stale_reviewers"], ["coderabbit"])
+        self.assertEqual(approval["stale_reviewers"], ["coderabbit"])
+
+    def test_stale_comment_reason_names_the_comment(self):
+        _, reasons = self.stale_review("COMMENTED")
+        self.assertIn("submitted review at an earlier head commented", reasons)
+
+    def test_older_rejection_is_pending(self):
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
+        self.assertEqual(MODULE.inspect(current, threads, recent, policy(), {})["state"], "pending")
 
 
 if __name__ == "__main__":

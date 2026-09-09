@@ -58,6 +58,13 @@ REQUEST_ALIASES: dict[str, set[str]] = {
 
 VALID_DISPOSITIONS = {"blocking", "advisory", "false_positive"}
 
+# Ordered so a reason reads the same way every time.
+STALE_VERDICT_PHRASES = (
+    ("changes_requested", "requested changes"),
+    ("approved", "approved"),
+    ("commented", "commented"),
+)
+
 
 class InspectionError(RuntimeError):
     """Raised when GitHub evidence cannot be retrieved or decoded."""
@@ -173,6 +180,20 @@ def reviewer_for_check(check: dict[str, Any], policy: ReviewerPolicy) -> str | N
         if any(normalize(marker) in identity for marker in markers):
             return reviewer
     return None
+
+
+def stale_review_reason(verdicts: set[str]) -> str:
+    """Name what the earlier-head review actually said.
+
+    A stale rejection and a stale approval used to render identically, so a
+    lead recording a bypass could not say which one they were waiving. This
+    only reports state already read; it changes no merge behaviour, and both
+    still leave the reviewer pending.
+    """
+    phrases = [phrase for verdict, phrase in STALE_VERDICT_PHRASES if verdict in verdicts]
+    if not phrases:
+        return "submitted review exists only at an earlier head"
+    return "submitted review at an earlier head " + ", ".join(phrases)
 
 
 def parse_identity(
@@ -492,6 +513,11 @@ def inspect(
             check_complete.add(reviewer)
 
     stale_reviewers: set[str] = set()
+    blocking_reviewers: set[str] = set()
+    head_review_verdicts: dict[str, str] = {}
+    head_review_times: dict[str, str] = {}
+    unorderable_verdicts: dict[str, set[str]] = {}
+    stale_verdicts: dict[str, set[str]] = {}
     for review in iter_reviews(current):
         reviewer = reviewer_for_login(login_from(review), policy)
         if not reviewer or reviewer in policy.ignored:
@@ -502,10 +528,35 @@ def inspect(
         # They intentionally enter neither set, even at head; observation still
         # makes the reviewer expected and pending without claiming review work.
         submitted = normalize(review.get("state")) in {"approved", "changes_requested", "commented"}
+        verdict = normalize(review.get("state"))
         if oid and head_oid and oid == head_oid and submitted:
-            completed_on_head.add(reviewer)
+            submitted_at = str(review.get("submittedAt") or "").strip()
+            if not submitted_at:
+                # A submitted review we cannot order is not positive evidence:
+                # it can never be shown to be the reviewer's latest word. Fail
+                # closed rather than reading a missing timestamp as a valid one.
+                # It is not dropped either -- an unorderable rejection still
+                # blocks below, and the reviewer stays pending with a reason.
+                unorderable_verdicts.setdefault(reviewer, set()).add(verdict)
+                continue
+            previous_time = head_review_times.get(reviewer)
+            if previous_time is None or submitted_at > previous_time or (submitted_at == previous_time and verdict == "changes_requested"):
+                head_review_times[reviewer] = submitted_at
+                head_review_verdicts[reviewer] = verdict
         elif oid and head_oid and oid != head_oid and submitted:
             stale_reviewers.add(reviewer)
+            stale_verdicts.setdefault(reviewer, set()).add(verdict)
+    for reviewer, verdict in head_review_verdicts.items():
+        completed_on_head.add(reviewer)
+        if verdict == "changes_requested":
+            blocking_reviewers.add(reviewer)
+    # An unorderable rejection is still a rejection we read, so it blocks. An
+    # unorderable approval or comment establishes nothing and leaves the
+    # reviewer pending.
+    unorderable_reviewers = set(unorderable_verdicts)
+    for reviewer, verdicts in unorderable_verdicts.items():
+        if "changes_requested" in verdicts:
+            blocking_reviewers.add(reviewer)
     stale_reviewers -= completed_on_head
 
     active_findings = [finding for finding in thread_findings if finding["active"]]
@@ -532,8 +583,13 @@ def inspect(
             reasons.append(
                 "status check succeeded or completed but no submitted review or review thread exists at head"
             )
+        if reviewer in unorderable_reviewers:
+            reasons.append(
+                "submitted review at head has a missing or unreadable submittedAt "
+                "timestamp, so it cannot be ordered and does not establish completion"
+            )
         if reviewer in stale_reviewers:
-            reasons.append("submitted review exists only at an earlier head")
+            reasons.append(stale_review_reason(stale_verdicts.get(reviewer, set())))
         if reviewer in check_pending:
             reasons.append("reviewer status check is pending")
         if reviewer in requested:
@@ -580,7 +636,11 @@ def inspect(
         if identity:
             unknown_bots.add(identity)
 
-    if errors:
+    # A known rejection outranks errors: an unreadable check must not soften a
+    # verdict we already read. Errors still surface in "errors" either way.
+    if blocking_reviewers:
+        state = "blocking"
+    elif errors:
         state = "incomplete"
     elif blocking:
         state = "blocking"
@@ -607,6 +667,8 @@ def inspect(
         "stale_reviewers": sorted(stale_reviewers),
         "findings": thread_findings,
         "blocking_findings": blocking,
+        "blocking_reviewers": sorted(blocking_reviewers),
+        "blocking_review_reasons": {reviewer: "latest submitted review at head requested changes" for reviewer in sorted(blocking_reviewers)},
         "untriaged_findings": untriaged,
         "unknown_bot_identities": sorted(unknown_bots),
         "errors": errors,

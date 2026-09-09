@@ -21,6 +21,7 @@
             "login": "coderabbitai[bot]"
           },
           "state": "COMMENTED",
+          "submittedAt": "2026-09-08T12:00:00Z",
           "commit": {
             "oid": "head-9"
           }
