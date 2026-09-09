@@ -578,6 +578,65 @@ class BackendContractTests(unittest.TestCase):
                 self.assertRegex(adapter, r"\*\*\d+\s+(?:pages|re-reads)\*\*")
                 self.assertRegex(adapter, r"\*\*\d+\s+seconds\*\*")
 
+    def test_absent_is_classified_before_shape_and_paging(self) -> None:
+        # The cause taxonomy was correct and ran too late. With shape or paging
+        # classified first, a lane that never replied records `malformed`
+        # (seven sections missing from nothing) or `truncated` (a cut in a
+        # reply that never existed) - each sending the lead to a remedy for a
+        # different failure than the one that happened. Found by external
+        # review at a real head, in `claude-native.md`, and present in
+        # `traycer.md` too: an empty inbox stalls like any non-advancing
+        # cursor.
+        contract = self.read("backends/contract.md")
+        self.assertIn(
+            "An empty read is never evidence of a reply's shape or of its transport.",
+            contract,
+        )
+        self.assertIn("`absent` is classified first", contract)
+        # Precedence is stated centrally rather than left to each adapter,
+        # because two adapters deriving the same ordering from prose is how
+        # they drift - which is exactly how this defect reached review.
+        self.assertIn("part of the taxonomy rather than each adapter's discretion", contract)
+
+    def test_the_absent_branch_precedes_the_others_in_every_document(self) -> None:
+        # Ordering is the whole finding, and no substring assertion can catch a
+        # reordering: every token survives being moved. Positional assertions
+        # are the only ones that bind here.
+        for relative, absent, shape, paging in (
+            (
+                "backends/contract.md",
+                "`absent` is classified first",
+                "Judge shape only after",
+                "Paging must be bounded",
+            ),
+            (
+                "backends/traycer.md",
+                "Classify `absent` before anything else.",
+                "verify it carries all seven required sections",
+                "Bound that read.",
+            ),
+            (
+                "backends/claude-native.md",
+                "Classify `absent` before anything else",
+                "Then verify the reply",
+                "Bound the read",
+            ),
+        ):
+            document = self.read(relative)
+            with self.subTest(document=relative):
+                for token in (absent, shape, paging):
+                    self.assertIn(token, document)
+                self.assertLess(
+                    document.index(absent),
+                    document.index(shape),
+                    f"{relative}: `absent` must be classified before the shape branch",
+                )
+                self.assertLess(
+                    document.index(absent),
+                    document.index(paging),
+                    f"{relative}: `absent` must be classified before the paging branch",
+                )
+
     def test_cause_is_decided_by_the_terminating_condition(self) -> None:
         # Two independent lanes found the same ambiguity: from what the adapter
         # surfaces, a lead could not always tell `truncated` from `malformed`,

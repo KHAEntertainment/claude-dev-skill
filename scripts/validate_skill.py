@@ -256,6 +256,11 @@ def main() -> int:
         # And the bound is only useful if it decides the cause. Reading the
         # reply to tell `truncated` from `malformed` puts the judgment back.
         "decided by which condition ended the read",
+        # The cause taxonomy was right and ran too late: an empty read reached
+        # the shape branch as `malformed`, or stalled as `truncated`, when what
+        # happened was that nothing arrived. Precedence is part of the
+        # taxonomy - two adapters deriving it independently is how they drift.
+        "An empty read is never evidence of a reply's shape or of its transport.",
     )
     for token in required_policy:
         if token not in combined:
@@ -293,6 +298,7 @@ def main() -> int:
             "at least one line containing a non-whitespace character",
             "Paging must be bounded",
             "decided by which condition ended the read",
+            "An empty read is never evidence of a reply's shape or of its transport.",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it
@@ -301,10 +307,12 @@ def main() -> int:
             "report_back: incomplete",
             "Quality-gate self-assessment",
             "Bound that read.",
+            "Classify `absent` before anything else.",
         ),
         "backends/claude-native.md": (
             "seven required sections",
             "Bound the read",
+            "Classify `absent` before anything else",
         ),
         "agents/report-back.md": ("never substitute for the seven required sections",),
         "agents/qa-agent.md": ("seven required sections",),
