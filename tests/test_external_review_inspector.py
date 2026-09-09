@@ -109,9 +109,11 @@ class ExternalReviewInspectorTests(unittest.TestCase):
                     self.assertEqual(result["stale_reviewers"], ["coderabbit"] if submitted else [])
                     reasons = result["pending_reasons"]["coderabbit"]
                     if submitted:
-                        self.assertIn("submitted review exists only at an earlier head", reasons)
+                        self.assertIn("submitted review at an earlier head requested changes", reasons)
                     else:
-                        self.assertNotIn("submitted review exists only at an earlier head", reasons)
+                        # Stricter than matching one literal: no stale reason of
+                        # any wording may appear for an unsubmitted state.
+                        self.assertFalse(any("earlier head" in reason for reason in reasons))
                         self.assertTrue(any("no " in reason for reason in reasons))
 
     def test_unsubmitted_head_review_does_not_erase_old_objection(self):
@@ -548,6 +550,49 @@ class VerdictRegressionTests(unittest.TestCase):
         result = MODULE.inspect(current, [], recent, policy(), {})
         self.assertEqual(result["state"], "blocking")
         self.assertEqual(result["blocking_reviewers"], ["coderabbit"])
+
+    def stale_review(self, state):
+        """One submitted review at an earlier head."""
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{
+            "author": {"login": "coderabbitai"},
+            "state": state,
+            "submittedAt": "2026-09-08T12:00:00Z",
+            "commit": {"oid": "old-head"},
+        }]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        return result, " ".join(result["pending_reasons"]["coderabbit"])
+
+    def test_stale_rejection_reason_names_the_rejection(self):
+        result, reasons = self.stale_review("CHANGES_REQUESTED")
+        self.assertEqual(result["state"], "pending")
+        self.assertIn("submitted review at an earlier head requested changes", reasons)
+
+    def test_stale_approval_reason_names_the_approval(self):
+        result, reasons = self.stale_review("APPROVED")
+        self.assertEqual(result["state"], "pending")
+        self.assertIn("submitted review at an earlier head approved", reasons)
+
+    def test_stale_rejection_and_approval_read_differently(self):
+        # Issue #29: these were byte-identical, so a lead recording a bypass
+        # could not say which kind of stale review they were waiving.
+        _, rejection = self.stale_review("CHANGES_REQUESTED")
+        _, approval = self.stale_review("APPROVED")
+        self.assertNotEqual(rejection, approval)
+
+    def test_stale_verdicts_do_not_change_merge_behaviour(self):
+        # Reporting only: both stay pending, exactly as before.
+        rejection, _ = self.stale_review("CHANGES_REQUESTED")
+        approval, _ = self.stale_review("APPROVED")
+        self.assertEqual(rejection["state"], "pending")
+        self.assertEqual(approval["state"], "pending")
+        self.assertEqual(rejection["stale_reviewers"], ["coderabbit"])
+        self.assertEqual(approval["stale_reviewers"], ["coderabbit"])
+
+    def test_stale_comment_reason_names_the_comment(self):
+        _, reasons = self.stale_review("COMMENTED")
+        self.assertIn("submitted review at an earlier head commented", reasons)
 
     def test_older_rejection_is_pending(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")

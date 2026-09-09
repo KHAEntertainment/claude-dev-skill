@@ -58,6 +58,13 @@ REQUEST_ALIASES: dict[str, set[str]] = {
 
 VALID_DISPOSITIONS = {"blocking", "advisory", "false_positive"}
 
+# Ordered so a reason reads the same way every time.
+STALE_VERDICT_PHRASES = (
+    ("changes_requested", "requested changes"),
+    ("approved", "approved"),
+    ("commented", "commented"),
+)
+
 
 class InspectionError(RuntimeError):
     """Raised when GitHub evidence cannot be retrieved or decoded."""
@@ -173,6 +180,20 @@ def reviewer_for_check(check: dict[str, Any], policy: ReviewerPolicy) -> str | N
         if any(normalize(marker) in identity for marker in markers):
             return reviewer
     return None
+
+
+def stale_review_reason(verdicts: set[str]) -> str:
+    """Name what the earlier-head review actually said.
+
+    A stale rejection and a stale approval used to render identically, so a
+    lead recording a bypass could not say which one they were waiving. This
+    only reports state already read; it changes no merge behaviour, and both
+    still leave the reviewer pending.
+    """
+    phrases = [phrase for verdict, phrase in STALE_VERDICT_PHRASES if verdict in verdicts]
+    if not phrases:
+        return "submitted review exists only at an earlier head"
+    return "submitted review at an earlier head " + ", ".join(phrases)
 
 
 def parse_identity(
@@ -496,6 +517,7 @@ def inspect(
     head_review_verdicts: dict[str, str] = {}
     head_review_times: dict[str, str] = {}
     unorderable_verdicts: dict[str, set[str]] = {}
+    stale_verdicts: dict[str, set[str]] = {}
     for review in iter_reviews(current):
         reviewer = reviewer_for_login(login_from(review), policy)
         if not reviewer or reviewer in policy.ignored:
@@ -523,6 +545,7 @@ def inspect(
                 head_review_verdicts[reviewer] = verdict
         elif oid and head_oid and oid != head_oid and submitted:
             stale_reviewers.add(reviewer)
+            stale_verdicts.setdefault(reviewer, set()).add(verdict)
     for reviewer, verdict in head_review_verdicts.items():
         completed_on_head.add(reviewer)
         if verdict == "changes_requested":
@@ -566,7 +589,7 @@ def inspect(
                 "timestamp, so it cannot be ordered and does not establish completion"
             )
         if reviewer in stale_reviewers:
-            reasons.append("submitted review exists only at an earlier head")
+            reasons.append(stale_review_reason(stale_verdicts.get(reviewer, set())))
         if reviewer in check_pending:
             reasons.append("reviewer status check is pending")
         if reviewer in requested:
