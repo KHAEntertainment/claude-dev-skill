@@ -10,6 +10,7 @@
           "login": "coderabbitai[bot]"
         },
         "state": "COMMENTED",
+        "submittedAt": "2026-09-08T12:00:00Z",
         "commit": {
           "oid": "head-11"
         }
@@ -20,6 +21,7 @@
           "login": "kilocode-bot"
         },
         "state": "COMMENTED",
+        "submittedAt": "2026-09-08T12:00:00Z",
         "commit": {
           "oid": "head-11"
         }
@@ -30,6 +32,7 @@
           "login": "copilot-pull-request-reviewer[bot]"
         },
         "state": "COMMENTED",
+        "submittedAt": "2026-09-08T12:00:00Z",
         "commit": {
           "oid": "head-11"
         }

@@ -495,6 +495,7 @@ def inspect(
     blocking_reviewers: set[str] = set()
     head_review_verdicts: dict[str, str] = {}
     head_review_times: dict[str, str] = {}
+    unorderable_verdicts: dict[str, set[str]] = {}
     for review in iter_reviews(current):
         reviewer = reviewer_for_login(login_from(review), policy)
         if not reviewer or reviewer in policy.ignored:
@@ -507,7 +508,15 @@ def inspect(
         submitted = normalize(review.get("state")) in {"approved", "changes_requested", "commented"}
         verdict = normalize(review.get("state"))
         if oid and head_oid and oid == head_oid and submitted:
-            submitted_at = str(review.get("submittedAt") or "")
+            submitted_at = str(review.get("submittedAt") or "").strip()
+            if not submitted_at:
+                # A submitted review we cannot order is not positive evidence:
+                # it can never be shown to be the reviewer's latest word. Fail
+                # closed rather than reading a missing timestamp as a valid one.
+                # It is not dropped either -- an unorderable rejection still
+                # blocks below, and the reviewer stays pending with a reason.
+                unorderable_verdicts.setdefault(reviewer, set()).add(verdict)
+                continue
             previous_time = head_review_times.get(reviewer)
             if previous_time is None or submitted_at > previous_time or (submitted_at == previous_time and verdict == "changes_requested"):
                 head_review_times[reviewer] = submitted_at
@@ -517,6 +526,13 @@ def inspect(
     for reviewer, verdict in head_review_verdicts.items():
         completed_on_head.add(reviewer)
         if verdict == "changes_requested":
+            blocking_reviewers.add(reviewer)
+    # An unorderable rejection is still a rejection we read, so it blocks. An
+    # unorderable approval or comment establishes nothing and leaves the
+    # reviewer pending.
+    unorderable_reviewers = set(unorderable_verdicts)
+    for reviewer, verdicts in unorderable_verdicts.items():
+        if "changes_requested" in verdicts:
             blocking_reviewers.add(reviewer)
     stale_reviewers -= completed_on_head
 
@@ -543,6 +559,11 @@ def inspect(
         if reviewer in check_only_reviewers:
             reasons.append(
                 "status check succeeded or completed but no submitted review or review thread exists at head"
+            )
+        if reviewer in unorderable_reviewers:
+            reasons.append(
+                "submitted review at head has a missing or unreadable submittedAt "
+                "timestamp, so it cannot be ordered and does not establish completion"
             )
         if reviewer in stale_reviewers:
             reasons.append("submitted review exists only at an earlier head")

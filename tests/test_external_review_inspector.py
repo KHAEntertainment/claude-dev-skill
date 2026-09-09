@@ -196,7 +196,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_green_check_with_real_head_review_clears(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-stale-review.json")
         current["reviews"].append({"id": "new-review", "author": {"login": "coderabbitai"},
-                                   "state": "COMMENTED", "commit": {"oid": "current-head"}})
+                                   "state": "COMMENTED", "submittedAt": "2026-09-08T12:00:00Z",
+                                   "commit": {"oid": "current-head"}})
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")
         self.assertEqual(result["check_only_reviewers"], [])
@@ -268,6 +269,7 @@ class ExternalReviewInspectorTests(unittest.TestCase):
                 "id": "copilot-review",
                 "author": {"login": "copilot-pull-request-reviewer"},
                 "state": "COMMENTED",
+                "submittedAt": "2026-09-08T12:00:00Z",
                 "commit": {"oid": "head-10"},
             }
         ]
@@ -300,8 +302,8 @@ class ExternalReviewInspectorTests(unittest.TestCase):
     def test_current_review_supersedes_older_review_from_same_reviewer(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "no-reviewer.json")
         current["reviews"] = [
-            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "old-head"}},
-            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "commit": {"oid": "head-10"}},
+            {"id": "old", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "submittedAt": "2026-09-08T11:00:00Z", "commit": {"oid": "old-head"}},
+            {"id": "new", "state": "COMMENTED", "author": {"login": "kilocode-bot"}, "submittedAt": "2026-09-08T12:00:00Z", "commit": {"oid": "head-10"}},
         ]
         result = MODULE.inspect(current, threads, recent, policy(), {})
         self.assertEqual(result["state"], "clear")
@@ -486,9 +488,72 @@ class VerdictRegressionTests(unittest.TestCase):
         result = MODULE.inspect(current, [], recent, policy(), {})
         self.assertEqual(result["state"], "incomplete")
 
+    def head_review(self, state, submitted_at="__omit__"):
+        """One submitted review at head, with submittedAt controllable per case."""
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        review = {
+            "author": {"login": "coderabbitai"},
+            "state": state,
+            "commit": {"oid": "current-head"},
+        }
+        if submitted_at != "__omit__":
+            review["submittedAt"] = submitted_at
+        current["reviews"] = [review]
+        return MODULE.inspect(current, [], recent, policy(), {})
+
+    def assert_unorderable(self, result):
+        """A review with no usable timestamp never establishes completion."""
+        self.assertNotEqual(result["state"], "clear")
+        self.assertNotIn("coderabbit", result["completed_on_head"])
+        self.assertIn(
+            "submittedAt",
+            " ".join(result["pending_reasons"].get("coderabbit", [])),
+        )
+
+    def test_approval_at_head_with_valid_timestamp_still_clears(self):
+        result = self.head_review("APPROVED", "2026-09-08T20:00:00Z")
+        self.assertEqual(result["state"], "clear")
+        self.assertEqual(result["completed_on_head"], ["coderabbit"])
+
+    def test_approval_at_head_with_missing_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED"))
+
+    def test_approval_at_head_with_null_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", None))
+
+    def test_approval_at_head_with_empty_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", ""))
+
+    def test_approval_at_head_with_blank_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("APPROVED", "   "))
+
+    def test_comment_at_head_with_missing_timestamp_is_not_completion(self):
+        self.assert_unorderable(self.head_review("COMMENTED"))
+
+    def test_rejection_at_head_with_missing_timestamp_still_blocks(self):
+        # Fail closed both ways: an unorderable verdict cannot clear the gate,
+        # and it cannot soften a rejection we already read either.
+        result = self.head_review("CHANGES_REQUESTED")
+        self.assertEqual(result["state"], "blocking")
+        self.assertEqual(result["blocking_reviewers"], ["coderabbit"])
+
+    def test_untimestamped_approval_cannot_override_earlier_rejection(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [
+            {"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T19:00:00Z"},
+            {"author":{"login":"coderabbitai"},"state":"APPROVED","commit":{"oid":"current-head"}},
+        ]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "blocking")
+        self.assertEqual(result["blocking_reviewers"], ["coderabbit"])
+
     def test_older_rejection_is_pending(self):
-        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json"); current["statusCheckRollup"]=[]; current["reviews"]=[{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
-        self.assertEqual(MODULE.inspect(current,threads,recent,policy(),{})["state"],"pending")
+        current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = []
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
+        self.assertEqual(MODULE.inspect(current, threads, recent, policy(), {})["state"], "pending")
 
 
 if __name__ == "__main__":
