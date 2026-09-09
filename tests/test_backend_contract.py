@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import re
 import unittest
 from pathlib import Path
 
@@ -51,6 +52,37 @@ BASE_REQUIRED_POLICY = (
     "lead is the sole ledger writer",
     "A trusted reviewer's status check alone never satisfies this gate.",
 )
+
+
+# The seven required report-back sections, held once. Every document that has
+# to name them is asserted against this tuple, so adding an eighth section is a
+# one-line change here that then fails until each document carries it — rather
+# than four independent lists that drift apart silently.
+REPORT_BACK_SECTIONS = (
+    "Outputs",
+    "Commands + exit codes",
+    "Deviations",
+    "Quality-gate self-assessment",
+    "Acceptance criteria",
+    "Evidence",
+    "Scope / ownership",
+)
+
+
+def _markdown_section(text: str, heading: str) -> str | None:
+    """Return the body under `heading` up to the next same-level heading."""
+    match = re.search(
+        rf"^{re.escape(heading)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
+
+
+def _table_row(text: str, operation: str) -> str | None:
+    """Return the operations-table row for `operation`, or None."""
+    for line in text.splitlines():
+        if line.startswith(f"| `{operation}` |"):
+            return line
+    return None
 
 
 def _parse_required_policy(source: str) -> list[str]:
@@ -430,6 +462,102 @@ class BackendContractTests(unittest.TestCase):
             "ROUTING_IDENTIFIERS is subsumed by the structural check and must "
             "not be reintroduced",
         )
+
+    def test_report_back_defines_the_seven_sections(self) -> None:
+        report_back = self.read("agents/report-back.md")
+        for section in REPORT_BACK_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn(section, report_back)
+
+    def test_message_and_observe_rows_carry_the_report_back(self) -> None:
+        # The operations table is what an adapter author reads first. If the
+        # enforcement lives only in prose further down, an adapter can satisfy
+        # the table and never implement it.
+        contract = self.read("backends/contract.md")
+        message = _table_row(contract, "message")
+        observe = _table_row(contract, "observe")
+        self.assertIsNotNone(message, "contract.md has no `message` operations row")
+        self.assertIsNotNone(observe, "contract.md has no `observe` operations row")
+        self.assertIn("report-back contract", message)
+        self.assertIn("report-back shape verdict", observe)
+
+    def test_contract_enforcement_section_names_every_section(self) -> None:
+        contract = self.read("backends/contract.md")
+        section = _markdown_section(contract, "## Report-back enforcement")
+        self.assertIsNotNone(section, "contract.md missing Report-back enforcement")
+        for name in REPORT_BACK_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, section)
+        # Both operations are specified in the one place that defines them.
+        self.assertIn("`message`", section)
+        self.assertIn("`observe`", section)
+        self.assertIn(".agent/dev-state.md", section)
+        self.assertIn("never infer completion", section)
+
+    def test_silence_and_malformed_reply_share_one_verdict(self) -> None:
+        # The round's central defect class in the agent transport: no reply read
+        # as no problem. A lane that never replied must not be a lesser case
+        # than one that replied badly - both leave the lane unverified. The
+        # cause is recorded separately because the remedy differs, but a
+        # separate cause must never become a separate verdict.
+        contract = self.read("backends/contract.md")
+        self.assertIn("Absence of a report is not a report.", contract)
+        self.assertIn("the same verdict, not a lesser case", contract)
+        self.assertIn("report_back: incomplete", contract)
+        for cause in ("`absent`", "`malformed`", "`truncated`"):
+            with self.subTest(cause=cause):
+                self.assertIn(cause, contract)
+
+    def test_heading_presence_has_a_non_empty_floor(self) -> None:
+        # Presence-only recognition is deliberate - the lead judges content -
+        # but without this floor seven empty headings pass the adapter check,
+        # which is the silent-lane failure wearing the shape of a report.
+        contract = self.read("backends/contract.md")
+        self.assertIn("A heading with no content under it is a missing section", contract)
+        self.assertIn("case-insensitive", contract.lower())
+
+    def test_traycer_observe_checks_the_seven_sections(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        for section in REPORT_BACK_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn(section, adapter)
+        self.assertIn("report_back: incomplete", adapter)
+        # Shape is judged only after the paged read completes; otherwise
+        # pagination manufactures a lane defect.
+        self.assertIn("truncated", adapter)
+        self.assertIn("is not a completion signal", adapter)
+
+    def test_traycer_message_embeds_the_contract(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        self.assertIn("must embed the report-back contract", adapter)
+        self.assertIn("agents/report-back.md", adapter)
+
+    def test_claude_native_implements_the_same_enforcement(self) -> None:
+        # contract.md is backend-neutral, so parity is the requirement, not a
+        # courtesy: an adapter that omits this is the one every silent lane
+        # would be dispatched through.
+        adapter = self.read("backends/claude-native.md")
+        self.assertIn("seven required sections", adapter)
+        self.assertIn("agents/report-back.md", adapter)
+        self.assertIn("`incomplete`", adapter)
+        self.assertIn(".agent/dev-state.md", adapter)
+
+    def test_role_specific_close_outs_never_substitute(self) -> None:
+        # The escape hatch with a real precedent: a QA lane posting its PR
+        # comment and replying nothing looks like a lane that reported.
+        #
+        # Whitespace is collapsed first because `report-back.md` hard-wraps its
+        # prose, so a rewrap must not read as a policy change here. Note the
+        # validator pins this same sentence lexically, which is why it sits on
+        # one line there: a reflow that splits it reddens the gate in
+        # `validate_skill.py` rather than in this test.
+        for relative in ("agents/report-back.md", "backends/contract.md"):
+            with self.subTest(document=relative):
+                self.assertIn(
+                    "never substitute for the seven required sections",
+                    " ".join(self.read(relative).split()),
+                )
+        self.assertIn("seven required sections", self.read("agents/qa-agent.md"))
 
     def test_no_baseline_policy_token_is_ever_removed(self) -> None:
         """Every token pinned at base 66ecfa3 must still be pinned.

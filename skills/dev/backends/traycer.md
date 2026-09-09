@@ -50,12 +50,15 @@ Send the full provider-neutral assignment and require a correlated reply:
 rtk proxy traycer agent send --to <agent-id> --message <assignment> --expect-reply --json
 ```
 
+The assignment must embed the report-back contract from `${CLAUDE_SKILL_DIR}/agents/report-back.md`, so the lane receives it as adapter payload and not only through its role prompt. Sending without `--expect-reply` is never a way to dispatch a lane that is not expected to report.
+
 Record the returned response ID. Absence of an ID or an incomplete structured stream is `incomplete`.
 
 ## Observation, shutdown, and recovery
 
 - Read `agent inbox --agent-id <lead-agent-id> --json`, passing each returned cursor/page token according to the installed CLI contract until the response declares completion; never treat the first page as complete.
 - Use `agent transcript --json` and `agent list --json` to verify replies and live state. Correlate replies to the recorded response ID.
+- Having correlated a reply, verify it carries all seven required sections — Outputs; Commands + exit codes; Deviations; Quality-gate self-assessment; Acceptance criteria; Evidence; Scope / ownership — by case-insensitive heading presence, each with content under it. A missing section fails the lane closed per the report-back enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`: record `report_back: incomplete` with cause `malformed`. A lane whose recorded response ID never produced a reply records the same verdict with cause `absent`; `agent list` showing the agent alive and idle is not a completion signal. Check shape only after the paged read above declares the reply complete — a reply still spanning pages records cause `truncated` and is re-read, not re-requested.
 - When replying in the opened thread, pass its `--response-id`; a mismatched or absent correlation fails closed.
 - Send a final status/report request before `agent stop`. Archive with `agent archive` only after the result is recorded. During preflight, verify the installed CLI exposes both commands and their current target-ID flags; if not, mark shutdown capability incomplete rather than guessing syntax.
 - Delete worktrees only through the existing post-merge safety gate; stopping or archiving an agent does not authorize deletion.

@@ -14,8 +14,8 @@ Use this adapter only when the lead has resolved the session as native Claude Co
 1. **Prepare worktree:** the lead fetches the integration branch, creates one branch/worktree per coding Issue, verifies absolute path/branch/base/cleanliness, and records it before launch. Read-only roles may use a verified checkout only if they leave it clean.
 2. **Resolve route:** Claude-native uses the lead's available agent/subagent configuration. Record `harness: claude-code`, the selected role/agent type, model override if any, and source `claude-native`.
 3. **Launch:** parallel maps to named Agent Teams teammates; serial maps to one worker. Map every identity to exactly one Issue or QA/review lane.
-4. **Message:** provide the provider-neutral assignment envelope and full role prompt. Record the dispatch message/result identifier when exposed.
-5. **Observe:** use the native agent/team status and message surfaces. Do not infer completion from silence.
+4. **Message:** provide the provider-neutral assignment envelope and full role prompt. The envelope embeds the report-back contract from `${CLAUDE_SKILL_DIR}/agents/report-back.md`, so the lane holds it as adapter payload rather than only through its role prompt. Record the dispatch message/result identifier when exposed.
+5. **Observe:** use the native agent/team status and message surfaces. Do not infer completion from silence. Verify the reply carries all seven required sections by case-insensitive heading presence, each with content under it; a missing section, or no reply at all, marks the operation `incomplete` and is recorded in `.agent/dev-state.md` per the report-back enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`. A teammate the team surface reports as finished has not reported until its sections are read.
 6. **Shutdown:** ask every agent to stop gracefully. In parallel topology, only the lead cleans up the team after all teammates stop.
 7. **Recover:** reconcile the ledger identities against live native agents/teams before sending follow-ups. Never reactivate a completed identity by mention alone; dispatch a new fix or review identity.
 

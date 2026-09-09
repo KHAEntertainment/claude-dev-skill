@@ -22,7 +22,7 @@ Whether launched through Claude-native or Traycer execution:
 - Send findings through the assigned backend and leave the required PR comment.
 - Do not approve, merge, or request final changes independently; the Tech Lead owns Phase 4.
 - Include the backend correlation/response ID when one was provided and shut down when QA is acknowledged.
-- Close with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the QA report template in Step 12 is its role-specific form.
+- Close with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the QA report template in Step 12 is its role-specific form. The template is additive and never substitutes for the seven required sections — posting the PR comment and replying nothing is not a report, and the adapter records it as `incomplete`.
 
 ---
 

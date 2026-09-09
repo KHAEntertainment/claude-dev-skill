@@ -234,6 +234,18 @@ def main() -> int:
         # A convenience entry point that omits a recorded command reports
         # success over something that never ran - the same defect one layer up.
         "may be used only when it is known to run every recorded command",
+        # Report-back enforcement at the adapter layer. The same defect class
+        # one transport down: a lane that never replied is not a lane that had
+        # nothing to say. Each token pins one way the enforcement could be
+        # softened back into prompt-level etiquette.
+        "Absence of a report is not a report.",
+        "the same verdict, not a lesser case",
+        "report_back: incomplete",
+        # Without this, seven empty headings satisfy a presence check.
+        "A heading with no content under it is a missing section",
+        # The role-specific close-outs are the obvious escape hatch: a QA lane
+        # posting its PR comment and replying nothing must not read as reported.
+        "never substitute for the seven required sections",
     )
     for token in required_policy:
         if token not in combined:
@@ -261,6 +273,21 @@ def main() -> int:
         "agents/worker-prototype-backend.md": (
             "Exploration favors breadth over minimality.",
         ),
+        # Report-back enforcement is per-file by nature: `contract.md` is
+        # backend-neutral, so both adapters must carry it in their own right.
+        # A combined match would let one adapter hold it up for the other.
+        "backends/contract.md": (
+            "Absence of a report is not a report.",
+            "report_back: incomplete",
+            "never substitute for the seven required sections",
+        ),
+        "backends/traycer.md": (
+            "report_back: incomplete",
+            "Quality-gate self-assessment",
+        ),
+        "backends/claude-native.md": ("seven required sections",),
+        "agents/report-back.md": ("never substitute for the seven required sections",),
+        "agents/qa-agent.md": ("seven required sections",),
     }
     for relative, tokens in sorted(per_file_policy.items()):
         target = skill_dir / relative
