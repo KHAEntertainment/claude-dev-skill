@@ -3,26 +3,64 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "verify.sh"
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "verify.sh"
+
+ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def recorded_gate_commands():
+    """Commands recorded under `## Verification Gate` in PROJECT_CONTEXT.md.
+
+    Only the `- **Label**:` bullets carry commands; the section's prose does
+    not. Within a bullet, `n/a` is the file's own no-command sentinel, and a
+    real command always names a program with arguments or a path - the bare
+    identifiers in these bullets are prose (manifest field names, a tool named
+    as future work), not things to run.
+    """
+    text = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+    section = re.search(r"^## Verification Gate$(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if section is None:
+        raise AssertionError("PROJECT_CONTEXT.md has no '## Verification Gate' section")
+    commands = []
+    for line in section.group(1).splitlines():
+        if not line.startswith("- **"):
+            continue
+        for span in re.findall(r"`([^`]+)`", line):
+            if span != "n/a" and (" " in span or "/" in span):
+                commands.append(span)
+    return commands
+
+
+def gate_check_invocations(script):
+    """Each `run_check` line in verify.sh, tokenised as ['run_check', label, *argv]."""
+    return [
+        shlex.split(line.strip())
+        for line in script.splitlines()
+        if line.strip().startswith("run_check ")
+    ]
 
 
 class GateHarness:
     """Runs the real gate entrypoint against stub tools. Mixin, not a TestCase."""
 
     def run_gate(self, *, shellcheck=None, executable=True, pwsh=False, windows=False,
-                 args=(), env_extra=None):
+                 claude=True, git_dirty=False, args=(), env_extra=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
             shutil.copy2(SCRIPT, root / "scripts" / "verify.sh")
             binaries = root / "tools"
             binaries.mkdir()
-            for name in ("bash", "python3", "claude", "dirname"):
+            stubs = ["bash", "python3", "dirname"] + (["claude"] if claude else [])
+            for name in stubs:
                 path = binaries / name
                 if name == "dirname":
                     path.symlink_to(shutil.which("dirname"))
@@ -39,6 +77,12 @@ class GateHarness:
             if pwsh:
                 tool = binaries / "pwsh"
                 tool.write_text("#!/bin/bash\nexit 0\n")
+                tool.chmod(0o755)
+            if git_dirty:
+                # Absent git reports nothing and the tag check runs; a dirty
+                # tree is the case that has to skip with a reason.
+                tool = binaries / "git"
+                tool.write_text("#!/bin/bash\necho ' M scripts/verify.sh'\n")
                 tool.chmod(0o755)
             # Pin strict mode off unless a case asks for it, so an ambient
             # VERIFY_REQUIRE_ALL in the caller's environment cannot change
@@ -60,21 +104,21 @@ class VerifyScriptTests(GateHarness, unittest.TestCase):
     def test_all_checks_pass(self):
         result = self.run_gate(shellcheck=0, pwsh=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("10 passed, 0 failed, 0 did-not-run, 0 optional skipped", result.stdout)
+        self.assertIn("11 passed, 0 failed, 0 did-not-run, 0 optional skipped", result.stdout)
         self.assertIn("GATE PASSED", result.stdout)
 
     def test_missing_check_cannot_pass_when_all_executed_checks_pass(self):
         result = self.run_gate()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("NOT RUN (did-not-run): ShellCheck (exit 127)", result.stdout)
-        self.assertIn("8 passed, 0 failed, 1 did-not-run", result.stdout)
+        self.assertIn("9 passed, 0 failed, 1 did-not-run", result.stdout)
         self.assertNotIn("GATE PASSED", result.stdout)
 
     def test_nonexecutable_check_did_not_run(self):
         result = self.run_gate(shellcheck=0, executable=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("NOT RUN (did-not-run): ShellCheck (exit 126)", result.stdout)
-        self.assertIn("8 passed, 0 failed, 1 did-not-run", result.stdout)
+        self.assertIn("9 passed, 0 failed, 1 did-not-run", result.stdout)
 
     def test_real_failure_is_failed_and_later_checks_still_run(self):
         result = self.run_gate(shellcheck=1)
@@ -82,7 +126,7 @@ class VerifyScriptTests(GateHarness, unittest.TestCase):
         self.assertIn("FAILED: ShellCheck (exit 1)", result.stdout)
         self.assertNotIn("NOT RUN", result.stdout)
         self.assertIn("PASSED: Claude plugin validation (exit 0)", result.stdout)
-        self.assertIn("8 passed, 1 failed, 0 did-not-run", result.stdout)
+        self.assertIn("9 passed, 1 failed, 0 did-not-run", result.stdout)
 
     def test_absent_optional_powershell_skip_is_visible(self):
         result = self.run_gate(shellcheck=0)
@@ -95,6 +139,84 @@ class VerifyScriptTests(GateHarness, unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("NOT RUN (did-not-run): PowerShell installer tests (exit 127)", result.stdout)
         self.assertNotIn("SKIPPED", result.stdout)
+
+
+class VerifyScriptGateCoverageTests(GateHarness, unittest.TestCase):
+    """verify.sh must run every command PROJECT_CONTEXT.md records as the gate.
+
+    QA is told a single entry point may stand in for the recorded gate. That is
+    only true while the entry point covers it. `claude plugin tag --dry-run .`
+    was recorded but not in this script, so a lane running verify.sh saw
+    `GATE PASSED` having skipped a recorded command. Fixing that one omission
+    without this test leaves the same gap available the next time a command is
+    added to the gate and not to the script, which is how this one arrived.
+    """
+
+    def test_verify_script_runs_every_recorded_gate_command(self):
+        commands = recorded_gate_commands()
+        # Instrument guards. A parser that extracts nothing would make coverage
+        # vacuously complete, which is the failure mode this test exists to
+        # catch one layer down.
+        self.assertTrue(commands, "parsed no commands from the recorded gate")
+        self.assertIn(
+            "python3 scripts/validate_skill.py",
+            commands,
+            "the gate parser lost a known command; it has drifted, not passed",
+        )
+        invocations = gate_check_invocations(SCRIPT.read_text(encoding="utf-8"))
+        self.assertTrue(invocations, "parsed no run_check invocations from verify.sh")
+
+        missing = []
+        for command in commands:
+            # Exact string matching is too brittle to bind on: verify.sh adds
+            # operands (it shellchecks itself too) and sets the unittest env var
+            # on its own line. Match on the program plus every recorded token
+            # instead, so extra arguments are fine and a dropped check is not.
+            tokens = [t for t in shlex.split(command) if not ENV_ASSIGNMENT.match(t)]
+            if not any(
+                len(call) > 2 and call[2] == tokens[0] and set(tokens) <= set(call[2:])
+                for call in invocations
+            ):
+                missing.append(command)
+        self.assertEqual(
+            missing,
+            [],
+            "PROJECT_CONTEXT.md records these gate commands but scripts/verify.sh "
+            f"never runs them: {missing}",
+        )
+
+    def test_claude_checks_skip_together_and_name_what_is_unverified(self):
+        result = self.run_gate(shellcheck=0, pwsh=True, claude=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIPPED: Claude packaging checks", result.stdout)
+        self.assertIn("packaging is unverified", self.terminal_line(result))
+        # Both recorded commands are named, so neither is silently forgotten.
+        self.assertIn("claude plugin validate --strict", self.terminal_line(result))
+        self.assertIn("claude plugin tag --dry-run", self.terminal_line(result))
+
+    def test_dirty_tree_skips_the_tag_check_by_name(self):
+        # The command cannot run against a dirty tree. It must say so rather
+        # than failing the gate for every worker mid-change, and rather than
+        # vanishing without a note.
+        result = self.run_gate(shellcheck=0, pwsh=True, git_dirty=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIPPED: Claude plugin tag dry run", result.stdout)
+        self.assertIn("release tagging is unverified", self.terminal_line(result))
+        self.assertNotEqual(self.terminal_line(result), "GATE PASSED")
+
+    def test_dirty_tree_skip_still_fails_under_strict(self):
+        result = self.run_gate(
+            shellcheck=0, pwsh=True, git_dirty=True, args=("--require-all",)
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GATE FAILED (strict)", self.terminal_line(result))
+
+    def test_absent_claude_cli_fails_the_gate_under_strict(self):
+        result = self.run_gate(
+            shellcheck=0, pwsh=True, claude=False, args=("--require-all",)
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GATE FAILED (strict)", self.terminal_line(result))
 
 
 class VerifyScriptSkipReportingTests(GateHarness, unittest.TestCase):

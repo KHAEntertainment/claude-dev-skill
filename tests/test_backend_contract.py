@@ -1,11 +1,88 @@
 from __future__ import annotations
 
+import ast
+import importlib.util
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "dev"
+
+# The `required_policy` tuple as it stood at base 66ecfa3, frozen as data.
+#
+# The tokens are the mechanism that protects every policy sentence in the
+# payload, but nothing protected the tokens themselves: deleting an entry from
+# `required_policy` and then deleting the prose it pinned passed green gates at
+# both steps. The scheme guarded the prose and not itself.
+#
+# Frozen here rather than read from git so this works in a tree without `.git`.
+# Extracted with `ast` from `git show 66ecfa3:scripts/validate_skill.py`, not
+# transcribed.
+BASE_REQUIRED_POLICY = (
+    "Never write or modify implementation or test code directly",
+    ".agent/dev-state.md",
+    "pre-created, verified branch/worktree",
+    "RTK",
+    "coderabbit",
+    "kilo",
+    "github-copilot",
+    "copilot-pull-request-reviewer[bot]",
+    "headRefOid",
+    "Default wait minutes",
+    "Allow automatic review requests",
+    "--trusted-reviewer",
+    "false_positive",
+    "review evidence alone never establishes satisfaction",
+    "incomplete",
+    "TRAYCER_AGENT_ID",
+    "TRAYCER_EPIC_ID",
+    "claude-native",
+    "rtk proxy traycer",
+    "--surface gui",
+    "--expect-reply",
+    "--workspace-entry",
+    "--carry-uncommitted",
+    "traycer_last_used",
+    "schema_version",
+    "communication_response_id",
+    "head changed",
+    "distinct agent ID",
+    "lead is the sole ledger writer",
+    "A trusted reviewer's status check alone never satisfies this gate.",
+)
+
+
+def _parse_required_policy(source: str) -> list[str]:
+    """Return the `required_policy` tuple's literals, parsed with `ast`.
+
+    Parsed rather than grepped on purpose. A regex over this tuple silently
+    matches nothing when the formatting shifts and then reports a clean run,
+    which is the same defect class the tokens exist to guard against: an
+    instrument that fails looks identical to a check that passed.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "required_policy"
+            for target in node.targets
+        ):
+            return [ast.literal_eval(element) for element in node.value.elts]
+    raise AssertionError("required_policy assignment not found in validate_skill.py")
+
+
+def _validator_module():
+    """Load scripts/validate_skill.py so its pinned policy has one home.
+
+    The routing section is pinned in the validator rather than duplicated here
+    because `.gitattributes` export-ignores `tests`, so CI's archive validation
+    runs the validator without this file. Importing it keeps a single source of
+    truth and still fails here when the live document drifts from it.
+    """
+    path = ROOT / "scripts" / "validate_skill.py"
+    spec = importlib.util.spec_from_file_location("validate_skill", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class BackendContractTests(unittest.TestCase):
@@ -162,6 +239,222 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("and the QA agent", phase4)
         self.assertIn("distinct from each other", contract)
         self.assertIn("backend_source", contract)
+
+    def test_implementation_lanes_carry_the_reuse_first_ladder(self) -> None:
+        for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertIn("Reuse-first ladder", prompt)
+                self.assertIn("already in the codebase", prompt)
+                self.assertIn("standard library", prompt)
+                self.assertIn("already-installed dependency", prompt)
+                self.assertIn("lowest rung", prompt)
+
+    def test_safety_carveout_accompanies_the_ladder_in_both_lanes(self) -> None:
+        # The ladder without the carve-out reads as licence to delete guards in
+        # the name of minimality, so the two must never drift apart.
+        for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertIn("Safety carve-out", prompt)
+                self.assertIn(
+                    "Minimizing scope must never mean removing a guard.", prompt
+                )
+                for guard in (
+                    "Validation",
+                    "error handling",
+                    "security",
+                    "accessibility",
+                ):
+                    self.assertIn(guard, prompt)
+
+    def test_prototype_lanes_state_the_opposing_principle(self) -> None:
+        # Inverted guard. A negative assertion over prose is unbounded: it
+        # cannot enumerate every paraphrase of a ladder, and a test asserting
+        # only that the wrong thing is absent cannot tell a working guard from
+        # a vacuous one. Asserting the opposing principle means a future edit
+        # adding reuse-first guidance must first delete a sentence saying the
+        # opposite - a visible, guarded act rather than an addition that slips
+        # past untouched.
+        for relative in (
+            "agents/worker-prototype-frontend.md",
+            "agents/worker-prototype-backend.md",
+        ):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertIn("Exploration Stance", prompt)
+                self.assertIn("Exploration favors breadth over minimality.", prompt)
+                self.assertIn("does not apply in this lane", prompt)
+                self.assertIn("This exclusion is deliberate", prompt)
+                # Cheap backstop for a literal copy of the ladder. The positive
+                # assertions above are the actual guard; these two are not.
+                self.assertNotIn("Reuse-first ladder", prompt)
+                self.assertNotIn("lowest rung", prompt)
+
+    def test_reviewer_checks_for_over_engineering_as_advisory(self) -> None:
+        reviewer = self.read("agents/reviewer.md")
+        self.assertIn("over-engineering", reviewer)
+        self.assertIn("speculative abstraction", reviewer)
+        self.assertIn("reimplemented by hand", reviewer)
+        self.assertIn("`advisory` unless", reviewer)
+
+    def test_completion_claims_require_executed_output(self) -> None:
+        report_back = self.read("agents/report-back.md")
+        qa = self.read("agents/qa-agent.md")
+        for prompt in (report_back, qa):
+            self.assertIn("executed command's actual output", prompt)
+            self.assertIn("re-run the full Verification Gate", prompt)
+        # qa-agent.md owns the canonical wording; report-back cross-references
+        # it rather than restating it.
+        self.assertIn("Tool Capability Boundary", report_back)
+        self.assertIn("agents/qa-agent.md", report_back)
+        self.assertIn("canonical definition", qa)
+
+    def test_qa_score_cannot_read_absence_of_signal_as_a_pass(self) -> None:
+        qa = self.read("agents/qa-agent.md")
+        # No denominator, nothing executed, and an undetected framework are all
+        # explicit outcomes rather than paths to an implicit 100.
+        self.assertIn("qa_error: no acceptance criteria", qa)
+        self.assertIn("qa_error: no verification executed", qa)
+        self.assertIn("No test framework detected", qa)
+        self.assertIn("never a silent skip", qa)
+        # The score carries a coverage term, and Limitations feed the result.
+        self.assertIn("not verified by test execution", qa)
+        self.assertIn("Limitations are load-bearing", qa)
+        self.assertIn("blocks the pass", qa)
+
+    def test_coverage_term_predicate_is_decidable(self) -> None:
+        # The coverage term is worth 10 points per criterion, so "could this
+        # have been test-executed?" must not be self-assessed. This repository
+        # pins prose with doc-assertion tests, so "it is only prose" must not
+        # read as non-executable and quietly zero the deduction.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("Test-executable is a decidable predicate", qa)
+        self.assertIn("without new infrastructure", qa)
+        self.assertIn("doc-assertion tests over shipped prose", qa)
+        self.assertIn("is not by itself a reason to call it non-executable", qa)
+        # A non-executable judgment is free, so it must be recorded and named.
+        self.assertIn("naming the infrastructure that is missing", qa)
+        self.assertIn("Not test-executable", qa)
+        self.assertIn("Test-executable but not executed", qa)
+
+    def test_qa_executes_the_whole_gate_not_only_the_test_suite(self) -> None:
+        # Requiring only the test suite let a lane pass with the gate's lint
+        # and type checks never executed and nothing recording that they had
+        # not run - absence of execution reading as satisfaction, inside the
+        # file written to prevent exactly that.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("Execute the full Verification Gate.", qa)
+        self.assertIn("Reading the gate is not running it.", qa)
+        self.assertIn("record each command with the exit code it returned", qa)
+        self.assertIn("Any gate command that fails, or does not run, fails QA.", qa)
+        # A project with no recorded gate is a finding, not a silent skip.
+        self.assertIn("records no Verification Gate", qa)
+        # The report has somewhere to put the evidence.
+        self.assertIn("### Verification Gate", qa)
+
+    def test_coverage_term_denies_a_full_score_rather_than_failing_a_lane(self) -> None:
+        # The prose claimed an unexecuted criterion should keep a lane from
+        # reaching 80, but one deduction leaves a clean lane at 90 and passing.
+        # Prose and arithmetic must agree on which was meant.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn(
+            "The coverage term denies a full score; it does not by itself fail a lane.",
+            qa,
+        )
+        self.assertIn("should not receive a full score", qa)
+        self.assertNotIn("should not reach 80", qa)
+
+    def test_coverage_term_does_not_double_count_failed_criteria(self) -> None:
+        # A failed criterion already reduced the ratio. Deducting coverage on
+        # top of it penalises the same fact twice and can push legitimate work
+        # under the 80 threshold for arithmetic reasons rather than quality.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("10 per PASSED test-executable acceptance criterion", qa)
+        self.assertIn("The coverage term applies only to criteria that passed.", qa)
+        self.assertIn(
+            "Never apply a coverage deduction to a criterion you marked failed.", qa
+        )
+
+    def test_project_context_defers_role_routing_to_the_selection_guide(self) -> None:
+        # PROJECT_CONTEXT.md outranks the agent selection guide in the adapter's
+        # resolution order, so any route restated here silently overrides newer
+        # policy. The section must defer, and record only the one constraint
+        # that is a property of this project rather than a routing preference.
+        # Collapse wrapping first: these are prose sentences that wrap, so a
+        # raw substring check would fail on a harmless reflow rather than on a
+        # policy change.
+        policy = " ".join(
+            (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn("The agent selection guide governs role routing.", policy)
+        self.assertIn("outranks the guide in the adapter's resolution order", policy)
+        self.assertIn(
+            "the lead runs on the `claude` harness, "
+            "because the lead is what invokes `/dev`",
+            policy,
+        )
+        self.assertIn("provider-neutral", policy)
+        # The exact stale line this replaced, which routed every role to the
+        # backend lead and so overrode the guide's per-role choices.
+        self.assertNotIn(
+            "use the selected backend's lead route for every role", policy
+        )
+
+    def test_routing_section_contains_only_approved_content(self) -> None:
+        # Structural, not lexical. A denylist of harness names can only reject
+        # the names someone thought of - `traycer`, `cursor`, or a route with
+        # no harness name at all walk straight through one. The section is
+        # small and fixed, so its whole body is the guard: anything added
+        # fails, whatever words it uses.
+        validator = _validator_module()
+        policy = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+        section = validator.routing_section(policy)
+        self.assertIsNotNone(section, "Execution Routing Policy section is missing")
+        self.assertEqual(
+            validator.normalize(section),
+            validator.ROUTING_SECTION_BODY,
+            "Execution Routing Policy must contain its approved content and "
+            "nothing else",
+        )
+        # Reflowing the section must not be a policy change.
+        self.assertEqual(
+            validator.normalize("  a\n\n b \n c  "),
+            "a b c",
+            "normalize must collapse whitespace so a rewrap is not a failure",
+        )
+        # A leftover denylist beside the structural check invites a future
+        # reader to maintain the list, which restarts the failure mode.
+        self.assertFalse(
+            hasattr(validator, "ROUTING_IDENTIFIERS"),
+            "ROUTING_IDENTIFIERS is subsumed by the structural check and must "
+            "not be reintroduced",
+        )
+
+    def test_no_baseline_policy_token_is_ever_removed(self) -> None:
+        """Every token pinned at base 66ecfa3 must still be pinned.
+
+        `required_policy` protects the payload's policy prose, but nothing
+        protected `required_policy` itself: removing a token and then removing
+        the prose it pinned passed the validator and these tests at both steps.
+        Additions are allowed and expected; removals are not.
+
+        Repository-CI guard only. `.gitattributes` export-ignores `tests`, so
+        this does NOT ship in the extracted archive and gives no protection
+        there - unlike the per-file policy map, which is enforced in the
+        validator precisely because the archive carries it. Do not read this
+        test as archive coverage.
+        """
+        current = _parse_required_policy(
+            (ROOT / "scripts" / "validate_skill.py").read_text(encoding="utf-8")
+        )
+        missing = [token for token in BASE_REQUIRED_POLICY if token not in current]
+        self.assertEqual(
+            missing,
+            [],
+            "required_policy dropped baseline token(s), unpinning the policy "
+            f"prose they protect: {missing}",
+        )
 
 
 if __name__ == "__main__":

@@ -114,4 +114,16 @@ CodeRabbit reviewed PR #1 in the prior round and is the expected reviewer here.
 
 ## Execution Routing Policy
 
-Omitted — use the selected backend's lead route for every role.
+The agent selection guide governs role routing. This file records only
+project-specific exceptions, and there are none. Do not restate the guide's
+model or harness choices here, even to agree with them: a route recorded in this
+section outranks the guide in the adapter's resolution order, so anything
+written here silently overrides newer policy, and a copy made today becomes a
+stale override the moment the guide changes. That is why this section stays
+empty.
+
+One constraint does belong here, because it is a property of this project rather
+than a routing preference: **the lead runs on the `claude` harness, because the
+lead is what invokes `/dev`.** Worker, QA, and reviewer assignments are
+provider-neutral and may run on whichever harness and model the selection guide
+selects for them.

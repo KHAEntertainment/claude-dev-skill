@@ -36,8 +36,53 @@ REQUIRED = {
 }
 
 
+# The Execution Routing Policy section defers to the agent selection guide and
+# exists to stay empty of routes. It is pinned structurally: the section must
+# contain its approved content and nothing else, so any added line fails
+# whatever words it uses.
+#
+# It is deliberately NOT a denylist of harness or model names. A denylist can
+# only reject the names someone thought of — `traycer`, `cursor`, or a route
+# phrased with no harness name at all ("all lanes use the lead route") walk
+# straight through one. Enumeration over prose is unbounded, and this section
+# is small and fixed, so the whole body is the guard.
+#
+# Whitespace is normalised before comparing, so reflowing or rewrapping the
+# section is not a failure. Editing its wording IS a failure until this constant
+# is updated in the same commit — that is the point: the section cannot change
+# without the change being deliberate and reviewed.
+ROUTING_HEADING = "## Execution Routing Policy"
+ROUTING_SECTION_BODY = (
+    "The agent selection guide governs role routing. This file records only "
+    "project-specific exceptions, and there are none. Do not restate the "
+    "guide's model or harness choices here, even to agree with them: a route "
+    "recorded in this section outranks the guide in the adapter's resolution "
+    "order, so anything written here silently overrides newer policy, and a "
+    "copy made today becomes a stale override the moment the guide changes. "
+    "That is why this section stays empty. One constraint does belong here, "
+    "because it is a property of this project rather than a routing "
+    "preference: **the lead runs on the `claude` harness, because the lead is "
+    "what invokes `/dev`.** Worker, QA, and reviewer assignments are "
+    "provider-neutral and may run on whichever harness and model the "
+    "selection guide selects for them."
+)
+
+
 def fail(errors: list[str], message: str) -> None:
     errors.append(message)
+
+
+def normalize(text: str) -> str:
+    """Collapse whitespace, so reflowing prose is not a policy change."""
+    return " ".join(text.split())
+
+
+def routing_section(text: str) -> str | None:
+    """Return the Execution Routing Policy section body, or None if absent."""
+    match = re.search(
+        rf"^{re.escape(ROUTING_HEADING)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
 
 
 def main() -> int:
@@ -145,16 +190,117 @@ def main() -> int:
         "distinct agent ID",
         "lead is the sole ledger writer",
         "A trusted reviewer's status check alone never satisfies this gate.",
+        # Reuse-first ladder and its safety carve-out. The carve-out is pinned
+        # as a full sentence: a ladder that survives without it reads as
+        # licence to delete guards in the name of minimality.
+        "Reuse-first ladder",
+        "lowest rung",
+        "Minimizing scope must never mean removing a guard.",
+        "speculative abstraction",
+        # Completion-evidence discipline. `qa-agent.md` holds the canonical
+        # definition of "verified"; `report-back.md` cross-references it.
+        "Tool Capability Boundary",
+        "executed command's actual output",
+        "re-run the full Verification Gate",
+        # QA scoring: absence of signal must not read as a positive result.
+        # Each token pins one path by which a lane that measured nothing could
+        # otherwise return a passing number.
+        "qa_error: no acceptance criteria",
+        "qa_error: no verification executed",
+        "No test framework detected",
+        "not verified by test execution",
+        "Limitations are load-bearing",
+        # The coverage term swings 10 points per criterion, so the predicate
+        # deciding it must stay decidable. Without these two the term degrades
+        # into a self-assessed judgment and two lanes scoring the same PR can
+        # legitimately reach different numbers.
+        "Test-executable is a decidable predicate",
+        "without new infrastructure",
+        # A failed criterion already lowers the ratio; deducting coverage on
+        # top of it counts the same fact twice and fails legitimate work for
+        # arithmetic reasons. Found by the formula's first real use.
+        "The coverage term applies only to criteria that passed.",
+        # The prototype lanes' opposing principle. Pinned positively: a guard
+        # that only asserts a ladder is absent cannot be told apart from a
+        # vacuous one, and no token list can enumerate every paraphrase. With
+        # this pinned, adding reuse-first guidance to a prototype prompt means
+        # first deleting a sentence that says the opposite.
+        "Exploration favors breadth over minimality.",
+        # QA must execute the whole gate, not read it. Without this the lane
+        # could run the test suite, never run lint or type checks, and pass
+        # with nothing recording that they had not run.
+        "Execute the full Verification Gate.",
+        "Reading the gate is not running it.",
+        # A convenience entry point that omits a recorded command reports
+        # success over something that never ran - the same defect one layer up.
+        "may be used only when it is known to run every recorded command",
     )
     for token in required_policy:
         if token not in combined:
             fail(errors, f"missing required custom policy: {token}")
+
+    # `required_policy` is matched against every Skill markdown file
+    # concatenated, so a token surviving in one file satisfies it for all.
+    # That is too weak wherever the invariant is "each of these files carries
+    # this in its own right": deleting the sentence from one lane still passes
+    # while a sibling lane holds it up. The doc-assertion tests check per file,
+    # but `.gitattributes` export-ignores `tests`, so CI's archive validation
+    # runs this script without them and the validator is the only guard there.
+    per_file_policy = {
+        "agents/worker-new.md": (
+            "Reuse-first ladder",
+            "Minimizing scope must never mean removing a guard.",
+        ),
+        "agents/worker-fix.md": (
+            "Reuse-first ladder",
+            "Minimizing scope must never mean removing a guard.",
+        ),
+        "agents/worker-prototype-frontend.md": (
+            "Exploration favors breadth over minimality.",
+        ),
+        "agents/worker-prototype-backend.md": (
+            "Exploration favors breadth over minimality.",
+        ),
+    }
+    for relative, tokens in sorted(per_file_policy.items()):
+        target = skill_dir / relative
+        if target.is_file():
+            target_text = target.read_text(encoding="utf-8")
+            for token in tokens:
+                if token not in target_text:
+                    fail(errors, f"{relative} missing required policy: {token}")
 
     detector = skill_dir / "scripts" / "detect_execution_backend.py"
     if detector.is_file():
         detector_text = detector.read_text(encoding="utf-8")
         if "shutil.which" in detector_text or "command -v" in detector_text:
             fail(errors, "backend detector must not probe binary presence")
+
+    # `required_policy` above is matched against the Skill's own markdown, so it
+    # structurally cannot pin a sentence in the repo-root `PROJECT_CONTEXT.md`.
+    # Routing policy lives there and outranks the agent selection guide in the
+    # adapter's resolution order, so a silent revert re-overrides newer policy
+    # with a stale route. Anchor on this script's own location rather than on
+    # `--skill-dir`: every call site stages the Skill elsewhere but always runs
+    # this validator from the project or archive root, where the file ships.
+    # Absence fails closed — an unreadable policy is not a satisfied one.
+    project_context = Path(__file__).resolve().parents[1] / "PROJECT_CONTEXT.md"
+    if not project_context.is_file():
+        fail(errors, "missing required file: PROJECT_CONTEXT.md")
+    else:
+        project_text = project_context.read_text(encoding="utf-8")
+        section = routing_section(project_text)
+        if section is None:
+            fail(errors, f"PROJECT_CONTEXT.md missing section: {ROUTING_HEADING}")
+        elif normalize(section) != ROUTING_SECTION_BODY:
+            fail(
+                errors,
+                f"PROJECT_CONTEXT.md `{ROUTING_HEADING}` must contain its approved "
+                "content and nothing else; this section exists to specify no "
+                "routes, so any added or altered line fails regardless of wording. "
+                "If the edit is intentional, update ROUTING_SECTION_BODY in "
+                "scripts/validate_skill.py in the same commit.",
+            )
 
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():

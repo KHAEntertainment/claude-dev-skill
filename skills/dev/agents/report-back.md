@@ -32,6 +32,21 @@ silence.
 A report-back with a missing section is flagged, not back-filled; never invent
 evidence.
 
+## Evidence discipline
+
+- Every completion claim maps to an executed command's actual output. If you
+  cannot name the command and what it printed, do not make the claim — record
+  what was not run instead. An unrun check is reported as unrun, never omitted.
+- After any fix, re-run the full Verification Gate rather than only the check
+  that failed. A targeted re-run shows the one symptom went away; it does not
+  show the fix left everything else intact.
+- Every exit code you report comes from that final full run, at the head commit
+  you report. Never carry an exit code forward from a run that preceded the
+  change, and report a partial re-run as partial.
+- What counts as "verified" is defined once, in the Tool Capability Boundary of
+  `${CLAUDE_SKILL_DIR}/agents/qa-agent.md`. Every lane uses that definition;
+  this contract does not restate it.
+
 ## Role-specific close-out
 
 - **Worker** (`worker-new` / `worker-fix`): report the created PR URL and the
