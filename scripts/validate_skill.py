@@ -231,6 +231,9 @@ def main() -> int:
         # with nothing recording that they had not run.
         "Execute the full Verification Gate.",
         "Reading the gate is not running it.",
+        # A convenience entry point that omits a recorded command reports
+        # success over something that never ran - the same defect one layer up.
+        "may be used only when it is known to run every recorded command",
     )
     for token in required_policy:
         if token not in combined:

@@ -91,7 +91,7 @@ Whether launched through Claude-native or Traycer execution:
 ## [Step 4: Self-Check (all items mandatory)]
 
 10. **Counterexample-driven validation** (for each core function, trace the full execution path mentally through all 6 categories):
-   ```
+   ```text
    □ Null/None: what happens when a key parameter is None?
    □ Empty values: what happens with string="" / list=[] / dict={}?
    □ Boundary values: what happens at max value, min value, 0?
@@ -113,7 +113,7 @@ Whether launched through Claude-native or Traycer execution:
       - At least 1 happy path case (proves the feature works)
       - At least 1 error/boundary path case (proves no new problems introduced)
       - Output format must match acceptance criteria, one line per criterion, e.g.:
-        ```
+        ```text
         [AC1] POST /auth/register with existing email → 409: ✓ PASS
         [AC2] POST /auth/login wrong password → 401: ✓ PASS
         [AC3] POST /auth/login DB disconnect → 500 no internal leak: ✓ PASS

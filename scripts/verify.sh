@@ -97,7 +97,34 @@ run_check 'Python tests' python3 -m unittest discover -s tests -p 'test_*.py'
 run_check 'Bash installer tests' bash tests/test-install.sh
 run_check 'Plugin root' scripts/check_plugin_root.sh
 run_check 'Version sync' python3 scripts/check_version_sync.py
-run_check 'Claude plugin validation' claude plugin validate . --strict
+# Both Claude CLI checks are recorded in PROJECT_CONTEXT.md's Verification Gate,
+# and CI runs them together behind the same guard. Running them as a pair here
+# keeps this script's coverage equal to the recorded gate: `tag --dry-run` was
+# missing, so a lane running this script believed it had run the whole gate
+# while one recorded command had never executed. A machine without the CLI now
+# reports one named skip instead of one check failing while its sibling is
+# silently never considered.
+if command -v claude >/dev/null 2>&1; then
+    run_check 'Claude plugin validation' claude plugin validate . --strict
+    # `claude plugin tag --dry-run` refuses to run against a dirty tree, so it
+    # can only execute on a clean checkout. Running it unconditionally would
+    # fail the gate for every worker mid-change and teach everyone to ignore a
+    # red gate. A named skip keeps it usable; CI checks out clean, where it
+    # always runs, and --require-all fails on the skip either way. An
+    # unreadable git status errs toward running the check, never toward
+    # skipping it.
+    if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+        record_skip \
+            'Claude plugin tag dry run (uncommitted changes; exit n/a)' \
+            'claude plugin tag --dry-run did not run; release tagging is unverified until the tree is clean'
+    else
+        run_check 'Claude plugin tag (dry run)' claude plugin tag --dry-run .
+    fi
+else
+    record_skip \
+        'Claude packaging checks (claude CLI absent; exit n/a)' \
+        'claude plugin validate --strict and claude plugin tag --dry-run did not run; packaging is unverified against the Claude Code CLI'
+fi
 
 if command -v pwsh >/dev/null 2>&1; then
     run_check 'PowerShell installer tests' pwsh tests/test-install.ps1
