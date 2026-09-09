@@ -456,9 +456,6 @@ class ExternalReviewInspectorTests(unittest.TestCase):
         self.assertEqual(json.loads(completed.stdout)["state"], "incomplete")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class VerdictRegressionTests(unittest.TestCase):
     def make(self, states):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
@@ -472,10 +469,27 @@ class VerdictRegressionTests(unittest.TestCase):
     def test_approval_after_rejection_clears(self): self.assertEqual(self.make([("CHANGES_REQUESTED","2026-09-08T19:00:00Z"),("APPROVED","2026-09-08T20:00:00Z")])["state"], "clear")
     def test_rejection_after_approval_blocks(self): self.assertEqual(self.make([("APPROVED","2026-09-08T19:00:00Z"),("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])["state"], "blocking")
     def test_rejection_with_green_check_blocks(self):
-        result = self.make([("CHANGES_REQUESTED","2026-09-08T20:00:00Z")])
         current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
         current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T20:00:00Z"}]
         self.assertEqual(MODULE.inspect(current, [], recent, policy(), {})["state"], "blocking")
+    def test_rejection_with_failing_check_stays_blocking_with_errors(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"current-head"},"submittedAt":"2026-09-08T20:00:00Z"}]
+        current["statusCheckRollup"] = [{"name":"CodeRabbit","status":"failure","conclusion":"failure"}]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "blocking")
+        self.assertTrue(result["errors"])
+
+    def test_errors_without_rejection_stay_incomplete(self):
+        current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
+        current["statusCheckRollup"] = [{"name":"CodeRabbit","status":"failure","conclusion":"failure"}]
+        result = MODULE.inspect(current, [], recent, policy(), {})
+        self.assertEqual(result["state"], "incomplete")
+
     def test_older_rejection_is_pending(self):
         current, threads, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json"); current["statusCheckRollup"]=[]; current["reviews"]=[{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
         self.assertEqual(MODULE.inspect(current,threads,recent,policy(),{})["state"],"pending")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -592,9 +592,13 @@ def inspect(
         if identity:
             unknown_bots.add(identity)
 
-    if errors:
+    # A known rejection outranks errors: an unreadable check must not soften a
+    # verdict we already read. Errors still surface in "errors" either way.
+    if blocking_reviewers:
+        state = "blocking"
+    elif errors:
         state = "incomplete"
-    elif blocking or blocking_reviewers:
+    elif blocking:
         state = "blocking"
     elif not expected:
         state = "not_applicable"
