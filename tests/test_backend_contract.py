@@ -251,6 +251,22 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("Not test-executable", qa)
         self.assertIn("Test-executable but not executed", qa)
 
+    def test_project_context_defers_role_routing_to_the_selection_guide(self) -> None:
+        # PROJECT_CONTEXT.md outranks the agent selection guide in the adapter's
+        # resolution order, so any route restated here silently overrides newer
+        # policy. The section must defer, and record only the one constraint
+        # that is a property of this project rather than a routing preference.
+        policy = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+        self.assertIn("The agent selection guide governs role routing.", policy)
+        self.assertIn("outranks the guide in the adapter's resolution order", policy)
+        self.assertIn("the lead runs on the `claude` harness", policy)
+        self.assertIn("provider-neutral", policy)
+        # The exact stale line this replaced, which routed every role to the
+        # backend lead and so overrode the guide's per-role choices.
+        self.assertNotIn(
+            "use the selected backend's lead route for every role", policy
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -182,6 +182,28 @@ def main() -> int:
         if "shutil.which" in detector_text or "command -v" in detector_text:
             fail(errors, "backend detector must not probe binary presence")
 
+    # `required_policy` above is matched against the Skill's own markdown, so it
+    # structurally cannot pin a sentence in the repo-root `PROJECT_CONTEXT.md`.
+    # Routing policy lives there and outranks the agent selection guide in the
+    # adapter's resolution order, so a silent revert re-overrides newer policy
+    # with a stale route. Anchor on this script's own location rather than on
+    # `--skill-dir`: every call site stages the Skill elsewhere but always runs
+    # this validator from the project or archive root, where the file ships.
+    # Absence fails closed — an unreadable policy is not a satisfied one.
+    project_context = Path(__file__).resolve().parents[1] / "PROJECT_CONTEXT.md"
+    if not project_context.is_file():
+        fail(errors, "missing required file: PROJECT_CONTEXT.md")
+    else:
+        project_text = project_context.read_text(encoding="utf-8")
+        for token in (
+            "The agent selection guide governs role routing.",
+            "outranks the guide in the adapter's resolution order",
+            "the lead runs on the `claude` harness",
+            "provider-neutral",
+        ):
+            if token not in project_text:
+                fail(errors, f"PROJECT_CONTEXT.md missing routing policy: {token}")
+
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():
         state_text = state_template.read_text(encoding="utf-8")
