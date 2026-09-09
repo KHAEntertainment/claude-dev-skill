@@ -236,6 +236,21 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("Limitations are load-bearing", qa)
         self.assertIn("blocks the pass", qa)
 
+    def test_coverage_term_predicate_is_decidable(self) -> None:
+        # The coverage term is worth 10 points per criterion, so "could this
+        # have been test-executed?" must not be self-assessed. This repository
+        # pins prose with doc-assertion tests, so "it is only prose" must not
+        # read as non-executable and quietly zero the deduction.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("Test-executable is a decidable predicate", qa)
+        self.assertIn("without new infrastructure", qa)
+        self.assertIn("doc-assertion tests over shipped prose", qa)
+        self.assertIn("is not by itself a reason to call it non-executable", qa)
+        # A non-executable judgment is free, so it must be recorded and named.
+        self.assertIn("naming the infrastructure that is missing", qa)
+        self.assertIn("Not test-executable", qa)
+        self.assertIn("Test-executable but not executed", qa)
+
 
 if __name__ == "__main__":
     unittest.main()

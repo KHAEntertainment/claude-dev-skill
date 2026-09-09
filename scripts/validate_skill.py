@@ -165,6 +165,12 @@ def main() -> int:
         "No test framework detected",
         "not verified by test execution",
         "Limitations are load-bearing",
+        # The coverage term swings 10 points per criterion, so the predicate
+        # deciding it must stay decidable. Without these two the term degrades
+        # into a self-assessed judgment and two lanes scoring the same PR can
+        # legitimately reach different numbers.
+        "Test-executable is a decidable predicate",
+        "without new infrastructure",
     )
     for token in required_policy:
         if token not in combined:

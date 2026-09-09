@@ -91,20 +91,27 @@ restating it.
    (passed acceptance criteria / total acceptance criteria) × 100
      - 20 per Critical/High
      - 5  per Medium
-     - 10 per acceptance criterion not verified by test execution
-          where execution was possible within the Tool Capability Boundary
+     - 10 per test-executable acceptance criterion
+          not verified by test execution
    ```
 
    The last term is the coverage term. Without it the score answers only "how much was found wrong", and a clean lane is indistinguishable from one that never ran. A lane that executed everything it could deducts nothing here and scores exactly as it would have before this term existed.
+
+   **Test-executable is a decidable predicate, not a judgment call.** A criterion is test-executable when the project's existing suite could pin it **without new infrastructure** — a new case in a suite the project already runs, using a runner and helpers already present. That includes doc-assertion tests over shipped prose wherever the project already asserts file content, so "the criterion is about prose, not code" is not by itself a reason to call it non-executable.
+
+   A criterion is **not** test-executable only when pinning it would require infrastructure the project does not have — a new runner, a new dependency, a service harness, a browser driver — or when it lies outside the Tool Capability Boundary.
+
+   Every criterion you judge non-executable goes in Limitations with that judgment and the basis for it, naming the infrastructure that is missing. That judgment is worth 10 points, so it is recorded where a reviewer can see and contest it, never made silently. Two competent lanes scoring the same PR should reach the same number; if the basis you would write does not survive being read back, the criterion was test-executable.
 
    Require a score of at least 80 and no Critical/High findings to pass.
 
 10. **Limitations are load-bearing.** Every entry in the Limitations section is unexecuted verification, and each entry must resolve to exactly one of:
 
-    - **Outside the Tool Capability Boundary** — cannot start a service, cannot drive a UI, cannot reproduce a race. Carry it as the step 9 coverage deduction against each acceptance criterion it leaves unverified.
-    - **Inside the boundary but not executed** — this blocks the pass. Either run it, or fail the lane and say why it was not run.
+    - **Not test-executable** — pinning it would need infrastructure this project does not have, or it lies outside the Tool Capability Boundary: cannot start a service, cannot drive a UI, cannot reproduce a race. No deduction. This is the only resolution that costs nothing, which is exactly why its basis is mandatory and must name the missing infrastructure.
+    - **Test-executable but not executed** — carries the step 9 coverage deduction against each acceptance criterion it leaves unverified. A lane that could have run the check and did not should not reach 80.
+    - **A procedure step you skipped** — this blocks the pass. Either run it, or fail the lane and say why it was not run.
 
-    An entry that resolves to neither is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.
+    An entry that resolves to none of these is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.
 
 11. Leave a QA report comment on the PR:
 
@@ -133,8 +140,9 @@ QA focus: [directly related files/functions]
 ### Limitations
 [Content that could not be dynamically verified, e.g.: cannot verify actual HTTP
 responses, cannot verify concurrent behavior. Each entry carries its resolution:
-`outside boundary -> -10 against AC-N`, or `inside boundary, not executed ->
-blocks pass`]
+`not test-executable -> no deduction, missing infrastructure: [what]`,
+`test-executable, not executed -> -10 against AC-N`, or
+`procedure step skipped -> blocks pass`]
 
 ### Health Score: [N]/100
 Derivation: [base] - [Critical/High] - [Medium] - [coverage deductions] = [N]
