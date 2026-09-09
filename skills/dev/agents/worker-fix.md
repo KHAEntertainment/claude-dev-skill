@@ -52,23 +52,27 @@ Whether launched through Claude-native or Traycer execution:
 6. Work only on the pre-created branch/worktree verified in Step 1. Do not create or switch branches. Hotfix worktrees must be based on `origin/main`.
 7. **Only modify code directly related to the Issue and within assigned ownership** — no out-of-scope changes
 
+8. **Reuse-first ladder.** Take the lowest rung that actually satisfies the acceptance criteria, in this order: does the change need to exist at all → is the behavior already in the codebase → does the standard library or the native platform cover it → is it in an already-installed dependency → is it one line → only then the minimum new code. Record the rung you took and why the rungs above it were rejected; "I did not look" is not a rejection.
+
+   **Safety carve-out — non-negotiable.** Validation, error handling, security, and accessibility are never cut for minimality. Minimizing scope must never mean removing a guard. A fix that gets smaller by deleting a check is not a smaller fix; it is a second defect.
+
 ---
 
 ## [Step 3: Self-Check (all items mandatory)]
 
-8. **Counterexample-driven validation**:
+9. **Counterexample-driven validation**:
    - Full reproduction steps for the original problem — confirm it is fixed
    - Construct boundary cases for the fix point (must cover at least: empty/None type, external dependency failure type) — confirm the fix does not introduce new problems
    - Verify each acceptance criterion from the Issue using `[trigger condition] → [actual code behavior]` format (✓/✗)
 
-9. **Regression testing**:
+10. **Regression testing**:
    - If project has a test framework: run the full test suite through the relevant RTK wrapper when available, confirm no regression, fix any failing tests
    - If no test framework: write a verification script and run it. Script must cover:
      - The fixed happy path (proves the problem is resolved)
      - At least 1 adjacent boundary case (proves no new problems introduced)
      - Output format matching acceptance criteria, attached in full to PR body
 
-10. Run syntax check through an RTK wrapper where available: Python uses `rtk proxy python -m py_compile`, JS uses `rtk proxy node --check`
+11. Run syntax check through an RTK wrapper where available: Python uses `rtk proxy python -m py_compile`, JS uses `rtk proxy node --check`
 
    All issues found during self-check must be fixed before submitting the PR.
 
@@ -76,8 +80,8 @@ Whether launched through Claude-native or Traycer execution:
 
 ## [Step 4: Submit PR]
 
-11. If self-check changed code, rerun the full relevant regression and static-check set.
-12. Create semantic, bisectable commits; keep every commit runnable.
-13. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
+12. If self-check changed code, rerun the full relevant regression and static-check set.
+13. Create semantic, bisectable commits; keep every commit runnable.
+14. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
     - body: include `Closes #N`, root cause, fix approach, AC completion status, test output, impact scope assessment
-14. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown
+15. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

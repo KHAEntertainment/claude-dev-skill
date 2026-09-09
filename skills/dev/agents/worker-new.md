@@ -63,18 +63,34 @@ Whether launched through Claude-native or Traycer execution:
 
    If the plan conflicts with your code understanding, go back to Step 1 and re-read.
 
+7. **Reuse-first ladder.** Before writing any code, walk these rungs in order and stop at the first one that satisfies the acceptance criteria:
+
+   ```
+   □ 1 Does this need to exist at all? Can the criteria be met by deleting or configuring something rather than adding?
+   □ 2 Is it already in the codebase? Search before you build.
+   □ 3 Does the standard library cover it?
+   □ 4 Is it a native platform feature (runtime, shell, OS, browser)?
+   □ 5 Is it in an already-installed dependency, reachable without adding a new one?
+   □ 6 Is it one line?
+   □ 7 Only then: the minimum new code that satisfies the acceptance criteria.
+   ```
+
+   Name the rung you landed on in the implementation plan and say why each rung above it was rejected. "I did not look" is not a rejection.
+
+   **Safety carve-out — non-negotiable.** Validation, error handling, security, and accessibility are never cut for minimality. Minimizing scope must never mean removing a guard. A rung reached by dropping one of these is not a lower rung; it is a defect.
+
 ---
 
 ## [Step 3: Code]
 
-7. Work only on the branch/worktree assigned and verified in Step 1. Do not create or switch branches.
-8. Write code per the implementation plan, following the style conventions in `PROJECT_CONTEXT.md` and the assigned file ownership.
+8. Work only on the branch/worktree assigned and verified in Step 1. Do not create or switch branches.
+9. Write code per the implementation plan, following the style conventions in `PROJECT_CONTEXT.md` and the assigned file ownership.
 
 ---
 
 ## [Step 4: Self-Check (all items mandatory)]
 
-9. **Counterexample-driven validation** (for each core function, trace the full execution path mentally through all 6 categories):
+10. **Counterexample-driven validation** (for each core function, trace the full execution path mentally through all 6 categories):
    ```
    □ Null/None: what happens when a key parameter is None?
    □ Empty values: what happens with string="" / list=[] / dict={}?
@@ -85,11 +101,13 @@ Whether launched through Claude-native or Traycer execution:
    ```
    Any issues found must be fixed before continuing.
 
-10. **Verify each acceptance criterion** (use `[trigger condition] → [actual code behavior]` format for each):
+11. **Verify each acceptance criterion** (use `[trigger condition] → [actual code behavior]` format for each):
    - If result matches expectation, mark ✓
    - If there's a gap, fix it and re-verify — do not leave any criterion unsatisfied
 
-11. **Run tests**:
+12. **Confirm the rung.** State which rung of the Step 2 reuse-first ladder the implementation actually sits on, and confirm it is the lowest rung that satisfies every acceptance criterion. If a lower rung would also have satisfied them, drop to it now. If you reached a lower rung by dropping a validation, error-handling, security, or accessibility guard, restore the guard and take the higher rung — the carve-out outranks the ladder.
+
+13. **Run tests**:
     - If project has a test framework: run the full test suite through the relevant RTK wrapper when available — all must pass
     - If no test framework: write a verification script and run it. **Script must include**:
       - At least 1 happy path case (proves the feature works)
@@ -102,7 +120,7 @@ Whether launched through Claude-native or Traycer execution:
         ```
       Attach the full script output to the PR body — never just write "tests passed".
 
-12. Run syntax check through an RTK wrapper where available: Python uses `rtk proxy python -m py_compile`, JS uses `rtk proxy node --check`
+14. Run syntax check through an RTK wrapper where available: Python uses `rtk proxy python -m py_compile`, JS uses `rtk proxy node --check`
 
     All issues found during self-check must be fixed before submitting the PR.
 
@@ -110,9 +128,9 @@ Whether launched through Claude-native or Traycer execution:
 
 ## [Step 5: Retest and Submit PR]
 
-13. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
-14. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
-15. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
+15. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
+16. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
+17. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N`, change rationale, AC completion status, complete test output, coverage-path audit, and caller impact
-16. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown
+18. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown
