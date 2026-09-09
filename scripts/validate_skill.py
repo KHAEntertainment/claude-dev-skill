@@ -37,34 +37,44 @@ REQUIRED = {
 
 
 # The Execution Routing Policy section defers to the agent selection guide and
-# must specify no routes of its own. Asserting the disclaimer is present is not
-# enough: an override appended alongside it still outranks the guide, and that
-# addition is the dangerous edit. The property enforced is "this section names
-# no route", which is decidable without enumerating phrasings.
+# exists to stay empty of routes. It is pinned structurally: the section must
+# contain its approved content and nothing else, so any added line fails
+# whatever words it uses.
+#
+# It is deliberately NOT a denylist of harness or model names. A denylist can
+# only reject the names someone thought of — `traycer`, `cursor`, or a route
+# phrased with no harness name at all ("all lanes use the lead route") walk
+# straight through one. Enumeration over prose is unbounded, and this section
+# is small and fixed, so the whole body is the guard.
+#
+# Whitespace is normalised before comparing, so reflowing or rewrapping the
+# section is not a failure. Editing its wording IS a failure until this constant
+# is updated in the same commit — that is the point: the section cannot change
+# without the change being deliberate and reviewed.
 ROUTING_HEADING = "## Execution Routing Policy"
-ROUTING_IDENTIFIERS = (
-    "claude",
-    "codex",
-    "opencode",
-    "qwen",
-    "opus",
-    "sonnet",
-    "fable",
-    "gpt",
-    "glm",
-    "kimi",
-    "minimax",
-    "deepseek",
-)
-# The one sentence allowed to name a harness here, because it states a property
-# of this project rather than a routing preference.
-ROUTING_EXCEPTION = (
-    "the lead runs on the `claude` harness, because the lead is what invokes `/dev`"
+ROUTING_SECTION_BODY = (
+    "The agent selection guide governs role routing. This file records only "
+    "project-specific exceptions, and there are none. Do not restate the "
+    "guide's model or harness choices here, even to agree with them: a route "
+    "recorded in this section outranks the guide in the adapter's resolution "
+    "order, so anything written here silently overrides newer policy, and a "
+    "copy made today becomes a stale override the moment the guide changes. "
+    "That is why this section stays empty. One constraint does belong here, "
+    "because it is a property of this project rather than a routing "
+    "preference: **the lead runs on the `claude` harness, because the lead is "
+    "what invokes `/dev`.** Worker, QA, and reviewer assignments are "
+    "provider-neutral and may run on whichever harness and model the "
+    "selection guide selects for them."
 )
 
 
 def fail(errors: list[str], message: str) -> None:
     errors.append(message)
+
+
+def normalize(text: str) -> str:
+    """Collapse whitespace, so reflowing prose is not a policy change."""
+    return " ".join(text.split())
 
 
 def routing_section(text: str) -> str | None:
@@ -271,40 +281,18 @@ def main() -> int:
         fail(errors, "missing required file: PROJECT_CONTEXT.md")
     else:
         project_text = project_context.read_text(encoding="utf-8")
-        # Match presence against collapsed whitespace: these sentences are
-        # prose and wrap, so a raw substring check would break on a reflow
-        # rather than on a policy change.
-        project_flat = " ".join(project_text.split())
-        for token in (
-            "The agent selection guide governs role routing.",
-            "outranks the guide in the adapter's resolution order",
-            ROUTING_EXCEPTION,
-            "provider-neutral",
-        ):
-            if token not in project_flat:
-                fail(errors, f"PROJECT_CONTEXT.md missing routing policy: {token}")
-
         section = routing_section(project_text)
         if section is None:
             fail(errors, f"PROJECT_CONTEXT.md missing section: {ROUTING_HEADING}")
-        else:
-            # Collapse wrapping first so the allowed sentence matches however
-            # it happens to be line-broken, then scan what is left.
-            remainder = " ".join(section.split()).replace(ROUTING_EXCEPTION, " ")
-            named = sorted(
-                {
-                    identifier
-                    for identifier in ROUTING_IDENTIFIERS
-                    if re.search(rf"\b{re.escape(identifier)}\b", remainder, re.I)
-                }
+        elif normalize(section) != ROUTING_SECTION_BODY:
+            fail(
+                errors,
+                f"PROJECT_CONTEXT.md `{ROUTING_HEADING}` must contain its approved "
+                "content and nothing else; this section exists to specify no "
+                "routes, so any added or altered line fails regardless of wording. "
+                "If the edit is intentional, update ROUTING_SECTION_BODY in "
+                "scripts/validate_skill.py in the same commit.",
             )
-            if named:
-                fail(
-                    errors,
-                    "PROJECT_CONTEXT.md Execution Routing Policy must specify no "
-                    "routes; found harness/model identifiers outside the "
-                    f"lead-harness sentence: {', '.join(named)}",
-                )
 
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():

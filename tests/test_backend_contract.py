@@ -1,12 +1,27 @@
 from __future__ import annotations
 
-import re
+import importlib.util
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "dev"
+
+
+def _validator_module():
+    """Load scripts/validate_skill.py so its pinned policy has one home.
+
+    The routing section is pinned in the validator rather than duplicated here
+    because `.gitattributes` export-ignores `tests`, so CI's archive validation
+    runs the validator without this file. Importing it keeps a single source of
+    truth and still fails here when the live document drifts from it.
+    """
+    path = ROOT / "scripts" / "validate_skill.py"
+    spec = importlib.util.spec_from_file_location("validate_skill", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class BackendContractTests(unittest.TestCase):
@@ -298,42 +313,35 @@ class BackendContractTests(unittest.TestCase):
             "use the selected backend's lead route for every role", policy
         )
 
-    def test_routing_section_specifies_no_routes(self) -> None:
-        # Presence of the disclaimer is not the property being protected. An
-        # override appended alongside it still outranks the guide, and that
-        # addition is the dangerous edit a presence-only guard cannot see.
-        # Assert the section names no harness or model at all, except the one
-        # sentence stating the lead-harness constraint.
+    def test_routing_section_contains_only_approved_content(self) -> None:
+        # Structural, not lexical. A denylist of harness names can only reject
+        # the names someone thought of - `traycer`, `cursor`, or a route with
+        # no harness name at all walk straight through one. The section is
+        # small and fixed, so its whole body is the guard: anything added
+        # fails, whatever words it uses.
+        validator = _validator_module()
         policy = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
-        match = re.search(
-            r"^## Execution Routing Policy$(.*?)(?=^## |\Z)", policy, re.M | re.S
+        section = validator.routing_section(policy)
+        self.assertIsNotNone(section, "Execution Routing Policy section is missing")
+        self.assertEqual(
+            validator.normalize(section),
+            validator.ROUTING_SECTION_BODY,
+            "Execution Routing Policy must contain its approved content and "
+            "nothing else",
         )
-        self.assertIsNotNone(match, "Execution Routing Policy section is missing")
-        body = " ".join(match.group(1).split()).replace(
-            "the lead runs on the `claude` harness, "
-            "because the lead is what invokes `/dev`",
-            " ",
+        # Reflowing the section must not be a policy change.
+        self.assertEqual(
+            validator.normalize("  a\n\n b \n c  "),
+            "a b c",
+            "normalize must collapse whitespace so a rewrap is not a failure",
         )
-        for identifier in (
-            "claude",
-            "codex",
-            "opencode",
-            "qwen",
-            "opus",
-            "sonnet",
-            "fable",
-            "gpt",
-            "glm",
-            "kimi",
-            "minimax",
-            "deepseek",
-        ):
-            with self.subTest(identifier=identifier):
-                self.assertIsNone(
-                    re.search(rf"\b{identifier}\b", body, re.I),
-                    f"Execution Routing Policy names {identifier!r}; "
-                    "the section must specify no routes",
-                )
+        # A leftover denylist beside the structural check invites a future
+        # reader to maintain the list, which restarts the failure mode.
+        self.assertFalse(
+            hasattr(validator, "ROUTING_IDENTIFIERS"),
+            "ROUTING_IDENTIFIERS is subsumed by the structural check and must "
+            "not be reintroduced",
+        )
 
 
 if __name__ == "__main__":
