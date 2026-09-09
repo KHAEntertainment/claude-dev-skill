@@ -163,6 +163,79 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("distinct from each other", contract)
         self.assertIn("backend_source", contract)
 
+    def test_implementation_lanes_carry_the_reuse_first_ladder(self) -> None:
+        for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertIn("Reuse-first ladder", prompt)
+                self.assertIn("already in the codebase", prompt)
+                self.assertIn("standard library", prompt)
+                self.assertIn("already-installed dependency", prompt)
+                self.assertIn("lowest rung", prompt)
+
+    def test_safety_carveout_accompanies_the_ladder_in_both_lanes(self) -> None:
+        # The ladder without the carve-out reads as licence to delete guards in
+        # the name of minimality, so the two must never drift apart.
+        for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertIn("Safety carve-out", prompt)
+                self.assertIn(
+                    "Minimizing scope must never mean removing a guard.", prompt
+                )
+                for guard in (
+                    "Validation",
+                    "error handling",
+                    "security",
+                    "accessibility",
+                ):
+                    self.assertIn(guard, prompt)
+
+    def test_ladder_stays_out_of_both_prototype_lanes(self) -> None:
+        # Prototype lanes exist to explore breadth; a reuse-first stance is
+        # wrong there. This asserts the exclusion so a future edit that
+        # helpfully propagates the ladder fails instead of landing silently.
+        for relative in (
+            "agents/worker-prototype-frontend.md",
+            "agents/worker-prototype-backend.md",
+        ):
+            prompt = self.read(relative)
+            with self.subTest(prompt=relative):
+                self.assertNotIn("Reuse-first ladder", prompt)
+                self.assertNotIn("lowest rung", prompt)
+
+    def test_reviewer_checks_for_over_engineering_as_advisory(self) -> None:
+        reviewer = self.read("agents/reviewer.md")
+        self.assertIn("over-engineering", reviewer)
+        self.assertIn("speculative abstraction", reviewer)
+        self.assertIn("reimplemented by hand", reviewer)
+        self.assertIn("`advisory` unless", reviewer)
+
+    def test_completion_claims_require_executed_output(self) -> None:
+        report_back = self.read("agents/report-back.md")
+        qa = self.read("agents/qa-agent.md")
+        for prompt in (report_back, qa):
+            self.assertIn("executed command's actual output", prompt)
+            self.assertIn("re-run the full Verification Gate", prompt)
+        # qa-agent.md owns the canonical wording; report-back cross-references
+        # it rather than restating it.
+        self.assertIn("Tool Capability Boundary", report_back)
+        self.assertIn("agents/qa-agent.md", report_back)
+        self.assertIn("canonical definition", qa)
+
+    def test_qa_score_cannot_read_absence_of_signal_as_a_pass(self) -> None:
+        qa = self.read("agents/qa-agent.md")
+        # No denominator, nothing executed, and an undetected framework are all
+        # explicit outcomes rather than paths to an implicit 100.
+        self.assertIn("qa_error: no acceptance criteria", qa)
+        self.assertIn("qa_error: no verification executed", qa)
+        self.assertIn("No test framework detected", qa)
+        self.assertIn("never a silent skip", qa)
+        # The score carries a coverage term, and Limitations feed the result.
+        self.assertIn("not verified by test execution", qa)
+        self.assertIn("Limitations are load-bearing", qa)
+        self.assertIn("blocks the pass", qa)
+
 
 if __name__ == "__main__":
     unittest.main()

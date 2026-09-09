@@ -145,6 +145,26 @@ def main() -> int:
         "distinct agent ID",
         "lead is the sole ledger writer",
         "A trusted reviewer's status check alone never satisfies this gate.",
+        # Reuse-first ladder and its safety carve-out. The carve-out is pinned
+        # as a full sentence: a ladder that survives without it reads as
+        # licence to delete guards in the name of minimality.
+        "Reuse-first ladder",
+        "lowest rung",
+        "Minimizing scope must never mean removing a guard.",
+        "speculative abstraction",
+        # Completion-evidence discipline. `qa-agent.md` holds the canonical
+        # definition of "verified"; `report-back.md` cross-references it.
+        "Tool Capability Boundary",
+        "executed command's actual output",
+        "re-run the full Verification Gate",
+        # QA scoring: absence of signal must not read as a positive result.
+        # Each token pins one path by which a lane that measured nothing could
+        # otherwise return a passing number.
+        "qa_error: no acceptance criteria",
+        "qa_error: no verification executed",
+        "No test framework detected",
+        "not verified by test execution",
+        "Limitations are load-bearing",
     )
     for token in required_policy:
         if token not in combined:
