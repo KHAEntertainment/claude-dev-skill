@@ -338,6 +338,33 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("Not test-executable", qa)
         self.assertIn("Test-executable but not executed", qa)
 
+    def test_qa_executes_the_whole_gate_not_only_the_test_suite(self) -> None:
+        # Requiring only the test suite let a lane pass with the gate's lint
+        # and type checks never executed and nothing recording that they had
+        # not run - absence of execution reading as satisfaction, inside the
+        # file written to prevent exactly that.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("Execute the full Verification Gate.", qa)
+        self.assertIn("Reading the gate is not running it.", qa)
+        self.assertIn("record each command with the exit code it returned", qa)
+        self.assertIn("Any gate command that fails, or does not run, fails QA.", qa)
+        # A project with no recorded gate is a finding, not a silent skip.
+        self.assertIn("records no Verification Gate", qa)
+        # The report has somewhere to put the evidence.
+        self.assertIn("### Verification Gate", qa)
+
+    def test_coverage_term_denies_a_full_score_rather_than_failing_a_lane(self) -> None:
+        # The prose claimed an unexecuted criterion should keep a lane from
+        # reaching 80, but one deduction leaves a clean lane at 90 and passing.
+        # Prose and arithmetic must agree on which was meant.
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn(
+            "The coverage term denies a full score; it does not by itself fail a lane.",
+            qa,
+        )
+        self.assertIn("should not receive a full score", qa)
+        self.assertNotIn("should not reach 80", qa)
+
     def test_coverage_term_does_not_double_count_failed_criteria(self) -> None:
         # A failed criterion already reduced the ratio. Deducting coverage on
         # top of it penalises the same fact twice and can push legitimate work

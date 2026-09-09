@@ -65,7 +65,7 @@ Whether launched through Claude-native or Traycer execution:
 
 7. **Reuse-first ladder.** Before writing any code, walk these rungs in order and stop at the first one that satisfies the acceptance criteria:
 
-   ```
+   ```text
    □ 1 Does this need to exist at all? Can the criteria be met by deleting or configuring something rather than adding?
    □ 2 Is it already in the codebase? Search before you build.
    □ 3 Does the standard library cover it?

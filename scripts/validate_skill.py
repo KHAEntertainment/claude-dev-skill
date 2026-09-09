@@ -226,6 +226,11 @@ def main() -> int:
         # this pinned, adding reuse-first guidance to a prototype prompt means
         # first deleting a sentence that says the opposite.
         "Exploration favors breadth over minimality.",
+        # QA must execute the whole gate, not read it. Without this the lane
+        # could run the test suite, never run lint or type checks, and pass
+        # with nothing recording that they had not run.
+        "Execute the full Verification Gate.",
+        "Reading the gate is not running it.",
     )
     for token in required_policy:
         if token not in combined:

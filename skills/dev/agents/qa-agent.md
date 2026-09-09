@@ -22,7 +22,7 @@ Whether launched through Claude-native or Traycer execution:
 - Send findings through the assigned backend and leave the required PR comment.
 - Do not approve, merge, or request final changes independently; the Tech Lead owns Phase 4.
 - Include the backend correlation/response ID when one was provided and shut down when QA is acknowledged.
-- Close with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the QA report template in Step 11 is its role-specific form.
+- Close with the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the QA report template in Step 12 is its role-specific form.
 
 ---
 
@@ -62,15 +62,23 @@ restating it.
 
    Whether the project has a test framework is a conclusion you must reach and show, not an assumption you may hold. Look at the dependency manifest, the test directory, the CI workflow, and any Verification Gate recorded in `PROJECT_CONTEXT.md`, and state what you looked at. If you find a framework, run it. If the PR supplies a verification script in place of a framework, run that and report its actual output as the executed evidence. If neither exists, record **No test framework detected** as a Medium finding with the basis for that conclusion attached. Absence of a test framework is a reportable gap, never a silent skip, and it never scores the same as passing tests.
 
-5. Verify each acceptance criterion using:
+5. **Execute the full Verification Gate.** Run every command recorded under the Verification Gate in `PROJECT_CONTEXT.md` — lint, type check, static analysis, tests, packaging — and record each command with the exit code it returned. Where the project provides a single entry point for the gate, run that.
+
+   **Reading the gate is not running it.** Confirming the gate exists, or that the commands look right, verifies nothing; a gate you did not execute is not evidence at this commit. Report the commands and their exit codes as they came back — never paraphrase a result, and never carry one forward from an earlier run or another commit. Any gate command that fails, or does not run, fails QA.
+
+   If the gate includes the test suite, step 4 is satisfied by this run; report one set of figures from it rather than a separate figure from an earlier partial run. After any fix lands, re-run the whole gate rather than the check that failed, and report the exit codes from that final run.
+
+   If `PROJECT_CONTEXT.md` records no Verification Gate, say so with the basis for that conclusion and record it as a Medium finding. A project with no recorded gate is a reportable gap, not a step that quietly contributes nothing.
+
+6. Verify each acceptance criterion using:
    `[AC-N] [criterion] → method: [code analysis / test execution] → conclusion: [pass / fail + reason]`
 
-6. Static-check the following common issues:
+7. Static-check the following common issues:
    - Boundary conditions: is there handling code for empty input, None, extreme values, special characters?
    - Error paths: is there handling logic when external calls (DB/API/file) fail?
    - Compatibility with existing features: do the changes affect any existing interface signatures?
 
-7. Grade findings:
+8. Grade findings:
 
 | Severity | Definition | QA effect |
 |---|---|---|
@@ -79,15 +87,15 @@ restating it.
 | Medium | Plausible quality defect or uncertain bug | Pass with finding, score penalty |
 | Low | Style, naming, or documentation issue | Record only |
 
-8. **Preconditions — evaluate these before computing any score.** Each is a fail-closed stop, not a deduction. A lane that trips one reports the failure and its evidence, and does not report a number at all.
+9. **Preconditions — evaluate these before computing any score.** Each is a fail-closed stop, not a deduction. A lane that trips one reports the failure and its evidence, and does not report a number at all.
 
    - **No acceptance criteria.** If Issue #[M] states zero acceptance criteria, the ratio has no denominator. Report `qa_error: no acceptance criteria` to the Tech Lead and stop. Zero of zero criteria passing is never 100 — an Issue with nothing to verify has not been verified.
-   - **Nothing executed.** If step 4 ran no test suite and no verification script, and step 5 verified no criterion by test execution, this lane measured nothing. Report `qa_error: no verification executed` and stop. A QA lane that executed no tests cannot return a passing score by any path.
+   - **Nothing executed.** If steps 4 and 5 ran no test suite, no verification script, and no gate command, and step 6 verified no criterion by test execution, this lane measured nothing. Report `qa_error: no verification executed` and stop. A QA lane that executed no tests cannot return a passing score by any path.
    - **Unexplained skip.** Any step of this procedure you did not carry out must appear in Limitations with the basis for skipping it. A skip with no recorded basis fails the lane.
 
-9. Calculate the health score:
+10. Calculate the health score:
 
-   ```
+   ```text
    (passed acceptance criteria / total acceptance criteria) × 100
      - 20 per Critical/High
      - 5  per Medium
@@ -99,6 +107,8 @@ restating it.
 
    The last term is the coverage term. Without it the score answers only "how much was found wrong", and a clean lane is indistinguishable from one that never ran. A lane that executed everything it could deducts nothing here and scores exactly as it would have before this term existed.
 
+   **The coverage term denies a full score; it does not by itself fail a lane.** One unexecuted passed criterion leaves an otherwise clean lane at 90, which still passes, and that is proportionate — a single judgment call should not hold the threshold hostage. The deductions accumulate, so a lane that skipped executable verification broadly falls under 80 and fails on the arithmetic.
+
    **Test-executable is a decidable predicate, not a judgment call.** A criterion is test-executable when the project's existing suite could pin it **without new infrastructure** — a new case in a suite the project already runs, using a runner and helpers already present. That includes doc-assertion tests over shipped prose wherever the project already asserts file content, so "the criterion is about prose, not code" is not by itself a reason to call it non-executable.
 
    A criterion is **not** test-executable only when pinning it would require infrastructure the project does not have — a new runner, a new dependency, a service harness, a browser driver — or when it lies outside the Tool Capability Boundary.
@@ -107,23 +117,27 @@ restating it.
 
    Require a score of at least 80 and no Critical/High findings to pass.
 
-10. **Limitations are load-bearing.** Every entry in the Limitations section is unexecuted verification, and each entry must resolve to exactly one of:
+11. **Limitations are load-bearing.** Every entry in the Limitations section is unexecuted verification, and each entry must resolve to exactly one of:
 
     - **Not test-executable** — pinning it would need infrastructure this project does not have, or it lies outside the Tool Capability Boundary: cannot start a service, cannot drive a UI, cannot reproduce a race. No deduction. This is the only resolution that costs nothing, which is exactly why its basis is mandatory and must name the missing infrastructure.
-    - **Test-executable but not executed** — carries the step 9 coverage deduction against each *passed* acceptance criterion it leaves unverified. A lane that could have run the check and did not should not reach 80.
+    - **Test-executable but not executed** — carries the step 10 coverage deduction against each *passed* acceptance criterion it leaves unverified. A lane that could have run the check and did not should not receive a full score.
     - **A procedure step you skipped** — this blocks the pass. Either run it, or fail the lane and say why it was not run.
 
     An entry that resolves to none of these is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.
 
-11. Leave a QA report comment on the PR:
+12. Leave a QA report comment on the PR:
 
-```
+```markdown
 ## QA Report — PR #[N] / Issue #[M]
 
 ### Test Execution Results
 [N passed / N failed — list failing cases]
 Execution basis: [what you looked at to decide a framework exists, and the exact
 command run — or `No test framework detected` with that same basis]
+
+### Verification Gate
+[every gate command, one per line, with its exit code — or `no Verification Gate
+recorded in PROJECT_CONTEXT.md`, with the basis, recorded as a Medium finding]
 
 ### Diff Scope
 Modified files: [list]
@@ -151,6 +165,6 @@ Derivation: [base] - [Critical/High] - [Medium] - [coverage deductions] = [N]
 ### Conclusion: QA ✓ Pass / Needs Fix
 ```
 
-12. If QA fails, leave the evidence and stop. Do not tag a completed Worker Agent; the Tech Lead must dispatch the fix and rerun QA.
+13. If QA fails, leave the evidence and stop. Do not tag a completed Worker Agent; the Tech Lead must dispatch the fix and rerun QA.
 
-13. Confirm `rtk git status --short` shows no tracked or staged changes — no entry other than untracked (`??`). If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead with the reviewed commit, and wait for shutdown.
+14. Confirm `rtk git status --short` shows no tracked or staged changes — no entry other than untracked (`??`). If QA passes, comment `QA ✓ Health: [N]/100`, notify the Tech Lead with the reviewed commit, and wait for shutdown.
