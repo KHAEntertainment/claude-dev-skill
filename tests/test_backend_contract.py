@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import unittest
 from pathlib import Path
@@ -7,6 +8,66 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "dev"
+
+# The `required_policy` tuple as it stood at base 66ecfa3, frozen as data.
+#
+# The tokens are the mechanism that protects every policy sentence in the
+# payload, but nothing protected the tokens themselves: deleting an entry from
+# `required_policy` and then deleting the prose it pinned passed green gates at
+# both steps. The scheme guarded the prose and not itself.
+#
+# Frozen here rather than read from git so this works in a tree without `.git`.
+# Extracted with `ast` from `git show 66ecfa3:scripts/validate_skill.py`, not
+# transcribed.
+BASE_REQUIRED_POLICY = (
+    "Never write or modify implementation or test code directly",
+    ".agent/dev-state.md",
+    "pre-created, verified branch/worktree",
+    "RTK",
+    "coderabbit",
+    "kilo",
+    "github-copilot",
+    "copilot-pull-request-reviewer[bot]",
+    "headRefOid",
+    "Default wait minutes",
+    "Allow automatic review requests",
+    "--trusted-reviewer",
+    "false_positive",
+    "review evidence alone never establishes satisfaction",
+    "incomplete",
+    "TRAYCER_AGENT_ID",
+    "TRAYCER_EPIC_ID",
+    "claude-native",
+    "rtk proxy traycer",
+    "--surface gui",
+    "--expect-reply",
+    "--workspace-entry",
+    "--carry-uncommitted",
+    "traycer_last_used",
+    "schema_version",
+    "communication_response_id",
+    "head changed",
+    "distinct agent ID",
+    "lead is the sole ledger writer",
+    "A trusted reviewer's status check alone never satisfies this gate.",
+)
+
+
+def _parse_required_policy(source: str) -> list[str]:
+    """Return the `required_policy` tuple's literals, parsed with `ast`.
+
+    Parsed rather than grepped on purpose. A regex over this tuple silently
+    matches nothing when the formatting shifts and then reports a clean run,
+    which is the same defect class the tokens exist to guard against: an
+    instrument that fails looks identical to a check that passed.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "required_policy"
+            for target in node.targets
+        ):
+            return [ast.literal_eval(element) for element in node.value.elts]
+    raise AssertionError("required_policy assignment not found in validate_skill.py")
 
 
 def _validator_module():
@@ -341,6 +402,31 @@ class BackendContractTests(unittest.TestCase):
             hasattr(validator, "ROUTING_IDENTIFIERS"),
             "ROUTING_IDENTIFIERS is subsumed by the structural check and must "
             "not be reintroduced",
+        )
+
+    def test_no_baseline_policy_token_is_ever_removed(self) -> None:
+        """Every token pinned at base 66ecfa3 must still be pinned.
+
+        `required_policy` protects the payload's policy prose, but nothing
+        protected `required_policy` itself: removing a token and then removing
+        the prose it pinned passed the validator and these tests at both steps.
+        Additions are allowed and expected; removals are not.
+
+        Repository-CI guard only. `.gitattributes` export-ignores `tests`, so
+        this does NOT ship in the extracted archive and gives no protection
+        there - unlike the per-file policy map, which is enforced in the
+        validator precisely because the archive carries it. Do not read this
+        test as archive coverage.
+        """
+        current = _parse_required_policy(
+            (ROOT / "scripts" / "validate_skill.py").read_text(encoding="utf-8")
+        )
+        missing = [token for token in BASE_REQUIRED_POLICY if token not in current]
+        self.assertEqual(
+            missing,
+            [],
+            "required_policy dropped baseline token(s), unpinning the policy "
+            f"prose they protect: {missing}",
         )
 
 
