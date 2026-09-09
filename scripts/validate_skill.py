@@ -175,10 +175,47 @@ def main() -> int:
         # top of it counts the same fact twice and fails legitimate work for
         # arithmetic reasons. Found by the formula's first real use.
         "The coverage term applies only to criteria that passed.",
+        # The prototype lanes' opposing principle. Pinned positively: a guard
+        # that only asserts a ladder is absent cannot be told apart from a
+        # vacuous one, and no token list can enumerate every paraphrase. With
+        # this pinned, adding reuse-first guidance to a prototype prompt means
+        # first deleting a sentence that says the opposite.
+        "Exploration favors breadth over minimality.",
     )
     for token in required_policy:
         if token not in combined:
             fail(errors, f"missing required custom policy: {token}")
+
+    # `required_policy` is matched against every Skill markdown file
+    # concatenated, so a token surviving in one file satisfies it for all.
+    # That is too weak wherever the invariant is "each of these files carries
+    # this in its own right": deleting the sentence from one lane still passes
+    # while a sibling lane holds it up. The doc-assertion tests check per file,
+    # but `.gitattributes` export-ignores `tests`, so CI's archive validation
+    # runs this script without them and the validator is the only guard there.
+    per_file_policy = {
+        "agents/worker-new.md": (
+            "Reuse-first ladder",
+            "Minimizing scope must never mean removing a guard.",
+        ),
+        "agents/worker-fix.md": (
+            "Reuse-first ladder",
+            "Minimizing scope must never mean removing a guard.",
+        ),
+        "agents/worker-prototype-frontend.md": (
+            "Exploration favors breadth over minimality.",
+        ),
+        "agents/worker-prototype-backend.md": (
+            "Exploration favors breadth over minimality.",
+        ),
+    }
+    for relative, tokens in sorted(per_file_policy.items()):
+        target = skill_dir / relative
+        if target.is_file():
+            target_text = target.read_text(encoding="utf-8")
+            for token in tokens:
+                if token not in target_text:
+                    fail(errors, f"{relative} missing required policy: {token}")
 
     detector = skill_dir / "scripts" / "detect_execution_backend.py"
     if detector.is_file():

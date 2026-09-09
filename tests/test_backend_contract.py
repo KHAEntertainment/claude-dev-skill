@@ -191,16 +191,26 @@ class BackendContractTests(unittest.TestCase):
                 ):
                     self.assertIn(guard, prompt)
 
-    def test_ladder_stays_out_of_both_prototype_lanes(self) -> None:
-        # Prototype lanes exist to explore breadth; a reuse-first stance is
-        # wrong there. This asserts the exclusion so a future edit that
-        # helpfully propagates the ladder fails instead of landing silently.
+    def test_prototype_lanes_state_the_opposing_principle(self) -> None:
+        # Inverted guard. A negative assertion over prose is unbounded: it
+        # cannot enumerate every paraphrase of a ladder, and a test asserting
+        # only that the wrong thing is absent cannot tell a working guard from
+        # a vacuous one. Asserting the opposing principle means a future edit
+        # adding reuse-first guidance must first delete a sentence saying the
+        # opposite - a visible, guarded act rather than an addition that slips
+        # past untouched.
         for relative in (
             "agents/worker-prototype-frontend.md",
             "agents/worker-prototype-backend.md",
         ):
             prompt = self.read(relative)
             with self.subTest(prompt=relative):
+                self.assertIn("Exploration Stance", prompt)
+                self.assertIn("Exploration favors breadth over minimality.", prompt)
+                self.assertIn("does not apply in this lane", prompt)
+                self.assertIn("This exclusion is deliberate", prompt)
+                # Cheap backstop for a literal copy of the ladder. The positive
+                # assertions above are the actual guard; these two are not.
                 self.assertNotIn("Reuse-first ladder", prompt)
                 self.assertNotIn("lowest rung", prompt)
 

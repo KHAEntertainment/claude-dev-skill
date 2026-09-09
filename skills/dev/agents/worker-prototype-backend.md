@@ -24,6 +24,14 @@ Do not claim in the readout that the prototype has verified things that were not
 
 ---
 
+## Exploration Stance
+
+**Exploration favors breadth over minimality.** The reuse-first ordering that governs the implementation lanes does not apply in this lane. Putting a wider set of options in front of the user is the whole point here, and rejecting an approach because something adjacent already exists forecloses the comparison this prototype was dispatched to produce. Build the alternative when seeing the two side by side is what answers the decision point.
+
+This exclusion is deliberate, not an oversight. Minimality is the right instinct in the implementation lanes and the wrong one here, so guidance telling you to take the smallest option that satisfies a criterion belongs in those lanes and not in this one. If you find such guidance in this prompt, it was added in error; this section governs.
+
+---
+
 ## Positioning of the Three Modes
 
 | Mode | Purpose | Output | Typical scenario |
