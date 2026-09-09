@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -277,16 +278,62 @@ class BackendContractTests(unittest.TestCase):
         # resolution order, so any route restated here silently overrides newer
         # policy. The section must defer, and record only the one constraint
         # that is a property of this project rather than a routing preference.
-        policy = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+        # Collapse wrapping first: these are prose sentences that wrap, so a
+        # raw substring check would fail on a harmless reflow rather than on a
+        # policy change.
+        policy = " ".join(
+            (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8").split()
+        )
         self.assertIn("The agent selection guide governs role routing.", policy)
         self.assertIn("outranks the guide in the adapter's resolution order", policy)
-        self.assertIn("the lead runs on the `claude` harness", policy)
+        self.assertIn(
+            "the lead runs on the `claude` harness, "
+            "because the lead is what invokes `/dev`",
+            policy,
+        )
         self.assertIn("provider-neutral", policy)
         # The exact stale line this replaced, which routed every role to the
         # backend lead and so overrode the guide's per-role choices.
         self.assertNotIn(
             "use the selected backend's lead route for every role", policy
         )
+
+    def test_routing_section_specifies_no_routes(self) -> None:
+        # Presence of the disclaimer is not the property being protected. An
+        # override appended alongside it still outranks the guide, and that
+        # addition is the dangerous edit a presence-only guard cannot see.
+        # Assert the section names no harness or model at all, except the one
+        # sentence stating the lead-harness constraint.
+        policy = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"^## Execution Routing Policy$(.*?)(?=^## |\Z)", policy, re.M | re.S
+        )
+        self.assertIsNotNone(match, "Execution Routing Policy section is missing")
+        body = " ".join(match.group(1).split()).replace(
+            "the lead runs on the `claude` harness, "
+            "because the lead is what invokes `/dev`",
+            " ",
+        )
+        for identifier in (
+            "claude",
+            "codex",
+            "opencode",
+            "qwen",
+            "opus",
+            "sonnet",
+            "fable",
+            "gpt",
+            "glm",
+            "kimi",
+            "minimax",
+            "deepseek",
+        ):
+            with self.subTest(identifier=identifier):
+                self.assertIsNone(
+                    re.search(rf"\b{identifier}\b", body, re.I),
+                    f"Execution Routing Policy names {identifier!r}; "
+                    "the section must specify no routes",
+                )
 
 
 if __name__ == "__main__":

@@ -36,8 +36,43 @@ REQUIRED = {
 }
 
 
+# The Execution Routing Policy section defers to the agent selection guide and
+# must specify no routes of its own. Asserting the disclaimer is present is not
+# enough: an override appended alongside it still outranks the guide, and that
+# addition is the dangerous edit. The property enforced is "this section names
+# no route", which is decidable without enumerating phrasings.
+ROUTING_HEADING = "## Execution Routing Policy"
+ROUTING_IDENTIFIERS = (
+    "claude",
+    "codex",
+    "opencode",
+    "qwen",
+    "opus",
+    "sonnet",
+    "fable",
+    "gpt",
+    "glm",
+    "kimi",
+    "minimax",
+    "deepseek",
+)
+# The one sentence allowed to name a harness here, because it states a property
+# of this project rather than a routing preference.
+ROUTING_EXCEPTION = (
+    "the lead runs on the `claude` harness, because the lead is what invokes `/dev`"
+)
+
+
 def fail(errors: list[str], message: str) -> None:
     errors.append(message)
+
+
+def routing_section(text: str) -> str | None:
+    """Return the Execution Routing Policy section body, or None if absent."""
+    match = re.search(
+        rf"^{re.escape(ROUTING_HEADING)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
 
 
 def main() -> int:
@@ -236,14 +271,40 @@ def main() -> int:
         fail(errors, "missing required file: PROJECT_CONTEXT.md")
     else:
         project_text = project_context.read_text(encoding="utf-8")
+        # Match presence against collapsed whitespace: these sentences are
+        # prose and wrap, so a raw substring check would break on a reflow
+        # rather than on a policy change.
+        project_flat = " ".join(project_text.split())
         for token in (
             "The agent selection guide governs role routing.",
             "outranks the guide in the adapter's resolution order",
-            "the lead runs on the `claude` harness",
+            ROUTING_EXCEPTION,
             "provider-neutral",
         ):
-            if token not in project_text:
+            if token not in project_flat:
                 fail(errors, f"PROJECT_CONTEXT.md missing routing policy: {token}")
+
+        section = routing_section(project_text)
+        if section is None:
+            fail(errors, f"PROJECT_CONTEXT.md missing section: {ROUTING_HEADING}")
+        else:
+            # Collapse wrapping first so the allowed sentence matches however
+            # it happens to be line-broken, then scan what is left.
+            remainder = " ".join(section.split()).replace(ROUTING_EXCEPTION, " ")
+            named = sorted(
+                {
+                    identifier
+                    for identifier in ROUTING_IDENTIFIERS
+                    if re.search(rf"\b{re.escape(identifier)}\b", remainder, re.I)
+                }
+            )
+            if named:
+                fail(
+                    errors,
+                    "PROJECT_CONTEXT.md Execution Routing Policy must specify no "
+                    "routes; found harness/model identifiers outside the "
+                    f"lead-harness sentence: {', '.join(named)}",
+                )
 
     state_template = skill_dir / "templates" / "DEV_STATE_TEMPLATE.md"
     if state_template.is_file():
