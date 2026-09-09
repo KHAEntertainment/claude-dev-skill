@@ -246,6 +246,16 @@ def main() -> int:
         # The role-specific close-outs are the obvious escape hatch: a QA lane
         # posting its PR comment and replying nothing must not read as reported.
         "never substitute for the seven required sections",
+        # The empty-heading rule closed one hole and opened a smaller one: what
+        # counts as content was itself a judgment, so two leads could reach
+        # different verdicts on the same reply. This is the mechanical floor.
+        "at least one line containing a non-whitespace character",
+        # "Read until the transport declares completion" is unbounded, so the
+        # `truncated` cause was unreachable in the exact state it exists for.
+        "Paging must be bounded",
+        # And the bound is only useful if it decides the cause. Reading the
+        # reply to tell `truncated` from `malformed` puts the judgment back.
+        "decided by which condition ended the read",
     )
     for token in required_policy:
         if token not in combined:
@@ -280,12 +290,22 @@ def main() -> int:
             "Absence of a report is not a report.",
             "report_back: incomplete",
             "never substitute for the seven required sections",
+            "at least one line containing a non-whitespace character",
+            "Paging must be bounded",
+            "decided by which condition ended the read",
         ),
+        # Each adapter must state its own bound; `contract.md` requires one to
+        # exist but cannot supply a page size or a timeout for a transport it
+        # does not know. An adapter naming no bound has not implemented observe.
         "backends/traycer.md": (
             "report_back: incomplete",
             "Quality-gate self-assessment",
+            "Bound that read.",
         ),
-        "backends/claude-native.md": ("seven required sections",),
+        "backends/claude-native.md": (
+            "seven required sections",
+            "Bound the read",
+        ),
         "agents/report-back.md": ("never substitute for the seven required sections",),
         "agents/qa-agent.md": ("seven required sections",),
     }

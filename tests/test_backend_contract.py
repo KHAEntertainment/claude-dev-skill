@@ -77,6 +77,20 @@ def _markdown_section(text: str, heading: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _bullet(text: str, starts_with: str) -> str | None:
+    """Return the single list bullet beginning with `starts_with`.
+
+    Assertions about one rule have to be scoped to the bullet stating it. A
+    file-wide `assertIn` passes on any other occurrence of the same words, so a
+    deleted condition can still be "found" in the bullet that consumes it —
+    which is a test reporting a guard it is not actually holding.
+    """
+    match = re.search(
+        rf"^- {re.escape(starts_with)}.*?(?=^- |\Z)", text, re.M | re.S
+    )
+    return match.group(0) if match else None
+
+
 def _table_row(text: str, operation: str) -> str | None:
     """Return the operations-table row for `operation`, or None."""
     for line in text.splitlines():
@@ -515,6 +529,72 @@ class BackendContractTests(unittest.TestCase):
         contract = self.read("backends/contract.md")
         self.assertIn("A heading with no content under it is a missing section", contract)
         self.assertIn("case-insensitive", contract.lower())
+
+    def test_the_presence_floor_is_itself_mechanical(self) -> None:
+        # "Has content under it" is a judgment unless what counts as content is
+        # stated, so the rule closing the empty-headings hole reopened it one
+        # level up: a heading followed by a blank line, by the next heading, or
+        # by an empty code fence were all arguable. The floor must be decidable
+        # by two leads independently, which means naming its edge case rather
+        # than leaving it to be reasoned out per reply.
+        contract = self.read("backends/contract.md")
+        self.assertIn(
+            "at least one line containing a non-whitespace character", contract
+        )
+        self.assertIn("before the next heading of any level", contract)
+        self.assertIn("empty code fence", contract)
+
+    def test_paging_is_bounded_so_truncated_is_reachable(self) -> None:
+        # `truncated` is defined for the state where the transport never
+        # declares completion - which is exactly the state an unbounded "read
+        # until it declares completion" loops in forever, never recording the
+        # cause that exists for it. The guard has to terminate to be a guard.
+        contract = self.read("backends/contract.md")
+        self.assertIn("Paging must be bounded", contract)
+        self.assertIn("An adapter that names no bound has not implemented", contract)
+        # The four terminating conditions, asserted inside the bullet that has
+        # to state them. File-wide they would also match the cause bullet
+        # downstream, so deleting one here would still "pass" against the other
+        # bullet's mention of it.
+        bullet = _bullet(contract, "**Paging must be bounded")
+        self.assertIsNotNone(bullet, "contract.md has no bounded-paging bullet")
+        for condition in (
+            "declares the reply complete",
+            "does not advance",
+            "page cap is reached",
+            "time bound elapses",
+        ):
+            with self.subTest(condition=condition):
+                self.assertIn(condition, bullet)
+
+    def test_each_adapter_states_a_concrete_bound(self) -> None:
+        # `contract.md` requires a bound but cannot supply one: a page size and
+        # a timeout are properties of a transport it does not know. Asserted
+        # structurally so tuning the numbers stays a free change while deleting
+        # the bound does not.
+        for relative in ("backends/traycer.md", "backends/claude-native.md"):
+            adapter = self.read(relative)
+            with self.subTest(adapter=relative):
+                self.assertRegex(adapter, r"\*\*\d+\s+(?:pages|re-reads)\*\*")
+                self.assertRegex(adapter, r"\*\*\d+\s+seconds\*\*")
+
+    def test_cause_is_decided_by_the_terminating_condition(self) -> None:
+        # Two independent lanes found the same ambiguity: from what the adapter
+        # surfaces, a lead could not always tell `truncated` from `malformed`,
+        # and the two carry different remedies. Deciding on the recorded
+        # terminating condition rather than on the reply's text removes the
+        # judgment entirely - including the case that looks most like a pass,
+        # a cut read that happens to contain all seven headings.
+        contract = self.read("backends/contract.md")
+        self.assertIn("decided by which condition ended the read", contract)
+        self.assertIn("never by inspecting the reply", contract)
+        self.assertIn("whatever sections it happens to contain", contract)
+        # Both adapters have to record the condition, or the lead has nothing
+        # to read it from.
+        self.assertIn("Record which of the four ended it", self.read("backends/traycer.md"))
+        self.assertIn(
+            "Record which condition ended it", self.read("backends/claude-native.md")
+        )
 
     def test_traycer_observe_checks_the_seven_sections(self) -> None:
         adapter = self.read("backends/traycer.md")
