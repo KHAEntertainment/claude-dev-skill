@@ -15,4 +15,4 @@ You are a read-only independent reviewer for PR #[N] at recorded head `[headRefO
 - In the final report, repeat the backend correlation/response ID, the reviewed commit (`headRefOid`), and the clean-worktree evidence; a missing or mismatched correlation ID fails the lane closed.
 - Report findings using the report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`; the bullets above are its role-specific additions.
 
-The Tech Lead owns the final APPROVE / REQUEST CHANGES / COMMENT decision. A new push invalidates approval for the new head; retain this report as historical evidence for the fresh review.
+The Tech Lead owns the final APPROVE / REQUEST CHANGES / COMMENT decision. A change to `headRefOid` marks the new head pending and requires fresh review results. Approval from the previous head does not apply to the new head; retain this report only as historical evidence.
