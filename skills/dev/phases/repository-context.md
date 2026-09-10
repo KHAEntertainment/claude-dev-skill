@@ -63,7 +63,7 @@ invalid, or tracked config, regardless of which other flags are passed.
    together. Reuse an explicit choice the user already supplied instead of
    asking again.
 5. Verify the selected values against available repository/authentication
-   facts (see "Pre-write verification" below run once, read-only). An
+   facts: use the standalone account modes below with the proposed account and exact candidate push URLs. These checks do not require a saved config. An
    unresolved identity/destination mismatch on an existing checkout stops
    setup; do not stamp a guessed configuration as established.
 6. Run `dev_config.py create` with the confirmed values. It refuses to
@@ -85,7 +85,7 @@ usable account yet, leave setup incomplete rather than inventing one; finish
 it before the first GitHub write. Phase 2's bootstrap step is responsible for
 the actual repository creation; before that write, check the CLI account
 (`resolve_repository.py --mode check-gh-account --account <github.account>`)
-and create using the full confirmed `<account>/<project-name>`, never a bare
+and create using the full confirmed `github.pushRepository` (which may belong to an organization), never a bare
 project name. After creation/clone, re-run this procedure to verify the
 actual remote, repository, and Git identity before any push. If bootstrap
 creates a different local root, move the confirmed file there explicitly and
@@ -122,11 +122,10 @@ resolve_repository.py --repo-dir <worktree> --operation push \
   a fork that fetches upstream while pushing to itself is a supported shape,
   not a mismatch), and requires them to match `github.pushRepository` and
   `github.pushRemote`.
+- Verifies the actual Git transport account for every effective push URL against `github.account`; any failed or unsupported account check stops before the dry run.
 - Confirms the current checkout is actually on `--assigned-branch`, then runs
-  `git push --dry-run` for the exact validated remote and refspec. This is
-  the one non-offline check in the module: it never advances a ref, but it is
-  real evidence the push will reach the intended destination, not only that
-  the URLs look right.
+  `git push --dry-run` for the exact validated remote and refspec. Like account and access verification, this can contact the remote: it never advances a ref, but it is
+  evidence that the checked refspec is accepted. The only permitted destination is `refs/heads/<ledger-assigned branch>`; a differing `--dest-ref` stops the write.
 - Exit 0 with `status: "ready"` means push. Use the printed
   `effective_push_remote` (or `--print-push-remote`) as the remote argument —
   never a value read from a rejected verdict, and never a bare `git push`
@@ -154,12 +153,14 @@ PR create/read/review/merge, or `--operation issue` (target must equal
 `pushRepository` by default) for a plugin-created Issue. For an operation on
 an **explicitly assigned existing Issue** whose own qualified repository
 identity is expected to differ (already confirmed via the ledger, not
-re-derived here), add `--allow-target-override`. Every `ready` result here
+re-derived here), add `--allow-target-override`. The same flag applies to an explicitly approved one-off upstream PR recorded in the task ledger; it never changes `.dev.json` or permits an upstream Git push. Every `ready` result here
 also verifies the actual `gh` CLI login
 (`resolve_repository.py --mode check-gh-account`) against `github.account`
 before you may treat the operation as safe — two accounts can both have
 access to a repository, so a correct Git credential does not establish which
 account `gh` will use.
+
+A conflicting `GH_HOST` stops the account/operation check. Use `--hostname github.com` for `gh api`, `--repo github.com/OWNER/REPO` for commands accepting it, and `GH_HOST=github.com` with the full configured `OWNER/REPO` for repository creation. Do not switch a conflicting host silently.
 
 Use the confirmed target explicitly in the command: `gh <cmd> --repo
 <owner/repo>` where accepted, the explicit REST/GraphQL endpoint path or
@@ -179,8 +180,8 @@ sequence unscoped.
 | Transport | Supported verification |
 | --- | --- |
 | Ordinary HTTPS with an existing credential helper | `resolve_repository.py --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
-| Standard OpenSSH, including host aliases | `resolve_repository.py --mode check-ssh-account --host <alias or host> --account <github.account>` — resolves the alias via `ssh -G` to confirm it points at GitHub, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
-| GitHub CLI / API mutation | `resolve_repository.py --mode check-gh-account --account <github.account>` — `gh api user`, never `gh auth status` alone |
+| Standard OpenSSH, including host aliases | `resolve_repository.py --mode check-ssh-account --url <exact push URL> --account <github.account>` — resolves the alias via `ssh -G` with the URL-explicit user and port applied, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
+| GitHub CLI / API mutation | `resolve_repository.py --mode check-gh-account --account <github.account>` — `gh api --hostname github.com user`, never `gh auth status` alone |
 
 `verified` is the only status that establishes an account; `incomplete` with
 `unsupported_transport_auth`, `identity_unavailable`, or `account_mismatch`

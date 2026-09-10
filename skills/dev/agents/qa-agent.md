@@ -63,7 +63,7 @@ restating it.
 
 2. Verify the assigned PR branch and target commit. Stop with `stale_head` if the live `headRefOid` differs. Use the assigned read-only checkout when provided; otherwise fetch and check out `[branch-name]` without creating a new development branch.
 
-3. Run `rtk gh pr diff [N] --repo [pr-repository] --name-only` and focus on modified files plus their direct callers. Record the exact QA scope; do not claim a whole-repository review.
+3. Run `rtk gh pr diff [N] --repo github.com/[pr-repository] --name-only` and focus on modified files plus their direct callers. Record the exact QA scope; do not claim a whole-repository review.
 
 4. **Run the full test suite through the relevant RTK wrapper when available.** Failing tests mean QA fails immediately.
 
@@ -132,7 +132,7 @@ restating it.
 
     An entry that resolves to none of these is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.
 
-12. Leave a QA report comment on the PR (`rtk gh pr comment [N] --repo [pr-repository] ...`):
+12. Immediately before posting, re-run `resolve_repository.py --operation pr --target [pr-repository]` and require exit 0. Leave a QA report comment on the PR (`rtk gh pr comment [N] --repo github.com/[pr-repository] ...`):
 
 ```markdown
 ## QA Report — PR #[N] / Issue #[M]

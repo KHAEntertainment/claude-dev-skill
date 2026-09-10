@@ -234,6 +234,23 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             _git("push", "-q", "origin", "feature/expected:refs/heads/feature/expected", cwd=clone)
             self.assertNotEqual(baseline, _rev(intended, "refs/heads/feature/expected"))
 
+    def test_feature_to_main_is_rejected_without_advancing_either_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            intended = self._make_bare(root, "intended.git")
+            wrong = self._make_bare(root, "wrong.git")
+            clone = self._make_clone_with_commit(root, intended)
+            before = _rev(intended, "refs/heads/main")
+            _git("checkout", "-q", "-b", "feature/expected", cwd=clone)
+            self._add_feature_commit(clone)
+            verdict = MODULE.verify_branch_and_dry_run(
+                clone, remote="origin", assigned_branch="feature/expected", dest_ref="refs/heads/main")
+            self.assertEqual("destination_mismatch", verdict["reason_code"])
+            self.assertFalse(_gated_push(clone, verdict, "main"))
+            self.assertEqual(before, _rev(intended, "refs/heads/main"))
+            self.assertIsNone(_rev(intended, "refs/heads/feature/expected"))
+            self.assertIsNone(_rev(wrong, "refs/heads/main"))
+
 
 if __name__ == "__main__":
     unittest.main()

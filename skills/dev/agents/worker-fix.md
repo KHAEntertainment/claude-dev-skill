@@ -30,7 +30,7 @@ Whether launched through Claude-native or Traycer execution:
 
    Immediately after, resolve Issue #[N]'s own repository identity per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`: `resolve_repository.py --operation issue --target <Issue #[N]'s assigned repository> [--allow-target-override if it is an explicitly assigned existing upstream Issue]`. This check runs **before the first Issue read**, not only before the final comment. Use the confirmed `--repo <owner/repo>` on every Issue read and comment for the rest of this lane.
 
-2. Read the Issue content (`rtk gh issue view #[N] --repo <confirmed>`), acceptance criteria, and reproduction steps
+2. Read the Issue content (`rtk gh issue view #[N] --repo github.com/<confirmed>`), acceptance criteria, and reproduction steps
 
 3. **Parallel conflict check before reading implementation details**: compare the Tech Lead's explicit ownership map with a compact open-Issue scan. If ownership overlaps another active worker, report the conflict and stop until the Tech Lead resolves it.
 
@@ -39,7 +39,7 @@ Whether launched through Claude-native or Traycer execution:
    - Upstream and downstream callers (who calls it, what it calls)
    - Read `PROJECT_CONTEXT.md` for architecture constraints
 
-5. Post an **understanding confirmation** comment on the Issue (`rtk gh issue comment #[N] --repo <confirmed from step 1>`), containing:
+5. Immediately before posting, re-run `resolve_repository.py --operation issue --target <assigned issue repository>` (with the confirmed per-task override when applicable) and require exit 0. Post an **understanding confirmation** comment on the Issue (`rtk gh issue comment #[N] --repo github.com/<confirmed from step 1>`), containing:
    - What I believe the root cause to be (1–2 sentences)
    - My fix approach
    - List of files planned to modify
@@ -89,6 +89,6 @@ Whether launched through Claude-native or Traycer execution:
     remote="$(resolve_repository.py --operation push --assigned-branch <assigned-branch> --print-push-remote)" || exit 1
     git push "$remote" "<assigned-branch>:refs/heads/<assigned-branch>"
     ```
-    Then re-verify the PR target and the `gh` CLI account before creating the PR: `resolve_repository.py --operation pr --target <github.pullRequestRepository from .dev.json>`. Do not push or create the PR on anything other than an explicit `ready` result from each check; stop and report the reason if either is not `ready`. Use `rtk gh pr create --repo <that confirmed pullRequestRepository>`:
+    Then re-verify the PR target and the `gh` CLI account before creating the PR: `resolve_repository.py --operation pr --target <github.pullRequestRepository from .dev.json>`. Do not push or create the PR on anything other than an explicit `ready` result from each check; stop and report the reason if either is not `ready`. Use `rtk gh pr create --repo github.com/<that confirmed pullRequestRepository>`:
     - body: include `Closes #N` (or `Closes OWNER/REPO#N` when the Issue is not in the PR's own repository), root cause, fix approach, AC completion status, test output, impact scope assessment
 15. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

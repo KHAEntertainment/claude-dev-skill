@@ -18,7 +18,7 @@ Use compact diff statistics first. Do not substitute subjective judgment for the
 
 ## Prepare the QA Lane
 
-1. Resolve the PR's operation target first (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`), then resolve the exact PR head branch and commit with `rtk gh pr view [N] --repo <that confirmed repository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'`.
+1. Resolve the PR's operation target first (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`), then resolve the exact PR head branch and commit with `rtk gh pr view [N] --repo github.com/<that confirmed repository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'`.
 2. Record PR number, Issue number, head branch, `headRefOid`, and target commit in `.agent/dev-state.md`.
 3. Read `${CLAUDE_SKILL_DIR}/phases/external-review.md`, resolve the repository policy, start its review deadline, and record expected/requested/observed reviewers. Do not wait here; continue QA while external review proceeds.
 4. Load `${CLAUDE_SKILL_DIR}/agents/qa-agent.md` and fill every placeholder before dispatch.

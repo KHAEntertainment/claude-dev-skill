@@ -40,7 +40,7 @@ Inspect changed implementation files for:
 □ TODO/FIXME markers that are already resolved or need a follow-up Issue
 ```
 
-The Tech Lead must not delete or edit implementation/test code. Create a narrowly scoped cleanup Issue, explicitly scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, prepare a verified worker worktree, and dispatch `worker-fix.md`. Require tests and a cleanup PR before merge.
+The Tech Lead must not delete or edit implementation/test code. Immediately before creating a cleanup Issue, require exit 0 from `resolve_repository.py --operation issue --target <github.pushRepository>`, then use `rtk gh issue create --repo github.com/<github.pushRepository>`. Create a narrowly scoped cleanup Issue, explicitly scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, prepare a verified worker worktree, and dispatch `worker-fix.md`. Require tests and a cleanup PR before merge.
 
 ### Known broken features outside the iteration
 

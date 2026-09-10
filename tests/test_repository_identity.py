@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -8,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -83,6 +86,7 @@ def _is_bare_push(joined: str) -> bool:
 # Read-only (or dry-run) command shapes the resolver may emit.
 READ_ONLY_COMMANDS = (
     (("git", "branch", "--show-current"), 0, 0),
+    (("git", "check-ref-format"), 1, 1),
     (("git", "config"), 1, 2),
     (("git", "remote"), 0, 0),
     (("git", "remote", "get-url", "--all"), 1, 1),
@@ -93,7 +97,7 @@ READ_ONLY_COMMANDS = (
     (("git", "check-ignore", "-q"), 1, 1),
     (("gh", "repo", "set-default", "--view"), 0, 0),
     (("gh", "repo", "view"), 1, None),
-    (("gh", "api", "user", "--jq", ".login"), 0, 0),
+    (("gh", "api", "--hostname", "github.com", "user", "--jq", ".login"), 0, 0),
 )
 
 # Generic git/gh stub. The test sets FIXTURE (JSON) in the environment.
@@ -120,6 +124,9 @@ if name == "git" and args[0] == "config":
         print(value)
         raise SystemExit(0)
     raise SystemExit(1)
+
+if name == "git" and args[0] == "check-ref-format":
+    raise SystemExit(0)
 
 if name == "git" and args == ["remote"]:
     for remote in fixture.get("remotes", {{}}):
@@ -153,10 +160,10 @@ if name == "gh" and args == ["repo", "set-default", "--view"]:
     raise SystemExit(0)
 
 if name == "gh" and args[:2] == ["repo", "view"]:
-    print(args[2])
+    print(args[2].removeprefix("github.com/"))
     raise SystemExit(0)
 
-if name == "gh" and args[:3] == ["api", "user", "--jq"]:
+if name == "gh" and args[:5] == ["api", "--hostname", "github.com", "user", "--jq"]:
     login = fixture.get("gh_login", "")
     if login:
         print(login)
@@ -544,10 +551,15 @@ class ResolverCommandLineTests(unittest.TestCase):
             (stub_dir / "gh").chmod(0o755)
             if config is not None:
                 (root / ".dev.json").write_text(json.dumps(config), encoding="utf-8")
-            completed = subprocess.run(
-                [sys.executable, str(RESOLVER), "--repo-dir", str(root), *extra_args],
-                check=False, capture_output=True, text=True, env=env,
-            )
+            # Exercise argument parsing + main; stub transport auth so this
+            # metadata matrix never looks up a real credential or uses network.
+            argv = [str(RESOLVER), "--repo-dir", str(root), *extra_args]
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", argv), \
+                    patch.object(MODULE, "verify_https_account", return_value={"status": "verified"}), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = MODULE.main()
+            completed = subprocess.CompletedProcess(argv, code, stdout.getvalue(), stderr.getvalue())
             log_text = log.read_text(encoding="utf-8") if log.exists() else ""
             return completed, log_text
 

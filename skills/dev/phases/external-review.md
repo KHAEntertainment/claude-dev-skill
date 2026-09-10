@@ -24,7 +24,7 @@ If Mode is `off`, record that external review was disabled by repository policy 
 After resolving the PR's operation target (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`) and its branch, resolve its exact head commit:
 
 ```bash
-rtk gh pr view [N] --repo <confirmed pullRequestRepository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
+rtk gh pr view [N] --repo github.com/<confirmed pullRequestRepository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
 ```
 
 Record the PR number, `headRefOid`, expected/requested/observed reviewers, the default deadline, and the next observation time in `.agent/dev-state.md`. Begin the deadline when this state is written. Continue internal QA and review while external reviewers work.
@@ -37,7 +37,7 @@ Run the deterministic inspector from the target repository:
 rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/inspect_external_reviews.py" --repo OWNER/REPO --pr N --payload-snapshot NEW_SNAPSHOT_PATH
 ```
 
-For every gate run, including disposition reruns, the lead supplies a new snapshot path and records it in `external_review_payload_snapshots` in `.agent/dev-state.md`, together with the observation timestamp and `headRefOid`. The inspector writes the verbatim current-PR JSON it actually parses before deriving a verdict. Existing files are never overwritten; a persistence failure is `incomplete`. Create the parent directory first. Preserve the raw file unchanged: do not summarise, diff, or interpret it in place. The snapshot includes the fields from `gh pr view N --repo OWNER/REPO --json statusCheckRollup,reviews,latestReviews,comments`, plus the PR number, head, and review requests needed by the inspector. Record retrieval failures as failures, never as an empty successful snapshot. Thread evidence and recent-PR inference are separate from this current-PR snapshot.
+For every gate run, including disposition reruns, the lead supplies a new snapshot path and records it in `external_review_payload_snapshots` in `.agent/dev-state.md`, together with the observation timestamp and `headRefOid`. The inspector writes the verbatim current-PR JSON it actually parses before deriving a verdict. Existing files are never overwritten; a persistence failure is `incomplete`. Create the parent directory first. Preserve the raw file unchanged: do not summarise, diff, or interpret it in place. The snapshot includes the fields from `gh pr view N --repo github.com/OWNER/REPO --json statusCheckRollup,reviews,latestReviews,comments`, plus the PR number, head, and review requests needed by the inspector. Record retrieval failures as failures, never as an empty successful snapshot. Thread evidence and recent-PR inference are separate from this current-PR snapshot.
 
 Translate the External Review Policy from `PROJECT_CONTEXT.md` into arguments:
 

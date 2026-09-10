@@ -53,6 +53,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 # Make the sibling `dev_config` module importable regardless of how this file
 # is loaded (as `__main__`, or via `importlib.util.spec_from_file_location` in
@@ -142,7 +143,8 @@ def normalize_remote(url: str) -> str:
 
 
 def resolve_ssh_effective_host(
-    repo_dir: Path, host_or_alias: str, *, ssh_command: tuple[str, ...] = ("ssh",)
+    repo_dir: Path, host_or_alias: str, *, ssh_command: tuple[str, ...] = ("ssh",),
+    user: str | None = None, port: int | None = None,
 ) -> tuple[str, str, str] | None:
     """Return `(hostname, user, port)` via `ssh -G <host_or_alias>`, or None on failure.
 
@@ -152,7 +154,8 @@ def resolve_ssh_effective_host(
     variable, so tests inject an explicit `-F <config>` here rather than
     trying to override `HOME`).
     """
-    status, output = read_command([*ssh_command, "-G", host_or_alias], cwd=repo_dir)
+    options = (["-l", user] if user else []) + (["-p", str(port)] if port else [])
+    status, output = read_command([*ssh_command, "-G", *options, host_or_alias], cwd=repo_dir)
     if status != 0:
         return None
     values: dict[str, str] = {}
@@ -619,7 +622,7 @@ def collect_gh_default(repo_dir: Path) -> str | None:
 
 def collect_verified_name(repo_dir: Path, repository: str) -> str | None:
     status, output = read_command(
-        ["gh", "repo", "view", repository, "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        ["gh", "repo", "view", f"{GITHUB_HOST}/{repository}", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
         cwd=repo_dir,
     )
     if status == -1:
@@ -672,7 +675,14 @@ def verify_branch_and_dry_run(
             "reason": f"the ledger assigns `{assigned_branch}` but the checkout is on `{current}`",
         }
 
-    ref = dest_ref or f"refs/heads/{assigned_branch}"
+    ref = f"refs/heads/{assigned_branch}"
+    if dest_ref is not None and dest_ref != ref:
+        return {"status": "incomplete", "reason_code": "destination_mismatch",
+                "reason": "destination must be the assigned task branch"}
+    valid_ref, _ = read_command(["git", "check-ref-format", ref], cwd=repo_dir)
+    if valid_ref != 0 or assigned_branch.startswith("-"):
+        return {"status": "incomplete", "reason_code": "invalid_branch",
+                "reason": "assigned branch is not a valid branch name"}
     refspec = f"{assigned_branch}:{ref}"
     command = ["git", "push", "--dry-run", remote, refspec]
     runner = dry_run_runner or (lambda cmd, cwd: read_command(cmd, cwd=cwd))
@@ -827,6 +837,16 @@ def verify_https_account(
     lookup_login: Callable[[dict[str, str]], str | None] = lookup_authenticated_login_https,
 ) -> dict[str, object]:
     """Verify the account an HTTPS credential helper would present for *url*."""
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or parsed.hostname != GITHUB_HOST
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443) or parsed.query or parsed.fragment
+                or any(c.isspace() for c in url)):
+            raise ValueError
+    except ValueError:
+        return {"status": "incomplete", "reason_code": "unsupported_transport_auth",
+                "reason": "expected a noncredential HTTPS GitHub push URL"}
     override = detect_https_auth_overrides(repo_dir, url)
     if override:
         return {
@@ -864,12 +884,16 @@ def verify_https_account(
     return {"status": "verified", "reason_code": "account_matches", "reason": f"authenticated as {login}"}
 
 
-def probe_ssh_account(repo_dir: Path, target: str, user: str) -> tuple[int, str]:
+def probe_ssh_account(repo_dir: Path, target: str, user: str, *, port: int | None = None) -> tuple[int, str]:
     """Probe `<user>@<target>`, where *target* is the original alias/host --
     never the resolved hostname -- so SSH's own config resolution (identity,
     port, proxy) applies exactly as it would for a real push."""
     env = {**os.environ, **NONINTERACTIVE_ENV_OVERRIDES}
-    command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"{user}@{target}"]
+    command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+               "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no"]
+    if port is not None:
+        command += ["-p", str(port)]
+    command += [f"{user}@{target}"]
     try:
         completed = subprocess.run(
             command,
@@ -951,6 +975,35 @@ def verify_ssh_account(
     return {"status": "verified", "reason_code": "account_matches", "reason": f"authenticated as {login}"}
 
 
+def verify_ssh_url_account(repo_dir: Path, url: str, expected_account: str) -> dict[str, object]:
+    """Use the exact push URL's user/port overrides while preserving its alias."""
+    try:
+        if any(c.isspace() for c in url):
+            raise ValueError
+        if "://" in url:
+            parsed = urlsplit(url)
+            if parsed.scheme != "ssh" or parsed.password is not None or parsed.query or parsed.fragment:
+                raise ValueError
+            host, user, port = parsed.hostname, parsed.username, parsed.port
+        else:
+            match = SCP_LIKE.fullmatch(url)
+            if not match:
+                raise ValueError
+            host, user, port = match.group("host"), match.group("user"), None
+        if not host or host.startswith("-") or (user and not re.fullmatch(r"[A-Za-z0-9._-]+", user)):
+            raise ValueError
+        if port is not None and not 1 <= port <= 65535:
+            raise ValueError
+    except ValueError:
+        return {"status": "incomplete", "reason_code": "unsupported_transport_auth",
+                "reason": "expected a standard SSH push URL"}
+    return verify_ssh_account(
+        repo_dir, host, expected_account,
+        resolver=lambda cwd, alias: resolve_ssh_effective_host(cwd, alias, user=user, port=port),
+        prober=lambda cwd, alias, effective_user: probe_ssh_account(cwd, alias, effective_user, port=port),
+    )
+
+
 def verify_gh_cli_login(
     repo_dir: Path,
     expected_account: str,
@@ -966,7 +1019,12 @@ def verify_gh_cli_login(
     one a given command will authenticate as -- so this calls the
     authenticated-user endpoint through `gh api` directly.
     """
-    run = runner or (lambda: read_command(["gh", "api", "user", "--jq", ".login"], cwd=repo_dir))
+    if os.environ.get("GH_HOST", GITHUB_HOST).lower() != GITHUB_HOST:
+        return {"status": "incomplete", "reason_code": "host_mismatch",
+                "reason": "GH_HOST conflicts with the configured github.com host"}
+    run = runner or (lambda: read_command(
+        ["gh", "api", "--hostname", GITHUB_HOST, "user", "--jq", ".login"], cwd=repo_dir,
+        merge_stderr=False))
     status, output = run()
     if status == -1:
         return {"status": "incomplete", "reason_code": "gh_cli_missing", "reason": "gh CLI is not installed or not in PATH"}
@@ -1034,14 +1092,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="skip the read-only gh accessibility check (bootstrap before a remote is reachable)",
     )
-    parser.add_argument("--url", help="HTTPS remote URL for --mode check-https-account")
-    parser.add_argument("--host", help="SSH host/alias for --mode check-ssh-account")
+    parser.add_argument("--url", help="exact push URL for check-https-account or check-ssh-account")
     parser.add_argument("--account", help="expected account for a check-*-account mode")
     return parser.parse_args()
 
 
 def _emit(decision: dict[str, object]) -> int:
-    ready = decision.get("status") == "ready"
+    ready = decision.get("status") in ("ready", "verified")
     print(json.dumps(decision, sort_keys=True, separators=(",", ":")))
     return 0 if ready else 2
 
@@ -1113,6 +1170,9 @@ def _load_required_config(args: argparse.Namespace) -> tuple[dict[str, object] |
 
 def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> int:
     github = config["github"]
+    if args.no_verify_access:
+        return _emit({"status": "incomplete", "reason_code": "verification_required",
+                      "reason": "push readiness cannot skip repository verification"})
     if not args.assigned_branch:
         return _emit({
             "status": "incomplete",
@@ -1157,6 +1217,15 @@ def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> in
     )
 
     if decision["status"] == "ready":
+        for url in _effective_push_urls(remotes, push_remotes, remote_name):
+            if url.startswith("https://"):
+                account = verify_https_account(repo_dir, url, github["account"])
+            else:
+                account = verify_ssh_url_account(repo_dir, url, github["account"])
+            if account["status"] != "verified":
+                return _emit({"status": "incomplete", "repository": None,
+                              "remote": None, "effective_push_remote": None,
+                              "reason_code": account["reason_code"], "reason": account["reason"]})
         dry_run = verify_branch_and_dry_run(
             repo_dir,
             remote=str(decision["effective_push_remote"]),
@@ -1219,9 +1288,9 @@ def _run_check_account(args: argparse.Namespace) -> int:
             return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"})
         result = verify_https_account(repo_dir, args.url, args.account)
     elif args.mode == "check-ssh-account":
-        if not args.host:
-            return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--host is required"})
-        result = verify_ssh_account(repo_dir, args.host, args.account)
+        if not args.url:
+            return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"})
+        result = verify_ssh_url_account(repo_dir, args.url, args.account)
     else:
         result = verify_gh_cli_login(repo_dir, args.account)
     return _emit(result)
