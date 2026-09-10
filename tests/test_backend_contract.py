@@ -96,37 +96,51 @@ _ABSENT, _MALFORMED, _TRUNCATED = REPORT_BACK_CAUSES
 #
 # Built from the tuples above rather than retyped, so a renamed condition or
 # cause cannot leave this mapping describing the old vocabulary.
+# Correlation is an explicit input, not an implicit one. The earlier version
+# recorded `report_back_termination: null` for an absent lane on the reasoning
+# that no bounded read had run - which is false. Absence is established BY
+# reading: the read runs, terminates, and only then is correlation checked. The
+# ledger discarded that condition and then asserted the read never happened,
+# contradicting `contract.md`'s own "nothing can be known to be absent without
+# looking" at the same head.
+#
+# `absent` additionally requires a `completed` read. A cut read that found no
+# correlated reply has established nothing - the reply may lie past the cut -
+# so it is `truncated` and re-read. Calling it `absent` would read a partial
+# absence of signal as a positive finding, in the ledger built to prevent that.
 REPORT_BACK_DERIVATION = (
-    (("null",), "not examined", "incomplete", _ABSENT),
-    ((_COMPLETED,), "all seven", "complete", "null"),
-    ((_COMPLETED,), "any missing", "incomplete", _MALFORMED),
-    (tuple(_TRUNCATING), "not judged", "incomplete", _TRUNCATED),
+    ("not yet read", ("null",), "not examined", "pending", "null"),
+    ("not observed", tuple(_TRUNCATING), "not examined", "incomplete", _TRUNCATED),
+    ("not observed", (_COMPLETED,), "not examined", "incomplete", _ABSENT),
+    ("observed", tuple(_TRUNCATING), "not judged", "incomplete", _TRUNCATED),
+    ("observed", (_COMPLETED,), "any missing", "incomplete", _MALFORMED),
+    ("observed", (_COMPLETED,), "all seven", "complete", "null"),
 )
 
 
-def _mapping_rows(text: str) -> list[tuple[tuple[str, ...], str, str, str]]:
-    """Parse the ledger's termination-to-cause table into comparable tuples.
+def _mapping_rows(text: str) -> list[tuple[str, tuple[str, ...], str, str, str]]:
+    """Parse the ledger's derivation table into comparable tuples.
 
-    Returns (terminations, sections, verdict, cause) per row, with backticked
-    tokens extracted so a reflow or added emphasis is not a policy change while
-    a changed value is.
+    Returns (correlation, terminations, sections, verdict, cause) per row, with
+    backticked tokens extracted so a reflow or added emphasis is not a policy
+    change while a changed value is.
     """
-    rows: list[tuple[tuple[str, ...], str, str, str]] = []
+    rows: list[tuple[str, tuple[str, ...], str, str, str]] = []
     for line in text.splitlines():
-        if not line.startswith("| `"):
+        if not line.strip().startswith("|") or line.strip().startswith("|---"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 4:
+        if len(cells) != 5:
             continue
-        terminations = tuple(re.findall(r"`([^`]+)`", cells[0]))
-        verdict = re.findall(r"`([^`]+)`", cells[2])
-        cause = re.findall(r"`([^`]+)`", cells[3])
+        terminations = tuple(re.findall(r"`([^`]+)`", cells[1]))
+        verdict = re.findall(r"`([^`]+)`", cells[3])
+        cause = re.findall(r"`([^`]+)`", cells[4])
         if not terminations or not verdict or not cause:
             continue
         # Skip the header row, which names the fields rather than values.
         if terminations[0] == "report_back_termination":
             continue
-        rows.append((terminations, cells[1], verdict[0], cause[0]))
+        rows.append((cells[0], terminations, cells[2], verdict[0], cause[0]))
     return rows
 
 
@@ -214,7 +228,7 @@ class BackendContractTests(unittest.TestCase):
     def read(self, relative: str) -> str:
         return (SKILL / relative).read_text(encoding="utf-8")
 
-    def mapping_rows(self) -> list[tuple[tuple[str, ...], str, str, str]]:
+    def mapping_rows(self) -> list[tuple[str, tuple[str, ...], str, str, str]]:
         """Parse the mapping table from the section that governs it.
 
         Scoped rather than file-wide, for the reason four earlier assertions
@@ -463,13 +477,18 @@ class BackendContractTests(unittest.TestCase):
         # against the cause parsed out of the ledger table, not against a
         # literal - so a wrong row fails here too, from the other side.
         rows = self.mapping_rows()
-        by_terminations = {row[0]: row for row in rows}
-        truncating = by_terminations.get(tuple(_TRUNCATING))
+        truncating = next(
+            (r for r in rows if r[0] == "observed" and r[1] == tuple(_TRUNCATING)), None
+        )
         completed_missing = next(
-            (r for r in rows if r[0] == (_COMPLETED,) and r[3] != "null"), None
+            (r for r in rows if r[0] == "observed" and r[2] == "any missing"), None
+        )
+        uncorrelated = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)), None
         )
         self.assertIsNotNone(truncating, "no row for the truncating conditions")
         self.assertIsNotNone(completed_missing, "no row for a completed read")
+        self.assertIsNotNone(uncorrelated, "no row for a completed read with no reply")
 
         bullet = _bullet(
             self.read("backends/contract.md"),
@@ -483,10 +502,26 @@ class BackendContractTests(unittest.TestCase):
 
         # The cause the ledger assigns each case must be the cause the contract
         # names for it, and must not be the one it names for the other case.
-        self.assertIn(f"`{truncating[3]}`", stall_sentence)
-        self.assertNotIn(f"`{truncating[3]}`", completed_sentence)
-        self.assertIn(f"`{completed_missing[3]}`", completed_sentence)
-        self.assertNotIn(f"`{completed_missing[3]}`", stall_sentence)
+        self.assertIn(f"`{truncating[4]}`", stall_sentence)
+        self.assertNotIn(f"`{truncating[4]}`", completed_sentence)
+        self.assertIn(f"`{completed_missing[4]}`", completed_sentence)
+        self.assertNotIn(f"`{completed_missing[4]}`", stall_sentence)
+
+        # The absent row, which the previous version of this check did not
+        # cover - and which is exactly where the two documents drifted. The
+        # contract must agree that absence needs a completed read and that a
+        # cut read establishes nothing.
+        absent_bullet = _bullet(
+            self.read("backends/contract.md"), "**Record the terminating condition"
+        )
+        self.assertIsNotNone(absent_bullet, "contract.md has no derivation bullet")
+        self.assertIn(f"`{uncorrelated[4]}`", absent_bullet)
+        self.assertIn(f"is `{_COMPLETED}`", absent_bullet)
+        self.assertIn("has not established absence", absent_bullet)
+        # And the ledger must not claim the read never happened.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertNotIn("no bounded read ran", state)
+        self.assertIn("Absence is established by reading, not instead of reading", state)
 
     def test_absent_is_not_a_terminating_condition(self) -> None:
         # A lane with no correlated reply never ran a bounded read, so its
@@ -494,13 +529,17 @@ class BackendContractTests(unittest.TestCase):
         # `absent`-first precedence and the termination field contradict each
         # other: one says classify before the read is characterised, the other
         # would need a characterisation to record.
-        self.assertIn(
-            "`absent` is not a fourth terminating condition",
-            self.read("backends/contract.md"),
-        )
-        self.assertIn(
-            "no bounded read ran", self.read("templates/DEV_STATE_TEMPLATE.md")
-        )
+        contract = self.read("backends/contract.md")
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn("`absent` is not a fourth terminating condition", contract)
+        # ...but the read that established it still ran, and its condition is
+        # recorded. `null` is reserved for a lane never read at all.
+        self.assertIn("still ran a bounded read", contract)
+        self.assertIn("Every bounded read records how it ended", state)
+        self.assertIn("no bounded read has been performed yet", state)
+        for adapter in ("backends/traycer.md", "backends/claude-native.md"):
+            with self.subTest(adapter=adapter):
+                self.assertIn("the read ran, so it ended somehow", self.read(adapter))
 
     def test_an_incomplete_verdict_cannot_discard_its_cause(self) -> None:
         # The verdict says the lane is unverified; the cause is the only field

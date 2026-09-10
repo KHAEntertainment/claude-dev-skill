@@ -274,6 +274,13 @@ def main() -> int:
         # never authored beside the cause, or the two can contradict.
         "report_back_termination",
         "derive the cause from it",
+        # The ledger recorded `report_back_termination: null` for an absent
+        # lane on the reasoning that no read had run - while `contract.md` said
+        # nothing can be known to be absent without looking. Two documents, one
+        # head, contradicting each other on the one row the drift guard did not
+        # cover. Absence is a result of reading, and a cut read establishes none.
+        "Absence is established by reading, not instead of reading",
+        "has not established absence",
     )
     for token in required_policy:
         if token not in combined:
@@ -314,6 +321,7 @@ def main() -> int:
             "An empty read is never evidence of a reply's shape or of its transport.",
             "A verified report is recorded too, not only a failed one.",
             "Record the terminating condition itself, and derive the cause from it.",
+            "still ran a bounded read",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
@@ -324,6 +332,7 @@ def main() -> int:
             "A lane is never `complete` by never having been looked at.",
             "report_back_termination",
             "never authored beside it",
+            "Every bounded read records how it ended",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it
