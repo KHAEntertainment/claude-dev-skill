@@ -759,6 +759,99 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("distinct from each other", contract)
         self.assertIn("backend_source", contract)
 
+    def test_rate_limited_review_has_bounded_authorized_retries(self) -> None:
+        external = self.read("phases/external-review.md")
+        retry = external.split("### Rate-limited review retries\n", 1)[1].split(
+            "### Deadline choices\n", 1
+        )[0]
+        schedule = {}
+        for line in retry.splitlines():
+            if line.startswith("| ") and "minutes |" in line:
+                elapsed, action = [cell.strip() for cell in line.strip("|").split("|")]
+                schedule[elapsed] = action
+        self.assertEqual(schedule, {
+            "15 minutes": "First retry",
+            "30 minutes": "Second and final retry",
+            "45 minutes": "End the response window and surface the explicit deadline choices once",
+        })
+        normalized = " ".join(retry.split())
+        for requirement in (
+            "only after an explicit rate-limit response",
+            "authorizes re-requesting that specific reviewer",
+            "One lead owns retries",
+            "submitted reviews, review threads, and substantive PR comments",
+            "a PR comment does not itself satisfy the inspector",
+            "There is no third automatic retry",
+            "Observe an actively progressing review without sending a duplicate request",
+            "do not send catch-up requests",
+            "If the vendor specifies a later retry time",
+            "Polling or an acknowledgement never resets the budget",
+            "carry the remaining budget and deadline forward",
+            "Only an explicit extension renews an exhausted episode",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, normalized)
+
+    def test_correction_review_keeps_current_evidence_and_full_review_triggers(self) -> None:
+        phase4 = self.read("phases/phase4.md")
+        correction = phase4.split("## Review after fixes\n", 1)[1].split(
+            "## Merge Order\n", 1
+        )[0]
+        normalized = " ".join(correction.split())
+        for requirement in (
+            "Both QA and internal review must issue fresh results",
+            "Read the full diff",
+            "reconcile every known finding",
+            "A push alone does not resolve or supersede a finding",
+            "If there is no usable prior review/base, perform the full review",
+            "focus internal QA and review on changed behavior",
+            "Reopen the full review if scope, interfaces, architecture, a safety boundary, or material dependencies changed",
+            "or if the affected scope is uncertain",
+            "Run the full required Verification Gate at the final head",
+            "distinct from implementation and each other",
+            "reviewed base, target head, review scope, executed checks and remaining findings",
+            "Internal delta review does not satisfy external review",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, normalized)
+
+    def test_correction_review_entry_points_share_the_phase4_procedure(self) -> None:
+        for relative in (
+            "SKILL.md",
+            "phases/phase3.5.md",
+            "phases/external-review.md",
+            "agents/qa-agent.md",
+            "agents/reviewer.md",
+            "agents/report-back.md",
+            "backends/contract.md",
+            "templates/DEV_STATE_TEMPLATE.md",
+        ):
+            with self.subTest(relative=relative):
+                text = " ".join(self.read(relative).split())
+                self.assertIn("Review after fixes", text)
+                self.assertIn("${CLAUDE_SKILL_DIR}/phases/phase4.md", text)
+
+    def test_fix_batches_do_not_promote_advisory_findings_to_blockers(self) -> None:
+        phase4 = " ".join(self.read("phases/phase4.md").split())
+        for requirement in (
+            "First classify whether a finding blocks delivery",
+            "An easy fix is not necessarily blocking",
+            "Record advisory findings with a rationale and follow-up location",
+            "consolidate findings already available from QA, internal review, and external review",
+            "Dispatch confirmed blockers together",
+            "Do not wait indefinitely",
+            "or delay urgent security/data-loss containment",
+            "avoid extra commits solely for advisory cleanup",
+            "all blocking DELEGATE-FIX findings assigned to this PR are resolved",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, phase4)
+        external = " ".join(self.read("phases/external-review.md").split())
+        self.assertIn("a blocked merge does not block unrelated work", external)
+        self.assertIn("record the next wake/action and yield", external)
+        self.assertIn("A current-head `CHANGES_REQUESTED` remains blocking", external)
+        self.assertIn("A timeout bypass cannot clear a known actionable finding", external)
+
     def test_implementation_lanes_carry_the_reuse_first_ladder(self) -> None:
         for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
             prompt = self.read(relative)

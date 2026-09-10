@@ -204,4 +204,4 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 - **PROJECT_CONTEXT.md**: update immediately when architecture decisions change; after repository initialization, commit tracked context changes through a docs-only or related PR; update the main index and `docs/feature-log.md` at the end of each round
 - **Hotfix post-merge**: scan all open PRs, list PRs with file overlap with the hotfix changes, notify corresponding Worker Agents to rebase
 - **Backend cleanup**: ask every delegated agent to stop gracefully, then run the selected adapter's cleanup and update `.agent/dev-state.md` before Phase 5 or standby
-- **After REQUEST CHANGES**: once Worker Agent finishes fixes, must re-run Phase 3.5 + Phase 4
+- **After REQUEST CHANGES**: batch blockers, then run Phase 3.5 + Phase 4 using **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`; require fresh final-head results while retaining historical evidence.

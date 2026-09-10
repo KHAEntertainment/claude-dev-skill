@@ -69,4 +69,7 @@ nothing has not reported.
 - **Prototype** (`worker-prototype-*`): report the artifact + readout paths and
   the decision point answered; do not restate the full readout.
 
-A new push invalidates the report-back for the prior head.
+A new push invalidates approval for the new head; retain the prior report-back as
+historical evidence. A correction review issues a fresh report under **Review after
+fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`, naming the reviewed base, target
+head, scope, executed checks and remaining findings.

@@ -44,6 +44,12 @@ failed. A targeted re-run shows the one symptom went away; it does not show the
 fix left everything else intact. A gate result carried over from an earlier
 commit is not evidence at this commit.
 
+For bounded corrections, use **Review after fixes** in
+`${CLAUDE_SKILL_DIR}/phases/phase4.md` to focus analysis on the delta and affected
+behavior. Issue a fresh report naming the reviewed base, target head, scope,
+executed checks and remaining findings. Retain prior reports as historical
+context, never as current approval. The full gate and lane independence still apply.
+
 This section is the canonical definition of "verified" for every lane;
 `${CLAUDE_SKILL_DIR}/agents/report-back.md` cross-references it rather than
 restating it.

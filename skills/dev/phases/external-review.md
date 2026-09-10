@@ -81,15 +81,66 @@ GitHub Copilot always leaves comment reviews rather than APPROVED or CHANGES_REQ
 
 Immediately before the final Phase 4 rating, query `headRefOid` again. If it differs from the recorded value:
 
-1. Invalidate all QA and external-review completion recorded for the old commit.
-2. Update `.agent/dev-state.md` with the new head and deadline.
-3. Re-run Phase 3.5 and the complete Phase 4, including this gate.
+1. Reset QA, internal review, and external-review completion to pending for the new head; retain old reports as historical evidence.
+2. Update `.agent/dev-state.md` with the new head. Carry any unfinished wait episode's deadline and remaining retry budget forward.
+3. Run Phase 3.5 and Phase 4 using **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`, including a fresh run of this gate.
 
 Copilot does not necessarily re-review new pushes unless the repository enables **Review new pushes**. A stale Copilot review is `pending`, never `clear`.
 
 ## Waiting and Explicit Decisions
 
-Poll a pending expected review every 30 seconds while continuing safe internal review work. Do not leave the user without a progress update for more than 60 seconds.
+Observe a pending review through the selected backend. Continue independent work
+permitted by the existing dependencies and ownership map; a blocked merge does
+not block unrelated work or change the approved merge order. When nothing useful
+can proceed, record the next wake/action and yield. Use a scheduled wake when the
+backend supports it; otherwise report the due time for the next observation.
+Do not hold an active turn open for the wait. During active work, keep the user
+updated at least every 60 seconds.
+
+### Rate-limited review retries
+
+Use this bounded path only after an explicit rate-limit response to a request
+and only when repository policy or explicit approval authorizes re-requesting
+that specific reviewer. One lead owns retries for each PR/reviewer.
+
+Before scheduling or sending a retry, read submitted reviews, review threads,
+and substantive PR comments, including those at earlier heads whose findings
+may still apply. A substantive response ends this wait episode for triage and
+cancels redundant retries; a PR comment does not itself satisfy the inspector.
+Acknowledgements and green status checks are not review completion.
+
+Measure from the unsuccessful request, not from when its status was last read:
+
+| Elapsed from original request | Action if no substantive response |
+|---|---|
+| 15 minutes | First retry |
+| 30 minutes | Second and final retry |
+| 45 minutes | End the response window and surface the explicit deadline choices once |
+
+There is no third automatic retry. Observe an actively progressing review
+without sending a duplicate request; the deadline still applies. If a wake is
+late, do not send catch-up requests: send at most one eligible retry, never less
+than 15 minutes after the last request, and surface the deadline choices if the
+45-minute window has expired. A terminal error can surface the choices sooner.
+If the vendor specifies a later retry time, offer that longer wait explicitly;
+do not retry early or silently extend the window.
+
+This authorized rate-limit path replaces the ordinary initial wait deadline
+for that episode. Other pending/unavailable cases retain the configured deadline.
+The 15-minute interval is an operational default, not a vendor quota guarantee.
+A status is a dated observation, not a live signal: do not wait for an old
+rate-limit status to change on its own.
+
+Record request time, target head, attempts used, next observation and deadline in
+`approved_review_requests`, `review_deadline`, `next_action` and timestamped
+recovery entries. Polling or an acknowledgement never resets the budget.
+A push cancels the request scheduled for the old head; verify the new
+`headRefOid` before requesting and carry the remaining budget and deadline
+forward. After a substantive response and a later fix batch, a new episode may
+start with the prior history retained. Only an explicit extension renews an
+exhausted episode.
+
+### Deadline choices
 
 At the configured deadline, stop before merge and offer these explicit choices:
 
@@ -98,11 +149,17 @@ At the configured deadline, stop before merge and offer these explicit choices:
 3. Bypass only a pending or unavailable review. Require explicit approval and record the reason, approver, timestamp, and review debt in `.agent/dev-state.md` and a PR comment.
 4. Stop without merging.
 
-Never automatically issue CodeRabbit full-review commands, Kilo review requests, or Copilot review/re-review requests. A timeout bypass cannot clear a known actionable finding. Such a finding must be fixed or explicitly dispositioned as a false positive with rationale.
+Never issue CodeRabbit full-review commands, Kilo review requests, or Copilot
+review/re-review requests automatically without the reviewer-specific authority
+above. A timeout bypass cannot clear a known actionable finding. Such a finding
+must be fixed or explicitly dispositioned as a false positive with rationale.
+A current-head `CHANGES_REQUESTED` remains blocking even when its threads are
+dispositioned advisory or false positive; seek reviewer follow-up rather than
+silently overriding the inspector.
 
 ## Result Routing
 
 - `not_applicable` or `clear` → continue to the final internal Review Rating.
-- `pending` → continue internal work, then poll or use the explicit deadline choices.
-- `blocking` → REQUEST CHANGES, dispatch a fix worker, and rerun Phase 3.5 plus Phase 4 after the push.
+- `pending` → continue permitted independent work, then observe, retry when authorized, or use the explicit deadline choices.
+- `blocking` → REQUEST CHANGES; batch fixes and run Phase 3.5 plus Phase 4 under **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 - `incomplete` → stop and resolve the evidence failure or obtain an explicit pending-review bypass; never merge silently.
