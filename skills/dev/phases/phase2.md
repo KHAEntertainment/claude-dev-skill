@@ -55,7 +55,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 2. **For new projects**, establish a real default branch before creating worktrees:
 
-   1. Create and clone the repository with a server-generated initial commit: `rtk gh repo create [project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
+   1. Before creating, verify the CLI account: `resolve_repository.py --mode check-gh-account --account <confirmed github.account>`. Create and clone the repository using the full confirmed identity, never a bare project name: `rtk gh repo create <account>/[project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
    2. Enter the clone and verify readiness with `rtk git status --short`, `rtk git branch --show-current`, and `rtk git rev-parse HEAD`. Require `main`, a real commit, and a clean tree.
    3. If Phase 0's setup produced a confirmed `.dev.json` at a pre-Git project root, move it into this clone now and re-run its pre-write verification (`${CLAUDE_SKILL_DIR}/phases/repository-context.md`) before any further write — the actual remote/repository/Git identity must now be confirmed, not just the earlier intent. If no confirmed config exists yet, run first-invocation setup here before continuing.
    4. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
@@ -66,7 +66,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 3. **For existing projects**:
    - Read `PROJECT_CONTEXT.md` to restore context
-   - Create Issues for new requirements (use the Issue template below)
+   - Create Issues for new requirements (use the Issue template below), explicitly scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md` (`resolve_repository.py --operation issue --target <github.pushRepository>`, then `rtk gh issue create --repo <that repository>`)
    - Update milestone
 
 4. Present the task list for user confirmation using the explicit dependency format:
@@ -92,7 +92,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 **Skip the architecture decision checkpoint. Skip QA (Phase 3.5).**
 
-1. Create one Hotfix Issue directly, title format: `[Hotfix] [incident description]`
+1. Create one Hotfix Issue directly, scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, title format: `[Hotfix] [incident description]`
 2. Acceptance criteria only needs to cover: incident reproduction path + fix verification
 3. Present the Issue to the user for confirmation, then **immediately enter Phase 3 (single Agent, using `worker-fix.md`)**
 4. After PR is merged, **must run the affected PR coordination step** (see Phase 4 merge section)
@@ -101,7 +101,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 ## Lightweight Mode (Small Change / Bug Fix)
 
-1. Create one Issue directly (use the Issue template below)
+1. Create one Issue directly (use the Issue template below), scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`
 2. No task decomposition or milestone needed
 3. Present the Issue to the user for confirmation, then **immediately enter Phase 3 (single Agent)**
 

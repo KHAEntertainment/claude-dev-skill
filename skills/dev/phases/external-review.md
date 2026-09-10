@@ -21,10 +21,10 @@ If Mode is `off`, record that external review was disabled by repository policy 
 
 ## Start Observation in Phase 3.5
 
-After resolving the PR branch, resolve its exact head commit:
+After resolving the PR's operation target (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`) and its branch, resolve its exact head commit:
 
 ```bash
-rtk gh pr view [N] --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
+rtk gh pr view [N] --repo <confirmed pullRequestRepository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
 ```
 
 Record the PR number, `headRefOid`, expected/requested/observed reviewers, the default deadline, and the next observation time in `.agent/dev-state.md`. Begin the deadline when this state is written. Continue internal QA and review while external reviewers work.

@@ -62,8 +62,8 @@ Use the same Issue → branch/worktree → PR → review workflow, but keep comm
 Compact reassessment sequence:
 1. `rtk git status --short` and `rtk git branch`
 2. `rtk git log -10`
-3. `rtk gh pr list --state open --limit 10 --json number,title,headRefName,updatedAt,reviewDecision --jq '.[] | "#\(.number) \(.headRefName) — \(.title) — \(.reviewDecision // "no-review")"'`
-4. `rtk gh issue list --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
+3. `rtk gh pr list --repo <github.pullRequestRepository from .dev.json> --state open --limit 10 --json number,title,headRefName,updatedAt,reviewDecision --jq '.[] | "#\(.number) \(.headRefName) — \(.title) — \(.reviewDecision // "no-review")"'`
+4. `rtk gh issue list --repo <github.pushRepository from .dev.json> --state open --limit 20 --json number,title,labels,updatedAt --jq '.[] | "#\(.number) — \(.title) — labels: \([.labels[].name] | join(","))"'`
 5. Stop, summarize likely state in 5 bullets, and ask before deep-reading more than one PR/Issue.
 
 ## Execution Backend and Topology Policy

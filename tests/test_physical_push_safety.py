@@ -1,12 +1,14 @@
 """Physical proof of the writer-call-site pattern every `/dev` push must follow:
 never push on a verdict that is not `ready`, and only ever push through the
-remote name the resolver itself validated.
+remote name and refspec the resolver itself validated -- including the
+branch/refspec dry-run check (finding 3 of the independent review).
 
 Two real local bare repositories stand in for the intended and wrong-target
 destinations. This is deliberately not a simulation of a hostile transport --
 it asserts the ordinary case (a legitimate push reaches only its intended
-target) and the guarded case (a hijacked push-remote default leaves both
-repositories' refs untouched), using real `git push` calls.
+target) and the guarded cases (a hijacked push-remote default, and a wrong
+current branch, each leave both repositories' refs untouched), using real
+`git push` and `git push --dry-run` calls.
 """
 
 from __future__ import annotations
@@ -61,15 +63,16 @@ class PhysicalPushSafetyTests(unittest.TestCase):
         _git("init", "--bare", "-q", str(bare), cwd=root)
         return bare
 
-    def _make_clone_with_commit(self, root: Path, origin_bare: Path) -> Path:
+    def _make_clone_with_commit(self, root: Path, origin_bare: Path, branch: str = "main") -> Path:
         clone = root / "work"
         _git("clone", "-q", str(origin_bare), str(clone), cwd=root)
         _git("config", "user.email", "test@example.com", cwd=clone)
         _git("config", "user.name", "Test", cwd=clone)
+        _git("checkout", "-q", "-B", branch, cwd=clone)
         (clone / "README.md").write_text("hello\n", encoding="utf-8")
         _git("add", "README.md", cwd=clone)
         _git("commit", "-q", "-m", "initial", cwd=clone)
-        _git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=clone)
+        _git("push", "-q", "origin", f"HEAD:refs/heads/{branch}", cwd=clone)
         return clone
 
     def _add_feature_commit(self, clone: Path) -> None:
@@ -103,9 +106,6 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             self.assertIsNone(_rev(wrong, "refs/heads/feature"))
 
     def test_configured_remote_mismatch_leaves_both_remotes_untouched(self) -> None:
-        """A hijacked `remote.pushDefault` would have git push to `upstream`
-        (the wrong target). `.dev.json` names `origin`; the mismatch must stop
-        the push before either bare repository's refs change."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             intended = self._make_bare(root, "intended.git")
@@ -133,9 +133,6 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             self.assertIsNone(_rev(wrong, "refs/heads/feature"))
 
     def test_expected_mismatch_leaves_both_remotes_untouched(self) -> None:
-        """A worktree assigned to a different repository than `.dev.json`
-        confirms (`--expect`) must also refuse to push, even when the local
-        Git remotes themselves are internally consistent."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             intended = self._make_bare(root, "intended.git")
@@ -160,6 +157,82 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             self.assertFalse(pushed)
             self.assertIsNone(_rev(intended, "refs/heads/feature"))
             self.assertIsNone(_rev(wrong, "refs/heads/feature"))
+
+    def test_split_fetch_upstream_push_fork_physically_pushes_only_the_fork(self) -> None:
+        """Finding 2's supported shape, proven physically: fetch points at
+        `wrong.git` (standing in for upstream), push points at
+        `intended.git` (the fork). The verdict must be `ready`, and the real
+        push must reach only `intended.git`."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            intended = self._make_bare(root, "intended.git")
+            wrong = self._make_bare(root, "wrong.git")
+            clone = self._make_clone_with_commit(root, intended)
+            _git("remote", "set-url", "--push", "origin", str(intended), cwd=clone)
+
+            verdict = MODULE.resolve_repository(
+                remotes={"origin": UPSTREAM_HTTPS},
+                push_remotes={"origin": [ORIGIN_HTTPS]},
+                gh_default=None,
+                expected=CANONICAL,
+                remote_name="origin",
+                configured_remote="origin",
+            )
+            self.assertEqual("ready", verdict["status"])
+
+            self._add_feature_commit(clone)
+            pushed = _gated_push(clone, verdict, "feature")
+
+            self.assertTrue(pushed)
+            self.assertIsNotNone(_rev(intended, "refs/heads/feature"))
+            self.assertIsNone(_rev(wrong, "refs/heads/feature"))
+
+    def test_dry_run_on_wrong_branch_fails_before_any_push_reproduction(self) -> None:
+        """Finding 3 reproduction, at the physical level: the checkout is on
+        the wrong branch relative to the ledger assignment. The branch check
+        must stop before the dry run (and therefore before any real push) is
+        ever attempted, leaving the bare repository's ref untouched."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            intended = self._make_bare(root, "intended.git")
+            clone = self._make_clone_with_commit(root, intended, branch="main")
+            _git("checkout", "-q", "-B", "wrong-branch", cwd=clone)
+            self._add_feature_commit(clone)
+
+            result = MODULE.verify_branch_and_dry_run(
+                clone, remote="origin", assigned_branch="feature/expected"
+            )
+            self.assertEqual("incomplete", result["status"])
+            self.assertEqual("branch_mismatch", result["reason_code"])
+            self.assertIsNone(_rev(intended, "refs/heads/feature/expected"))
+
+    def test_dry_run_on_correct_branch_succeeds_without_advancing_refs(self) -> None:
+        """A real `git push --dry-run` against a real bare repository: it
+        reports success but never actually creates the ref."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            intended = self._make_bare(root, "intended.git")
+            clone = self._make_clone_with_commit(root, intended, branch="feature/expected")
+            # The initial commit is already on the bare repo from the clone
+            # setup's own push; capture that baseline before the local-only
+            # feature commit, so "unchanged" means "still at the baseline",
+            # not merely "some ref exists".
+            baseline = _rev(intended, "refs/heads/feature/expected")
+            self._add_feature_commit(clone)
+
+            result = MODULE.verify_branch_and_dry_run(
+                clone, remote="origin", assigned_branch="feature/expected"
+            )
+            self.assertEqual("ready", result["status"])
+            self.assertEqual(
+                baseline,
+                _rev(intended, "refs/heads/feature/expected"),
+                "a dry run must never advance the real ref",
+            )
+
+            # Only now does the gated pattern perform the real push.
+            _git("push", "-q", "origin", "feature/expected:refs/heads/feature/expected", cwd=clone)
+            self.assertNotEqual(baseline, _rev(intended, "refs/heads/feature/expected"))
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Re
 
 ## Step 0 — Scope-Drift Gate
 
-Run `rtk gh pr diff [PR-number] --name-only` before any checklist.
+Resolve the PR's operation target first (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`), then run `rtk gh pr diff [PR-number] --repo <that confirmed repository> --name-only` before any checklist.
 
 - Files clearly outside the Issue and ownership map → mark Scope Drift and REQUEST CHANGES; require the worker to revert unrelated changes.
 - Missing files or behavior required by an acceptance criterion → record a completeness failure.
@@ -104,7 +104,7 @@ and follow-up location in the existing debt records or issue tracker.
 □ Migration downgrade quality
 ```
 
-Use `rtk gh pr review` for concrete findings. Batch ASK items rather than interrupting one at a time.
+Use `rtk gh pr review --repo <confirmed pullRequestRepository>` for concrete findings. Batch ASK items rather than interrupting one at a time.
 
 Before dispatching a fix batch, consolidate findings already available from QA,
 internal review, and external review. Dispatch confirmed blockers together.
@@ -202,9 +202,9 @@ Update `PROJECT_CONTEXT.md` after all PRs are merged through a docs-only worktre
 
 ## Post-Merge: Affected PR Coordination (mandatory after every merge)
 
-After a PR is merged into main, immediately:
+After a PR is merged into main, immediately, all scoped to the confirmed `github.pullRequestRepository` (per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`; re-verify it before this step if it has been more than a few minutes since the merge's own check):
 
-1. `rtk gh pr list --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
-2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
-3. Open PRs with file overlap → comment: `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
+1. `rtk gh pr list --repo <confirmed pullRequestRepository> --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
+2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --repo <confirmed pullRequestRepository> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
+3. Open PRs with file overlap → comment (`rtk gh pr comment <PR-number> --repo <confirmed pullRequestRepository> ...`): `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
 4. Open PRs with logical dependencies (e.g. this refactor changed module paths or interface signatures) → notify those PRs as well

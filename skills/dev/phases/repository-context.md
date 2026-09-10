@@ -8,7 +8,9 @@ independently in another prompt file; reference this one.
 It never holds a token, password, private key, or credential-bearing URL.
 `skills/dev/scripts/dev_config.py` owns its schema, validation, and creation.
 `skills/dev/scripts/resolve_repository.py` owns comparing that intent against
-what a checkout and its authentication would actually do.
+what a checkout and its authentication would actually do — and **loads
+`.dev.json` itself**: every invocation below fails closed on a missing,
+invalid, or tracked config, regardless of which other flags are passed.
 
 ```json
 {
@@ -81,12 +83,13 @@ create`. Explicitly report that remote and Git-transport checks are pending —
 file existence never makes a push ready. If the user has not chosen a name or
 usable account yet, leave setup incomplete rather than inventing one; finish
 it before the first GitHub write. Phase 2's bootstrap step is responsible for
-the actual repository creation; before that write, check the CLI account and
-the explicit creation target (full `OWNER/REPO`, not a bare project name).
-After creation/clone, re-run this procedure to verify the actual remote,
-repository, and Git identity before any push. If bootstrap creates a
-different local root, move the confirmed file there explicitly and exclude it
-before any staging.
+the actual repository creation; before that write, check the CLI account
+(`resolve_repository.py --mode check-gh-account --account <github.account>`)
+and create using the full confirmed `<account>/<project-name>`, never a bare
+project name. After creation/clone, re-run this procedure to verify the
+actual remote, repository, and Git identity before any push. If bootstrap
+creates a different local root, move the confirmed file there explicitly and
+exclude it before any staging.
 
 ## Worktrees
 
@@ -102,68 +105,98 @@ elsewhere.
 ## Pre-write verification (run immediately before every push and every GitHub mutation)
 
 Never reuse a verdict from before a config, credential, branch, or remote
-change — recheck immediately before the write, using the same remote and
-refspec the write will use.
+change — recheck immediately before the write, using the same remote/target
+and refspec the write will use. `resolve_repository.py` always loads and
+requires a valid `.dev.json` for both forms below; there is no way to bypass
+that by omitting a flag.
 
-1. Load the validated `.dev.json` and the operation's assigned branch/refspec
-   from the existing task/worktree ledger.
-2. Choose the operation's expected target: `github.pushRepository` for a Git
-   push or a plugin-created task Issue; `github.pullRequestRepository` for PR
-   create/read/review/merge; an explicitly assigned existing upstream Issue's
-   own qualified `(repository, number)` identity for operations on it.
-3. Run:
-   ```
-   resolve_repository.py --repo-dir <worktree> \
-     --expect <owner/repo from step 2> \
-     --configured-remote <github.pushRemote from .dev.json>
-   ```
-   Exit 0 with `status: "ready"` means the effective push remote, every one of
-   its push URLs, and the configured remote name all agree with the expected
-   target. Exit 2 means stop — no fallback, no default selection. The
-   `gh_default` field and the `notes` list are informational only: an
-   unrelated `gh repo set-default` disagreeing with the operation's target
-   does **not** block an explicitly scoped command.
-4. For a Git push, use `resolve_repository.py`'s `effective_push_remote` (or
-   `--print-push-remote`) as the remote argument — never a value read from a
-   rejected verdict, and never a bare `git push` that lets Git's own default
-   choose.
-5. For a GitHub CLI/API mutation, scope the command explicitly: `gh <cmd>
-   --repo <owner/repo>` where accepted, the explicit REST/GraphQL endpoint
-   path or repository identity for `gh api`, and the positional repository
-   for `gh repo create`. Never rely on a cwd-derived `{owner}`/`{repo}`
-   placeholder or an inherited `gh` default. Reference an Issue in another
-   repository as `Closes OWNER/REPO#N` (or its URL), never a bare `#N`.
-6. Verify the transport account before a write that depends on identity, not
-   only repository identity:
-   ```
-   resolve_repository.py --mode check-https-account --url <exact push URL> --account <github.account>
-   resolve_repository.py --mode check-ssh-account   --host <effective SSH host/alias> --account <github.account>
-   ```
-   `verified` is the only status that establishes the account; `incomplete`
-   with `unsupported_transport_auth`, `identity_unavailable`, or
-   `account_mismatch` all stop the write. Commit authorship, a URL username,
-   and `gh auth status` alone never establish this — they are not accepted as
-   substitutes.
-7. A writer call site tests the check's exit code (or `status` field) before
-   invoking the real Git/GitHub command. A failed check cannot become an
-   empty argument silently followed by a default push.
+### Before a Git push
 
-This narrows stale-state exposure within the supported workflow; it is not an
-atomic guarantee against a concurrent hostile change.
+```bash
+resolve_repository.py --repo-dir <worktree> --operation push \
+  --assigned-branch <ledger-assigned branch>
+```
+
+- Loads `.dev.json`, resolves the actual effective push remote and **every
+  one of its push URLs** (fetch URLs are separate context and never block —
+  a fork that fetches upstream while pushing to itself is a supported shape,
+  not a mismatch), and requires them to match `github.pushRepository` and
+  `github.pushRemote`.
+- Confirms the current checkout is actually on `--assigned-branch`, then runs
+  `git push --dry-run` for the exact validated remote and refspec. This is
+  the one non-offline check in the module: it never advances a ref, but it is
+  real evidence the push will reach the intended destination, not only that
+  the URLs look right.
+- Exit 0 with `status: "ready"` means push. Use the printed
+  `effective_push_remote` (or `--print-push-remote`) as the remote argument —
+  never a value read from a rejected verdict, and never a bare `git push`
+  that lets Git's own default choose:
+  ```bash
+  remote="$(resolve_repository.py --repo-dir <worktree> --operation push \
+    --assigned-branch <branch> --print-push-remote)" || exit 1
+  git push "$remote" "<branch>:refs/heads/<branch>"
+  ```
+- Exit 2 means stop — no fallback, no default selection. `gh_default` and
+  `notes` in the JSON output are informational only: an unrelated `gh repo
+  set-default` disagreeing with the target does **not** block.
+
+### Before a PR or Issue operation
+
+```bash
+resolve_repository.py --repo-dir <worktree> --operation pr \
+  --target <the literal OWNER/REPO you are about to pass to gh>
+```
+
+This has nothing to do with git push URLs — a PR/Issue is a literal `--repo`
+argument, so the check is simply "does that argument match confirmed
+intent". Use `--operation pr` (target must equal `pullRequestRepository`) for
+PR create/read/review/merge, or `--operation issue` (target must equal
+`pushRepository` by default) for a plugin-created Issue. For an operation on
+an **explicitly assigned existing Issue** whose own qualified repository
+identity is expected to differ (already confirmed via the ledger, not
+re-derived here), add `--allow-target-override`. Every `ready` result here
+also verifies the actual `gh` CLI login
+(`resolve_repository.py --mode check-gh-account`) against `github.account`
+before you may treat the operation as safe — two accounts can both have
+access to a repository, so a correct Git credential does not establish which
+account `gh` will use.
+
+Use the confirmed target explicitly in the command: `gh <cmd> --repo
+<owner/repo>` where accepted, the explicit REST/GraphQL endpoint path or
+repository identity for `gh api`, and the positional repository for `gh repo
+create`. Never rely on a cwd-derived `{owner}`/`{repo}` placeholder or an
+inherited `gh` default. Reference an Issue in another repository as `Closes
+OWNER/REPO#N` (or its URL), never a bare `#N`.
+
+**Run this check before the first command that touches the repository at
+all** — including an early read like posting an understanding-confirmation
+comment on an Issue, not only the final write. A check run only immediately
+before the last command in a sequence leaves every earlier command in that
+sequence unscoped.
 
 ### Authentication support boundary
 
 | Transport | Supported verification |
 | --- | --- |
-| Ordinary HTTPS with an existing credential helper | `git credential fill` for the exact URL/context, checked in-process only; compare the authenticated login |
-| Standard OpenSSH, including host aliases | Probe with the same effective host/user/port/identity as the real push; require GitHub's documented greeting and exit status **1** |
+| Ordinary HTTPS with an existing credential helper | `resolve_repository.py --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
+| Standard OpenSSH, including host aliases | `resolve_repository.py --mode check-ssh-account --host <alias or host> --account <github.account>` — resolves the alias via `ssh -G` to confirm it points at GitHub, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
+| GitHub CLI / API mutation | `resolve_repository.py --mode check-gh-account --account <github.account>` — `gh api user`, never `gh auth status` alone |
+
+`verified` is the only status that establishes an account; `incomplete` with
+`unsupported_transport_auth`, `identity_unavailable`, or `account_mismatch`
+all stop the write. Commit authorship, a URL username, and `gh auth status`
+alone never establish this — they are not accepted as substitutes.
 
 Anything else — `GIT_SSH_COMMAND`/`GIT_SSH`/`core.sshCommand`/`ssh.variant`
-overrides, a URL-matched `http.extraHeader` or other HTTP auth override, an
-`GIT_ASKPASS`/`SSH_ASKPASS` fallback, or an unreadable/unexpected probe
-response — returns `unsupported_transport_auth` or `identity_unavailable`
-rather than probing a different, lower-precedence source. Never run
-credential `approve`/`reject`, persist a new credential, switch accounts, or
-accept a new SSH host key automatically. A credential-helper secret is
-captured only inside the helper process; it is never printed, logged, or
-written to a temp file or the ledger.
+overrides, an HTTP auth override matched the way Git itself matches it
+(`git config --get-urlmatch http.extraHeader <url>`, not a literal key), an
+askpass fallback (`GIT_ASKPASS`/`SSH_ASKPASS` or `core.askPass`), or an
+unreadable/unexpected probe response — returns `unsupported_transport_auth`
+or `identity_unavailable` rather than probing a different, lower-precedence
+source. Never run credential `approve`/`reject`, persist a new credential,
+switch accounts, or accept a new SSH host key automatically. A
+credential-helper secret is captured only inside the helper process; it is
+never printed, logged, or written to a temp file or the ledger.
+
+This narrows stale-state exposure within the supported workflow; it is not an
+atomic guarantee against a concurrent hostile change.

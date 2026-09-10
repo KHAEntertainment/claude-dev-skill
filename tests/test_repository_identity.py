@@ -23,16 +23,47 @@ PARENT = "hnaymyh123-henry/claude-dev-skill"
 ORIGIN_HTTPS = "https://github.com/KHAEntertainment/claude-dev-skill.git"
 UPSTREAM_HTTPS = "https://github.com/hnaymyh123-henry/claude-dev-skill.git"
 
+VALID_DOC = {
+    "version": 1,
+    "github": {
+        "host": "github.com",
+        "account": "KHAEntertainment",
+        "pushRepository": CANONICAL,
+        "pullRequestRepository": CANONICAL,
+        "pushRemote": "origin",
+    },
+}
+
+CONTRIBUTOR_DOC = {
+    "version": 1,
+    "github": {
+        "host": "github.com",
+        "account": "KHAEntertainment",
+        "pushRepository": CANONICAL,
+        "pullRequestRepository": PARENT,
+        "pushRemote": "origin",
+    },
+}
+
+
+def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=str(cwd), check=check, capture_output=True, text=True)
+
+
+def _init_repo_with_config(root: Path, doc: dict[str, object]) -> None:
+    _git("init", "-q", cwd=root)
+    _git("config", "user.email", "test@example.com", cwd=root)
+    _git("config", "user.name", "Test", cwd=root)
+    (root / "README.md").write_text("hello\n", encoding="utf-8")
+    _git("add", "README.md", cwd=root)
+    _git("commit", "-q", "-m", "initial", cwd=root)
+    (root / ".dev.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
 # HTTP-method tokens are the only ones that appear as argv tokens, not phrases.
-MUTATING_TOKENS = (
-    "POST",
-    "PATCH",
-    "PUT",
-    "--method",
-)
+MUTATING_TOKENS = ("POST", "PATCH", "PUT", "--method")
 
 MUTATING_PHRASES = (
-    r"\bgit\s+push\b",
     r"\bgh\s+issue\s+create\b",
     r"\bgh\s+issue\s+comment\b",
     r"\bgh\s+pr\s+create\b",
@@ -41,17 +72,28 @@ MUTATING_PHRASES = (
     r"\bgh\s+pr\s+merge\b",
 )
 
-# Read-only command shapes the resolver may emit. Each entry is
-# (leading-constant-tokens, min-extra-args, max-extra-args); max=None means
-# the command may have any number of trailing flags.
+
+def _is_bare_push(joined: str) -> bool:
+    """A `git push` line is mutating unless it is explicitly `--dry-run`."""
+    if not re.search(r"\bgit\s+push\b", joined):
+        return False
+    return "--dry-run" not in joined
+
+
+# Read-only (or dry-run) command shapes the resolver may emit.
 READ_ONLY_COMMANDS = (
     (("git", "branch", "--show-current"), 0, 0),
-    (("git", "config"), 1, 1),
+    (("git", "config"), 1, 2),
     (("git", "remote"), 0, 0),
     (("git", "remote", "get-url", "--all"), 1, 1),
     (("git", "remote", "get-url", "--push", "--all"), 1, 1),
+    (("git", "push", "--dry-run"), 2, 2),
+    (("git", "rev-parse", "--show-toplevel"), 0, 0),
+    (("git", "ls-files", "--error-unmatch"), 1, 1),
+    (("git", "check-ignore", "-q"), 1, 1),
     (("gh", "repo", "set-default", "--view"), 0, 0),
     (("gh", "repo", "view"), 1, None),
+    (("gh", "api", "user", "--jq", ".login"), 0, 0),
 )
 
 # Generic git/gh stub. The test sets FIXTURE (JSON) in the environment.
@@ -96,6 +138,12 @@ if name == "git" and args[:4] == ["remote", "get-url", "--push", "--all"]:
         print(url)
     raise SystemExit(0)
 
+if name == "git" and args[:2] == ["push", "--dry-run"]:
+    code = int(fixture.get("dry_run_exit", 0))
+    if code != 0:
+        sys.stderr.write("dry run rejected\\n")
+    raise SystemExit(code)
+
 if name == "gh" and args == ["repo", "set-default", "--view"]:
     default = fixture.get("gh_default", "")
     if default and not default.lower().startswith("no default"):
@@ -106,6 +154,27 @@ if name == "gh" and args == ["repo", "set-default", "--view"]:
 
 if name == "gh" and args[:2] == ["repo", "view"]:
     print(args[2])
+    raise SystemExit(0)
+
+if name == "gh" and args[:3] == ["api", "user", "--jq"]:
+    login = fixture.get("gh_login", "")
+    if login:
+        print(login)
+        raise SystemExit(0)
+    raise SystemExit(1)
+
+# dev_config's provenance checks: these fixture-driven CLI tests are about
+# identity/branch/dry-run logic, not provenance (covered separately with
+# real git), so the stub always reports "this is the repo root, the config
+# is untracked, and it is ignored" -- i.e. a config that reuses cleanly.
+if name == "git" and args == ["rev-parse", "--show-toplevel"]:
+    print(os.getcwd())
+    raise SystemExit(0)
+
+if name == "git" and args[:2] == ["ls-files", "--error-unmatch"]:
+    raise SystemExit(1)
+
+if name == "git" and args[:2] == ["check-ignore", "-q"]:
     raise SystemExit(0)
 
 sys.stderr.write("unexpected command\\n")
@@ -150,10 +219,7 @@ class RemoteNormalizationTests(unittest.TestCase):
                 self.assertEqual(code, caught.exception.code)
 
     def test_whitespace_in_local_path_is_rejected(self) -> None:
-        cases = (
-            "/tmp/exfil dir/stash.git",
-            "/tmp/exfil dir/stash",
-        )
+        cases = ("/tmp/exfil dir/stash.git", "/tmp/exfil dir/stash")
         for url in cases:
             with self.subTest(url=url):
                 with self.assertRaises(MODULE.RepositoryError) as caught:
@@ -169,7 +235,61 @@ class RemoteNormalizationTests(unittest.TestCase):
         self.assertEqual("https://github.com/KHAEntertainment/claude-dev-skill.git", redacted)
 
 
-class ResolutionMatrixTests(unittest.TestCase):
+class SshAliasResolutionTests(unittest.TestCase):
+    """`ssh -G` is a pure local config lookup -- no network call is made."""
+
+    def _with_temp_home(self, config_body: str):
+        directory = tempfile.TemporaryDirectory()
+        home = Path(directory.name)
+        config_path = home / "ssh_config"
+        config_path.write_text(config_body, encoding="utf-8")
+        return directory, home, ("ssh", "-F", str(config_path))
+
+    def test_resolve_ssh_effective_host_reads_alias(self) -> None:
+        # OpenSSH resolves the home directory from the system user database,
+        # not the `HOME` environment variable, so tests inject an explicit
+        # `-F <config>` rather than trying to override `HOME`.
+        directory, home, ssh_command = self._with_temp_home(
+            "Host corp-github\n    HostName github.com\n    User git\n    Port 443\n"
+        )
+        with directory:
+            resolved = MODULE.resolve_ssh_effective_host(home, "corp-github", ssh_command=ssh_command)
+        self.assertIsNotNone(resolved)
+        hostname, user, port = resolved
+        self.assertEqual("github.com", hostname)
+        self.assertEqual("git", user)
+        self.assertEqual("443", port)
+
+    def test_normalize_remote_with_ssh_resolution_accepts_alias_pointing_at_github(self) -> None:
+        directory, home, ssh_command = self._with_temp_home("Host corp-github\n    HostName github.com\n    User git\n")
+        with directory:
+            result = MODULE.normalize_remote_with_ssh_resolution(
+                "git@corp-github:KHAEntertainment/claude-dev-skill.git", home, ssh_command=ssh_command
+            )
+        self.assertEqual(CANONICAL, result)
+
+    def test_normalize_remote_with_ssh_resolution_rejects_alias_pointing_elsewhere(self) -> None:
+        directory, home, ssh_command = self._with_temp_home("Host corp-gitlab\n    HostName gitlab.example.com\n    User git\n")
+        with directory:
+            with self.assertRaises(MODULE.RepositoryError) as caught:
+                MODULE.normalize_remote_with_ssh_resolution(
+                    "git@corp-gitlab:Acme/widget.git", home, ssh_command=ssh_command
+                )
+        self.assertEqual("non_github_origin", caught.exception.code)
+
+    def test_without_repo_dir_alias_is_rejected_not_silently_resolved(self) -> None:
+        """The pure offline function never guesses at an alias -- callers
+        without a real checkout (e.g. `--fixture`) get the honest `no
+        resolution attempted` outcome, never a false accept or a crash."""
+        with self.assertRaises(MODULE.RepositoryError) as caught:
+            MODULE.normalize_remote_with_ssh_resolution("git@corp-github:Acme/widget.git", None)
+        self.assertEqual("non_github_origin", caught.exception.code)
+
+
+class PushTargetResolutionTests(unittest.TestCase):
+    """Finding 2: push validation uses only the remote's actual push URLs;
+    fetch URLs are non-blocking context."""
+
     def resolve(self, **overrides: object) -> dict[str, object]:
         arguments: dict[str, object] = {
             "remotes": {"origin": ORIGIN_HTTPS},
@@ -186,21 +306,18 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("ready", result["status"])
         self.assertEqual(CANONICAL, result["repository"])
 
-    def test_effective_push_remote_can_differ_from_origin(self) -> None:
+    def test_split_fetch_upstream_push_fork_is_ready_reproduction(self) -> None:
+        """Finding 2, reproduction 1: a valid contributor-mode remote that
+        fetches upstream but pushes the fork must be `ready`, not
+        `remote_url_mismatch`."""
         result = self.resolve(
-            remotes={
-                "upstream": UPSTREAM_HTTPS,
-            },
-            push_remotes={
-                "upstream": [UPSTREAM_HTTPS],
-            },
-            gh_default=PARENT,
-            remote_name="upstream",
-            expected=PARENT,
+            remotes={"origin": UPSTREAM_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS]},
+            expected=CANONICAL,
         )
         self.assertEqual("ready", result["status"])
-        self.assertEqual(PARENT, result["repository"])
-        self.assertEqual("upstream", result["effective_push_remote"])
+        self.assertEqual(CANONICAL, result["repository"])
+        self.assertTrue(any("fetch" in c for c in result["conflicting_remotes"]))
 
     def test_multiple_push_urls_all_matching_is_ready(self) -> None:
         result = self.resolve(
@@ -212,6 +329,8 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual(CANONICAL, result["repository"])
 
     def test_multiple_push_urls_with_hostile_is_incomplete(self) -> None:
+        """Two different *push* URLs on the same remote genuinely disagree --
+        this remains a real inconsistency, unlike a differing fetch URL."""
         result = self.resolve(
             remotes={"origin": ORIGIN_HTTPS},
             push_remotes={"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
@@ -222,17 +341,9 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertIsNone(result["repository"])
 
     def test_conflicting_unrelated_remote_does_not_block(self) -> None:
-        """A fork's `upstream` disagreeing with the push target is recorded,
-        never blocked -- explicit separate push/PR targets are supported."""
         result = self.resolve(
-            remotes={
-                "origin": ORIGIN_HTTPS,
-                "upstream": UPSTREAM_HTTPS,
-            },
-            push_remotes={
-                "origin": [ORIGIN_HTTPS],
-                "upstream": [UPSTREAM_HTTPS],
-            },
+            remotes={"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS], "upstream": [UPSTREAM_HTTPS]},
             gh_default=CANONICAL,
             remote_name="origin",
         )
@@ -241,18 +352,9 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
     def test_hostile_origin_canonical_effective_push_is_ready(self) -> None:
-        """A fork-shaped checkout where `origin` is the parent and the effective
-        push remote is the canonical `fork` resolves `ready` and names `fork`
-        as the only valid push target."""
         result = self.resolve(
-            remotes={
-                "origin": UPSTREAM_HTTPS,
-                "fork": ORIGIN_HTTPS,
-            },
-            push_remotes={
-                "origin": [UPSTREAM_HTTPS],
-                "fork": [ORIGIN_HTTPS],
-            },
+            remotes={"origin": UPSTREAM_HTTPS, "fork": ORIGIN_HTTPS},
+            push_remotes={"origin": [UPSTREAM_HTTPS], "fork": [ORIGIN_HTTPS]},
             gh_default=CANONICAL,
             remote_name="fork",
         )
@@ -261,35 +363,19 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("fork", result["effective_push_remote"])
         self.assertIn("origin=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
 
-    def test_gh_default_mismatch_does_not_block_an_explicitly_scoped_operation(self) -> None:
-        """Corrected behaviour (issue-19-bounded-release-requirement): every
-        supported command is explicitly scoped, so the CLI's unrelated
-        repository default must not block a correctly configured fork whose
-        PR target differs from its push target."""
+    def test_gh_default_mismatch_does_not_block(self) -> None:
         result = self.resolve(gh_default=PARENT)
         self.assertEqual("ready", result["status"])
-        self.assertEqual(CANONICAL, result["repository"])
         self.assertTrue(any("gh CLI default" in note for note in result["notes"]))
 
     def test_missing_gh_default_with_conflicts_is_ready(self) -> None:
         result = self.resolve(
-            remotes={
-                "origin": ORIGIN_HTTPS,
-                "upstream": UPSTREAM_HTTPS,
-            },
-            push_remotes={
-                "origin": [ORIGIN_HTTPS],
-                "upstream": [UPSTREAM_HTTPS],
-            },
+            remotes={"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS], "upstream": [UPSTREAM_HTTPS]},
             gh_default=None,
         )
         self.assertEqual("ready", result["status"])
-        self.assertEqual(CANONICAL, result["repository"])
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", result["conflicting_remotes"])
-
-    def test_assignment_expectation_match_is_ready(self) -> None:
-        result = self.resolve(expected=CANONICAL)
-        self.assertEqual("ready", result["status"])
 
     def test_assignment_expectation_mismatch_fails_closed(self) -> None:
         result = self.resolve(expected=PARENT)
@@ -316,17 +402,9 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertEqual("ready", result["status"])
 
     def test_configured_remote_mismatch_fails_closed_with_no_fallback(self) -> None:
-        """A conflicting Git push-remote default (e.g. a hijacked
-        `remote.pushDefault`) stops for clarification; there is no fallback."""
         result = self.resolve(
-            remotes={
-                "origin": ORIGIN_HTTPS,
-                "upstream": UPSTREAM_HTTPS,
-            },
-            push_remotes={
-                "origin": [ORIGIN_HTTPS],
-                "upstream": [UPSTREAM_HTTPS],
-            },
+            remotes={"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
+            push_remotes={"origin": [ORIGIN_HTTPS], "upstream": [UPSTREAM_HTTPS]},
             remote_name="upstream",
             configured_remote="origin",
             expected=CANONICAL,
@@ -338,6 +416,95 @@ class ResolutionMatrixTests(unittest.TestCase):
         self.assertIsNone(result["repository"])
 
 
+class OperationTargetResolutionTests(unittest.TestCase):
+    """Finding 2, reproduction 2: a PR/Issue operation's target is validated
+    against the *explicit* argument, independent of any git push URL."""
+
+    def test_pr_target_matching_pull_request_repository_is_ready(self) -> None:
+        result = MODULE._decide_operation_target(target=PARENT, expected=PARENT)
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(PARENT, result["repository"])
+
+    def test_contributor_mode_pr_at_upstream_is_ready_reproduction(self) -> None:
+        """The exact scenario the review reproduced as `expected_mismatch`:
+        pushes go to the fork, but this PR explicitly targets upstream."""
+        result = MODULE._decide_operation_target(target=PARENT, expected=PARENT)
+        self.assertEqual("ready", result["status"])
+
+    def test_pr_target_mismatch_fails_closed(self) -> None:
+        result = MODULE._decide_operation_target(target=CANONICAL, expected=PARENT)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("operation_target_mismatch", result["reason_code"])
+
+    def test_missing_target_fails_closed(self) -> None:
+        result = MODULE._decide_operation_target(target=None, expected=CANONICAL)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("missing_argument", result["reason_code"])
+
+    def test_assigned_issue_override_accepts_a_differing_qualified_identity(self) -> None:
+        result = MODULE._decide_operation_target(target=PARENT, expected=CANONICAL, allow_override=True)
+        self.assertEqual("ready", result["status"])
+        self.assertEqual(PARENT, result["repository"])
+
+    def test_malformed_target_fails_closed_even_with_override(self) -> None:
+        result = MODULE._decide_operation_target(target="not-owner-repo", expected=CANONICAL, allow_override=True)
+        self.assertEqual("incomplete", result["status"])
+
+
+class ProductionEntrypointRequiresConfigTests(unittest.TestCase):
+    """Finding 1: the non-fixture CLI path must load `.dev.json` itself and
+    never reach `ready` on missing/invalid/tracked config, regardless of
+    which optional flags a caller does or does not pass."""
+
+    def _run(self, root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(RESOLVER), "--repo-dir", str(root), *extra],
+            check=False, capture_output=True, text=True,
+        )
+
+    def test_missing_config_never_yields_ready_reproduction(self) -> None:
+        """The review's exact reproduction: an ordinary GitHub remote, no
+        `.dev.json`, no --expect, no --configured-remote."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _git("init", "-q", cwd=root)
+            completed = self._run(root, "--assigned-branch", "main")
+            self.assertEqual(2, completed.returncode)
+            payload = json.loads(completed.stdout)
+            self.assertNotEqual("ready", payload["status"])
+            self.assertIn("config", payload["reason_code"])
+
+    def test_no_verify_access_alone_still_requires_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _git("init", "-q", cwd=root)
+            completed = self._run(root, "--no-verify-access", "--assigned-branch", "main")
+            self.assertEqual(2, completed.returncode)
+            payload = json.loads(completed.stdout)
+            self.assertNotEqual("ready", payload["status"])
+
+    def test_tracked_config_never_yields_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _init_repo_with_config(root, VALID_DOC)
+            _git("add", ".dev.json", cwd=root)
+            _git("commit", "-q", "-m", "add config", cwd=root)
+            completed = self._run(root, "--assigned-branch", "main")
+            self.assertEqual(2, completed.returncode)
+            payload = json.loads(completed.stdout)
+            self.assertEqual("tracked_config", payload["reason_code"])
+
+    def test_invalid_config_never_yields_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _git("init", "-q", cwd=root)
+            (root / ".dev.json").write_text('{"version": 1}', encoding="utf-8")
+            completed = self._run(root, "--assigned-branch", "main")
+            self.assertEqual(2, completed.returncode)
+            payload = json.loads(completed.stdout)
+            self.assertNotEqual("ready", payload["status"])
+
+
 class ResolverCommandLineTests(unittest.TestCase):
     def _no_write_evidence(self, log_text: str) -> None:
         for raw in log_text.splitlines():
@@ -346,6 +513,7 @@ class ResolverCommandLineTests(unittest.TestCase):
                 self.assertNotIn(token, joined)
             for pattern in MUTATING_PHRASES:
                 self.assertIsNone(re.search(pattern, joined), f"mutating phrase in: {joined}")
+            self.assertFalse(_is_bare_push(joined), f"bare (non-dry-run) push in: {joined}")
             tokens = raw.split("\t")
             leading = tuple(tokens)
             total = len(tokens)
@@ -357,7 +525,9 @@ class ResolverCommandLineTests(unittest.TestCase):
             )
             self.assertTrue(allowed, f"resolver ran unexpected command: {joined}")
 
-    def _run_with_fixture(self, fixture: dict[str, object], *extra_args: str) -> tuple[subprocess.CompletedProcess[str], str]:
+    def _run_with_fixture(
+        self, fixture: dict[str, object], config: dict[str, object] | None, *extra_args: str
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stub_dir = root / "stubs"
@@ -372,12 +542,11 @@ class ResolverCommandLineTests(unittest.TestCase):
             (stub_dir / "git").chmod(0o755)
             (stub_dir / "gh").write_text(STUB.format(python=sys.executable), encoding="utf-8")
             (stub_dir / "gh").chmod(0o755)
+            if config is not None:
+                (root / ".dev.json").write_text(json.dumps(config), encoding="utf-8")
             completed = subprocess.run(
                 [sys.executable, str(RESOLVER), "--repo-dir", str(root), *extra_args],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=env,
+                check=False, capture_output=True, text=True, env=env,
             )
             log_text = log.read_text(encoding="utf-8") if log.exists() else ""
             return completed, log_text
@@ -385,95 +554,93 @@ class ResolverCommandLineTests(unittest.TestCase):
     def test_matching_default_exits_zero(self) -> None:
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "",
-                "branch.main.remote": "origin",
-            },
-            "remotes": {
-                "origin": {
-                    "fetch": [ORIGIN_HTTPS],
-                    "push": [ORIGIN_HTTPS],
-                },
-            },
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
+            "remotes": {"origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]}},
             "gh_default": CANONICAL,
         }
-        completed, log_text = self._run_with_fixture(fixture, "--expect", CANONICAL)
-        self.assertEqual(0, completed.returncode)
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertEqual(CANONICAL, payload["repository"])
+        self.assertIn("dry_run", payload)
         self._no_write_evidence(log_text)
 
     def test_fork_with_matching_default_exits_zero(self) -> None:
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "",
-                "branch.main.remote": "origin",
-            },
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
             "remotes": {
-                "origin": {
-                    "fetch": [ORIGIN_HTTPS],
-                    "push": [ORIGIN_HTTPS],
-                },
-                "upstream": {
-                    "fetch": [UPSTREAM_HTTPS],
-                    "push": [UPSTREAM_HTTPS],
-                },
+                "origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]},
+                "upstream": {"fetch": [UPSTREAM_HTTPS], "push": [UPSTREAM_HTTPS]},
             },
             "gh_default": CANONICAL,
         }
-        completed, log_text = self._run_with_fixture(fixture, "--expect", CANONICAL)
-        self.assertEqual(0, completed.returncode)
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertEqual("ready", payload["status"])
-        self.assertEqual(CANONICAL, payload["repository"])
         self.assertIn("upstream=hnaymyh123-henry/claude-dev-skill", payload["conflicting_remotes"])
         self._no_write_evidence(log_text)
 
-    def test_upstream_contributor_pr_target_differs_from_push_and_is_not_blocked(self) -> None:
-        """The upstream-contributor preset: pushes stay on the fork, but the PR
-        operation's `--expect` names upstream. A gh default matching neither
-        must not block either operation."""
+    def test_upstream_contributor_split_remote_push_is_ready_reproduction(self) -> None:
+        """Production CLI path, finding 2 reproduction 1: fetch is upstream,
+        push is the fork, `.dev.json.pushRepository` is the fork."""
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "",
-                "branch.main.remote": "origin",
-            },
-            "remotes": {
-                "origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]},
-                "upstream": {"fetch": [UPSTREAM_HTTPS], "push": [UPSTREAM_HTTPS]},
-            },
-            "gh_default": PARENT,
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
+            "remotes": {"origin": {"fetch": [UPSTREAM_HTTPS], "push": [ORIGIN_HTTPS]}},
+            "gh_default": None,
         }
-        completed, _ = self._run_with_fixture(fixture, "--expect", CANONICAL, "--configured-remote", "origin")
-        self.assertEqual(0, completed.returncode)
+        completed, _ = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertEqual("ready", payload["status"])
         self.assertEqual(CANONICAL, payload["repository"])
 
+    def test_contributor_mode_pr_operation_targets_upstream_reproduction(self) -> None:
+        """Production CLI path, finding 2 reproduction 2: pushes go to the
+        fork, but the PR operation explicitly and correctly targets
+        upstream -- this must be `ready`, not `expected_mismatch`."""
+        fixture = {"gh_login": "KHAEntertainment"}
+        completed, _ = self._run_with_fixture(
+            fixture, CONTRIBUTOR_DOC, "--operation", "pr", "--target", PARENT
+        )
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("ready", payload["status"])
+        self.assertEqual(PARENT, payload["repository"])
+
+    def test_pr_operation_with_wrong_target_is_rejected(self) -> None:
+        fixture = {"gh_login": "KHAEntertainment"}
+        completed, _ = self._run_with_fixture(
+            fixture, CONTRIBUTOR_DOC, "--operation", "pr", "--target", CANONICAL
+        )
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("operation_target_mismatch", payload["reason_code"])
+
+    def test_pr_operation_requires_matching_gh_cli_login(self) -> None:
+        """Finding 4: an API mutation also needs the actual authenticated CLI
+        login checked, not only the repository target."""
+        fixture = {"gh_login": "Clarit-AI"}
+        completed, _ = self._run_with_fixture(
+            fixture, CONTRIBUTOR_DOC, "--operation", "pr", "--target", PARENT
+        )
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("account_mismatch", payload["reason_code"])
+
     def test_push_default_routing_to_wrong_remote_is_caught_by_configured_remote(self) -> None:
-        """A hijacked `remote.pushDefault` silently routes the push to
-        `upstream`. `.dev.json` names `origin` as the intended push remote, so
-        the configured-remote check -- not the (now-informational) gh
-        default -- must stop it."""
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "upstream",
-                "branch.main.remote": "origin",
-            },
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "upstream", "branch.main.remote": "origin"},
             "remotes": {
                 "origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]},
                 "upstream": {"fetch": [UPSTREAM_HTTPS], "push": [UPSTREAM_HTTPS]},
             },
             "gh_default": CANONICAL,
         }
-        completed, log_text = self._run_with_fixture(fixture, "--expect", CANONICAL, "--configured-remote", "origin")
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
         self.assertEqual(2, completed.returncode)
         payload = json.loads(completed.stdout)
         self.assertEqual("configured_remote_mismatch", payload["reason_code"])
@@ -482,47 +649,57 @@ class ResolverCommandLineTests(unittest.TestCase):
         self.assertIsNone(payload["repository"])
         self._no_write_evidence(log_text)
 
-    def test_fresh_clone_no_gh_default_exits_zero(self) -> None:
+    def test_wrong_current_branch_is_caught_before_dry_run_reproduction(self) -> None:
+        """Finding 3 reproduction: the current branch differs from the
+        ledger-assigned branch. The old implementation had no branch check at
+        all and would have reached `ready`."""
+        fixture = {
+            "branch": "wrong-branch",
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.wrong-branch.remote": "origin"},
+            "remotes": {"origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]}},
+            "gh_default": None,
+        }
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "feature/expected")
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("branch_mismatch", payload["reason_code"])
+        self._no_write_evidence(log_text)
+
+    def test_dry_run_failure_is_caught_reproduction(self) -> None:
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "",
-                "branch.main.remote": "origin",
-            },
-            "remotes": {
-                "origin": {
-                    "fetch": [ORIGIN_HTTPS],
-                    "push": [ORIGIN_HTTPS],
-                },
-            },
-            "gh_default": "",
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
+            "remotes": {"origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]}},
+            "gh_default": None,
+            "dry_run_exit": 1,
         }
-        completed, log_text = self._run_with_fixture(fixture, "--expect", CANONICAL)
-        self.assertEqual(0, completed.returncode)
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
+        self.assertEqual(2, completed.returncode)
         payload = json.loads(completed.stdout)
-        self.assertEqual("ready", payload["status"])
-        self.assertEqual(CANONICAL, payload["repository"])
-        self.assertEqual([], payload["conflicting_remotes"])
+        self.assertEqual("dry_run_failed", payload["reason_code"])
+        self.assertIsNone(payload["effective_push_remote"])
         self._no_write_evidence(log_text)
+
+    def test_missing_assigned_branch_is_rejected(self) -> None:
+        fixture = {
+            "branch": "main",
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
+            "remotes": {"origin": {"fetch": [ORIGIN_HTTPS], "push": [ORIGIN_HTTPS]}},
+            "gh_default": None,
+        }
+        completed, _ = self._run_with_fixture(fixture, VALID_DOC)
+        self.assertEqual(2, completed.returncode)
+        payload = json.loads(completed.stdout)
+        self.assertEqual("missing_argument", payload["reason_code"])
 
     def test_whitespace_url_in_push_position_fails_closed(self) -> None:
         fixture = {
             "branch": "main",
-            "config": {
-                "branch.main.pushRemote": "",
-                "remote.pushDefault": "",
-                "branch.main.remote": "origin",
-            },
-            "remotes": {
-                "origin": {
-                    "fetch": [ORIGIN_HTTPS],
-                    "push": ["/tmp/exfil dir/stash.git"],
-                },
-            },
+            "config": {"branch.main.pushRemote": "", "remote.pushDefault": "", "branch.main.remote": "origin"},
+            "remotes": {"origin": {"fetch": [ORIGIN_HTTPS], "push": ["/tmp/exfil dir/stash.git"]}},
             "gh_default": CANONICAL,
         }
-        completed, log_text = self._run_with_fixture(fixture, "--expect", CANONICAL)
+        completed, log_text = self._run_with_fixture(fixture, VALID_DOC, "--assigned-branch", "main")
         self.assertEqual(2, completed.returncode)
         payload = json.loads(completed.stdout)
         self.assertEqual("incomplete", payload["status"])
@@ -534,6 +711,7 @@ class ResolverCommandLineTests(unittest.TestCase):
             python_dir = root / "python_stubs"
             python_dir.mkdir()
             log = root / "commands.log"
+            (root / ".dev.json").write_text(json.dumps(VALID_DOC), encoding="utf-8")
             git_stub = (f'#!{sys.executable}\n'
                         'import os, sys\n'
                         'with open(os.environ["REPO_IDENTITY_LOG"], "a") as f:\n'
@@ -551,16 +729,10 @@ class ResolverCommandLineTests(unittest.TestCase):
                         'raise SystemExit(1)\n')
             (python_dir / "git").write_text(git_stub, encoding="utf-8")
             (python_dir / "git").chmod(0o755)
-            env = {
-                "PATH": str(python_dir),
-                "REPO_IDENTITY_LOG": str(log),
-            }
+            env = {"PATH": str(python_dir), "REPO_IDENTITY_LOG": str(log)}
             completed = subprocess.run(
-                [sys.executable, str(RESOLVER), "--repo-dir", str(root), "--expect", CANONICAL],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=env,
+                [sys.executable, str(RESOLVER), "--repo-dir", str(root), "--assigned-branch", "main"],
+                check=False, capture_output=True, text=True, env=env,
             )
             self.assertEqual(2, completed.returncode)
             payload = json.loads(completed.stdout)
@@ -568,34 +740,41 @@ class ResolverCommandLineTests(unittest.TestCase):
             self.assertEqual("gh_cli_missing", payload["reason_code"])
 
 
-class SplitRemoteRegressionTests(unittest.TestCase):
-    def run_fixture(self, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+class FixtureDecisionLogicTests(unittest.TestCase):
+    """`--fixture` is the pure low-level decision-logic path (see module
+    docstring): it does not load `.dev.json` and is not the production
+    entrypoint. These tests confirm it still round-trips its documented
+    optional overrides for isolated unit testing of `_decide_push_target`."""
+
+    def _run(self, payload: dict[str, object], *extra: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory, "state.json")
             fixture.write_text(json.dumps(payload), encoding="utf-8")
-            completed = subprocess.run(
-                [sys.executable, str(RESOLVER), "--fixture", str(fixture)],
-                check=False,
-                capture_output=True,
-                text=True,
+            return subprocess.run(
+                [sys.executable, str(RESOLVER), "--fixture", str(fixture), *extra],
+                check=False, capture_output=True, text=True,
             )
-        return completed.returncode, json.loads(completed.stdout)
 
-    def test_split_fetch_push_resolves_to_incomplete(self) -> None:
-        status, payload = self.run_fixture(
+    def test_ready_with_explicit_expect(self) -> None:
+        completed = self._run({"remotes": {"origin": ORIGIN_HTTPS}, "effective_push_remote": "origin"}, "--expect", CANONICAL)
+        self.assertEqual(0, completed.returncode)
+
+    def test_split_fetch_push_fixture_is_ready(self) -> None:
+        status = self._run(
             {
                 "remotes": {"origin": ORIGIN_HTTPS},
                 "push_remotes": {"origin": [UPSTREAM_HTTPS]},
                 "effective_push_remote": "origin",
                 "gh_default": None,
-            }
+            },
+            "--expect", PARENT,
         )
-        self.assertEqual(2, status)
-        self.assertEqual("remote_url_mismatch", payload["reason_code"])
-        self.assertIsNone(payload["repository"])
+        self.assertEqual(0, status.returncode)
+        payload = json.loads(status.stdout)
+        self.assertEqual(PARENT, payload["repository"])
 
     def test_hostile_multiple_push_url_first(self) -> None:
-        status, payload = self.run_fixture(
+        status = self._run(
             {
                 "remotes": {"origin": [ORIGIN_HTTPS]},
                 "push_remotes": {"origin": [UPSTREAM_HTTPS, ORIGIN_HTTPS]},
@@ -603,11 +782,12 @@ class SplitRemoteRegressionTests(unittest.TestCase):
                 "gh_default": None,
             }
         )
-        self.assertEqual(2, status)
+        self.assertEqual(2, status.returncode)
+        payload = json.loads(status.stdout)
         self.assertEqual("remote_url_mismatch", payload["reason_code"])
 
     def test_hostile_multiple_push_url_last(self) -> None:
-        status, payload = self.run_fixture(
+        status = self._run(
             {
                 "remotes": {"origin": [ORIGIN_HTTPS]},
                 "push_remotes": {"origin": [ORIGIN_HTTPS, UPSTREAM_HTTPS]},
@@ -615,7 +795,8 @@ class SplitRemoteRegressionTests(unittest.TestCase):
                 "gh_default": None,
             }
         )
-        self.assertEqual(2, status)
+        self.assertEqual(2, status.returncode)
+        payload = json.loads(status.stdout)
         self.assertEqual("remote_url_mismatch", payload["reason_code"])
 
 
@@ -628,36 +809,17 @@ class DoNotActInvariantTests(unittest.TestCase):
             fixture.write_text(json.dumps(payload), encoding="utf-8")
             return subprocess.run(
                 [sys.executable, str(RESOLVER), "--fixture", str(fixture), *extra],
-                check=False,
-                capture_output=True,
-                text=True,
+                check=False, capture_output=True, text=True,
             )
 
     NON_READY: tuple[tuple[str, dict[str, object]], ...] = (
         (
-            "push_url_disagrees",
-            {
-                "remotes": {"origin": ORIGIN_HTTPS},
-                "push_remotes": {"origin": [UPSTREAM_HTTPS]},
-                "effective_push_remote": "origin",
-                "gh_default": None,
-            },
-        ),
-        (
             "expected_disagrees",
-            {
-                "remotes": {"origin": ORIGIN_HTTPS},
-                "effective_push_remote": "origin",
-                "gh_default": None,
-            },
+            {"remotes": {"origin": ORIGIN_HTTPS}, "effective_push_remote": "origin", "gh_default": None, "expect": PARENT},
         ),
         (
             "unparseable_origin",
-            {
-                "remotes": {"origin": "not a url at all"},
-                "effective_push_remote": "origin",
-                "gh_default": None,
-            },
+            {"remotes": {"origin": "not a url at all"}, "effective_push_remote": "origin", "gh_default": None},
         ),
         (
             "configured_remote_disagrees",
@@ -670,36 +832,22 @@ class DoNotActInvariantTests(unittest.TestCase):
         ),
     )
 
-    @staticmethod
-    def _extra_args_for(label: str) -> tuple[str, ...]:
-        if label == "expected_disagrees":
-            return ("--expect", "hnaymyh123-henry/claude-dev-skill")
-        return ()
-
     def test_non_ready_verdicts_carry_no_push_remote(self) -> None:
         for label, payload in self.NON_READY:
             with self.subTest(label):
-                completed = self._run(payload, *self._extra_args_for(label))
+                completed = self._run(payload)
                 verdict = json.loads(completed.stdout)
                 self.assertNotEqual("ready", verdict["status"])
                 self.assertEqual(2, completed.returncode)
                 for actionable in ("effective_push_remote", "remote"):
-                    self.assertIsNone(
-                        verdict[actionable],
-                        f"{label}: a do-not-act verdict handed back a usable "
-                        f"remote in `{actionable}`",
-                    )
+                    self.assertIsNone(verdict[actionable])
 
     def test_print_push_remote_is_empty_and_fails_when_not_ready(self) -> None:
         for label, payload in self.NON_READY:
             with self.subTest(label):
-                completed = self._run(payload, "--print-push-remote", *self._extra_args_for(label))
+                completed = self._run(payload, "--print-push-remote")
                 self.assertEqual(2, completed.returncode)
-                self.assertEqual(
-                    "",
-                    completed.stdout.strip(),
-                    f"{label}: stdout must be empty so `$(...)` yields no push target",
-                )
+                self.assertEqual("", completed.stdout.strip())
                 self.assertNotEqual("", completed.stderr.strip())
 
     def test_print_push_remote_emits_only_the_name_when_ready(self) -> None:
@@ -710,24 +858,12 @@ class DoNotActInvariantTests(unittest.TestCase):
                 "gh_default": "KHAEntertainment/claude-dev-skill",
                 "access_verified": True,
                 "verified_name": "KHAEntertainment/claude-dev-skill",
+                "expect": CANONICAL,
             },
             "--print-push-remote",
-            "--expect", CANONICAL,
         )
         self.assertEqual(0, completed.returncode)
         self.assertEqual("origin", completed.stdout.strip())
-
-    def test_piping_the_json_verdict_cannot_yield_a_usable_remote(self) -> None:
-        for label, payload in self.NON_READY:
-            with self.subTest(label):
-                verdict = json.loads(self._run(payload, *self._extra_args_for(label)).stdout)
-                for actionable in ("effective_push_remote", "remote"):
-                    harvested = verdict[actionable]
-                    self.assertFalse(
-                        isinstance(harvested, str) and harvested.strip(),
-                        f"{label}: harvested {harvested!r} from `{actionable}` "
-                        "on a rejected verdict",
-                    )
 
 
 class TransportAuthOverrideDetectionTests(unittest.TestCase):
@@ -756,10 +892,7 @@ class TransportAuthOverrideDetectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
-            subprocess.run(
-                ["git", "config", "core.sshCommand", "ssh -F /custom/config"],
-                cwd=str(root), check=True,
-            )
+            subprocess.run(["git", "config", "core.sshCommand", "ssh -F /custom/config"], cwd=str(root), check=True)
             self.assertEqual("core.sshCommand", MODULE.detect_ssh_overrides(root))
 
     def test_no_ssh_override_returns_none(self) -> None:
@@ -768,14 +901,27 @@ class TransportAuthOverrideDetectionTests(unittest.TestCase):
             self._init_repo(root)
             self.assertIsNone(MODULE.detect_ssh_overrides(root))
 
-    def test_https_extra_header_override_is_detected(self) -> None:
+    def test_urlmatch_scoped_https_header_override_is_detected_reproduction(self) -> None:
+        """Finding 5 reproduction: Git commonly stores a URL-scoped header
+        under a prefix like `http.https://github.com/.extraHeader`, which a
+        literal `http.<url>.extraHeader` key lookup never finds."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
             subprocess.run(
-                ["git", "config", "http.extraHeader", "Authorization: Bearer x"],
+                ["git", "config", "http.https://github.com/.extraHeader", "Authorization: Bearer test-only"],
                 cwd=str(root), check=True,
             )
+            self.assertEqual(
+                "http.extraHeader",
+                MODULE.detect_https_auth_overrides(root, "https://github.com/Acme/Widget.git"),
+            )
+
+    def test_global_https_extra_header_override_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root)
+            subprocess.run(["git", "config", "http.extraHeader", "Authorization: Bearer x"], cwd=str(root), check=True)
             self.assertEqual("http.extraHeader", MODULE.detect_https_auth_overrides(root, ORIGIN_HTTPS))
 
     def test_no_https_override_returns_none(self) -> None:
@@ -785,21 +931,38 @@ class TransportAuthOverrideDetectionTests(unittest.TestCase):
             self.assertIsNone(MODULE.detect_https_auth_overrides(root, ORIGIN_HTTPS))
 
     def test_askpass_env_override_is_detected(self) -> None:
-        old = os.environ.get("SSH_ASKPASS")
-        os.environ["SSH_ASKPASS"] = "/usr/bin/ssh-askpass"
-        try:
-            self.assertEqual("SSH_ASKPASS", MODULE.detect_askpass_overrides())
-        finally:
-            if old is None:
-                os.environ.pop("SSH_ASKPASS", None)
-            else:
-                os.environ["SSH_ASKPASS"] = old
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root)
+            old = os.environ.get("SSH_ASKPASS")
+            os.environ["SSH_ASKPASS"] = "/usr/bin/ssh-askpass"
+            try:
+                self.assertEqual("SSH_ASKPASS", MODULE.detect_askpass_overrides(root))
+            finally:
+                if old is None:
+                    os.environ.pop("SSH_ASKPASS", None)
+                else:
+                    os.environ["SSH_ASKPASS"] = old
+
+    def test_core_askpass_config_override_is_detected_reproduction(self) -> None:
+        """Finding 5 reproduction: the approved support boundary names
+        `core.askPass`, which the previous implementation never checked."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root)
+            subprocess.run(["git", "config", "core.askPass", "/usr/bin/ssh-askpass"], cwd=str(root), check=True)
+            self.assertEqual("core.askPass", MODULE.detect_askpass_overrides(root))
+
+    def test_no_askpass_override_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root)
+            self.assertIsNone(MODULE.detect_askpass_overrides(root))
 
 
 class TransportAccountVerificationTests(unittest.TestCase):
     """Mocked identity checks only -- no live credential retrieval or network
-    call runs here. `lookup_login`/`prober` are injected stubs standing in for
-    GitHub's authenticated-user endpoint and a real SSH probe."""
+    call runs here."""
 
     def _init_repo(self, root: Path) -> None:
         subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
@@ -808,24 +971,16 @@ class TransportAccountVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
-            fake_fill = lambda repo_dir, url: {"username": "KHAEntertainment", "password": "x"}
-            with _patched(MODULE, "fill_https_credential", fake_fill):
-                result = MODULE.verify_https_account(
-                    root, ORIGIN_HTTPS, "KHAEntertainment",
-                    lookup_login=lambda credential: "KHAEntertainment",
-                )
+            with _patched(MODULE, "fill_https_credential", lambda repo_dir, url: {"username": "KHAEntertainment", "password": "x"}):
+                result = MODULE.verify_https_account(root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda c: "KHAEntertainment")
             self.assertEqual("verified", result["status"])
 
     def test_https_mismatched_account_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
-            fake_fill = lambda repo_dir, url: {"username": "Clarit-AI", "password": "x"}
-            with _patched(MODULE, "fill_https_credential", fake_fill):
-                result = MODULE.verify_https_account(
-                    root, ORIGIN_HTTPS, "KHAEntertainment",
-                    lookup_login=lambda credential: "Clarit-AI",
-                )
+            with _patched(MODULE, "fill_https_credential", lambda repo_dir, url: {"username": "Clarit-AI", "password": "x"}):
+                result = MODULE.verify_https_account(root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda c: "Clarit-AI")
             self.assertEqual("incomplete", result["status"])
             self.assertEqual("account_mismatch", result["reason_code"])
 
@@ -834,18 +989,16 @@ class TransportAccountVerificationTests(unittest.TestCase):
             root = Path(directory)
             self._init_repo(root)
             with _patched(MODULE, "fill_https_credential", lambda repo_dir, url: None):
-                result = MODULE.verify_https_account(
-                    root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda credential: "irrelevant"
-                )
+                result = MODULE.verify_https_account(root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda c: "irrelevant")
             self.assertEqual("incomplete", result["status"])
             self.assertEqual("identity_unavailable", result["reason_code"])
 
-    def test_https_extra_header_override_short_circuits_before_helper_lookup(self) -> None:
+    def test_https_urlmatch_header_short_circuits_before_helper_lookup_reproduction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
             subprocess.run(
-                ["git", "config", "http.extraHeader", "Authorization: Bearer x"],
+                ["git", "config", "http.https://github.com/.extraHeader", "Authorization: Bearer test-only"],
                 cwd=str(root), check=True,
             )
             called = {"fill": False}
@@ -855,9 +1008,7 @@ class TransportAccountVerificationTests(unittest.TestCase):
                 return {"username": "KHAEntertainment", "password": "x"}
 
             with _patched(MODULE, "fill_https_credential", fake_fill):
-                result = MODULE.verify_https_account(
-                    root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda credential: "KHAEntertainment"
-                )
+                result = MODULE.verify_https_account(root, ORIGIN_HTTPS, "KHAEntertainment", lookup_login=lambda c: "KHAEntertainment")
             self.assertEqual("unsupported_transport_auth", result["reason_code"])
             self.assertFalse(called["fill"], "helper lookup must not run once a higher-precedence override is found")
 
@@ -865,47 +1016,131 @@ class TransportAccountVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
-            prober = lambda repo_dir, host: (1, "Hi KHAEntertainment! You've successfully authenticated, but GitHub does not provide shell access.")
-            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober)
+            prober = lambda repo_dir, target, user: (1, "Hi KHAEntertainment! You've successfully authenticated, but GitHub does not provide shell access.")
+            resolver = lambda repo_dir, target: ("github.com", "git", "22")
+            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
             self.assertEqual("verified", result["status"])
 
+    def test_ssh_alias_resolved_before_probing_uses_original_alias_reproduction(self) -> None:
+        """Finding 6: the probe must use the original alias, not the resolved
+        hostname, so SSH's own per-alias config (identity, port) applies."""
+        probed_target = {}
+
+        def prober(repo_dir: Path, target: str, user: str) -> tuple[int, str]:
+            probed_target["value"] = target
+            return (1, "Hi KHAEntertainment! You've successfully authenticated")
+
+        resolver = lambda repo_dir, target: ("github.com", "git", "443")
+        result = MODULE.verify_ssh_account(Path("."), "corp-github", "KHAEntertainment", prober=prober, resolver=resolver)
+        self.assertEqual("verified", result["status"])
+        self.assertEqual("corp-github", probed_target["value"])
+
+    def test_ssh_alias_resolving_elsewhere_is_rejected_reproduction(self) -> None:
+        resolver = lambda repo_dir, target: ("gitlab.example.com", "git", "22")
+        called = {"probed": False}
+
+        def prober(repo_dir: Path, target: str, user: str) -> tuple[int, str]:
+            called["probed"] = True
+            return (1, "should never be reached")
+
+        result = MODULE.verify_ssh_account(Path("."), "corp-gitlab", "KHAEntertainment", prober=prober, resolver=resolver)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("non_github_origin", result["reason_code"])
+        self.assertFalse(called["probed"])
+
     def test_ssh_mismatched_account_is_reported(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self._init_repo(root)
-            prober = lambda repo_dir, host: (1, "Hi Clarit-AI! You've successfully authenticated, but GitHub does not provide shell access.")
-            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober)
-            self.assertEqual("incomplete", result["status"])
-            self.assertEqual("account_mismatch", result["reason_code"])
+        resolver = lambda repo_dir, target: ("github.com", "git", "22")
+        prober = lambda repo_dir, target, user: (1, "Hi Clarit-AI! You've successfully authenticated")
+        result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("account_mismatch", result["reason_code"])
 
     def test_ssh_generic_zero_exit_is_not_mistaken_for_success(self) -> None:
-        """GitHub's documented successful test exits 1; a generic zero-exit
-        rule would misclassify both directions."""
+        resolver = lambda repo_dir, target: ("github.com", "git", "22")
+        prober = lambda repo_dir, target, user: (0, "some other banner")
+        result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("identity_unavailable", result["reason_code"])
+
+    def test_ssh_command_override_short_circuits_before_resolving_or_probing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self._init_repo(root)
-            prober = lambda repo_dir, host: (0, "some other banner")
-            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober)
-            self.assertEqual("incomplete", result["status"])
-            self.assertEqual("identity_unavailable", result["reason_code"])
+            subprocess.run(["git", "config", "core.sshCommand", "ssh -F /custom/config"], cwd=str(root), check=True)
+            called = {"probe": False, "resolve": False}
 
-    def test_ssh_command_override_short_circuits_before_probing(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self._init_repo(root)
-            subprocess.run(
-                ["git", "config", "core.sshCommand", "ssh -F /custom/config"],
-                cwd=str(root), check=True,
-            )
-            called = {"probe": False}
-
-            def prober(repo_dir: Path, host: str) -> tuple[int, str]:
+            def prober(repo_dir: Path, target: str, user: str) -> tuple[int, str]:
                 called["probe"] = True
                 return (1, "Hi KHAEntertainment! You've successfully authenticated")
 
-            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober)
+            def resolver(repo_dir: Path, target: str) -> tuple[str, str, str] | None:
+                called["resolve"] = True
+                return ("github.com", "git", "22")
+
+            result = MODULE.verify_ssh_account(root, "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
             self.assertEqual("unsupported_transport_auth", result["reason_code"])
-            self.assertFalse(called["probe"], "probe must not run once a higher-precedence override is found")
+            self.assertFalse(called["probe"])
+            self.assertFalse(called["resolve"])
+
+
+class GhCliAccountVerificationTests(unittest.TestCase):
+    """Finding 4: an API mutation needs the actual `gh` CLI login checked --
+    distinct from the Git transport account."""
+
+    def test_matching_login_is_verified(self) -> None:
+        result = MODULE.verify_gh_cli_login(Path("."), "KHAEntertainment", runner=lambda: (0, "KHAEntertainment"))
+        self.assertEqual("verified", result["status"])
+
+    def test_mismatched_login_is_reported(self) -> None:
+        result = MODULE.verify_gh_cli_login(Path("."), "KHAEntertainment", runner=lambda: (0, "Clarit-AI"))
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("account_mismatch", result["reason_code"])
+
+    def test_missing_gh_cli_is_incomplete(self) -> None:
+        result = MODULE.verify_gh_cli_login(Path("."), "KHAEntertainment", runner=lambda: (-1, ""))
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("gh_cli_missing", result["reason_code"])
+
+
+class BranchAndDryRunTests(unittest.TestCase):
+    """Finding 3: unit-level coverage of the branch/refspec check and the
+    dry-run push, with an injected runner (the physical-fixture tests in
+    tests/test_physical_push_safety.py exercise the real `git push --dry-run`
+    against real local bare repositories)."""
+
+    def _init_repo(self, root: Path, branch: str) -> None:
+        subprocess.run(["git", "init", "-q", "-b", branch], cwd=str(root), check=True)
+
+    def test_wrong_current_branch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root, "wrong-branch")
+            result = MODULE.verify_branch_and_dry_run(root, remote="origin", assigned_branch="feature/expected")
+            self.assertEqual("incomplete", result["status"])
+            self.assertEqual("branch_mismatch", result["reason_code"])
+
+    def test_matching_branch_runs_dry_run_and_reports_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root, "feature/expected")
+            runner = lambda cmd, cwd: (0, "")
+            result = MODULE.verify_branch_and_dry_run(
+                root, remote="origin", assigned_branch="feature/expected", dry_run_runner=runner
+            )
+            self.assertEqual("ready", result["status"])
+            self.assertEqual("origin", result["remote"])
+            self.assertEqual("feature/expected:refs/heads/feature/expected", result["refspec"])
+
+    def test_dry_run_failure_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._init_repo(root, "feature/expected")
+            runner = lambda cmd, cwd: (1, "rejected")
+            result = MODULE.verify_branch_and_dry_run(
+                root, remote="origin", assigned_branch="feature/expected", dry_run_runner=runner
+            )
+            self.assertEqual("incomplete", result["status"])
+            self.assertEqual("dry_run_failed", result["reason_code"])
 
 
 class _patched:

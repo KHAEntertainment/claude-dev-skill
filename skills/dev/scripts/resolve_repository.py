@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
 """Resolve the canonical GitHub repository and account before a `/dev` write.
 
-Read-only by construction. This helper asks git for the effective push remote,
-enumerates that remote's real fetch and push URLs, and verifies they all
-resolve to one canonical `OWNER/REPO` that matches the operation's configured
-target from `.dev.json` (see `dev_config.py`). It never creates, comments on,
-reviews, merges, or otherwise mutates a repository. When it cannot establish
-one unambiguous, matching identity it exits 2 so the caller pauses before the
-write instead of letting `gh` or `git` pick a target for it.
+Read-only by construction (a bounded `git push --dry-run` is the one
+exception, and it never advances a ref). This helper decides whether a real
+push or GitHub mutation is safe to run, by loading `.dev.json` itself rather
+than trusting whatever a caller happens to pass. When it cannot establish one
+unambiguous, matching, verified identity it exits 2 so the caller pauses
+before the write instead of letting `git`, `gh`, or an omitted argument pick
+a target for it.
 
-Two independent things are validated here, and a caller must not conflate them:
+Three independent things are validated, and a caller must not conflate them:
 
-- **Repository identity** (`resolve_repository` / `_decide_repository`): does
-  the actual push destination match the configured target for *this*
-  operation? A push operation's target is `.dev.json`'s `pushRepository`; a PR
-  operation's target is `pullRequestRepository`. The caller selects which one
-  to pass as `--expect`.
-- **Transport account** (`verify_https_account` / `verify_ssh_account`): does
-  the credential Git will actually use match `.dev.json`'s `account`? Neither
-  commit authorship, a URL username, nor `gh auth status` establishes this.
+- **Push-target identity** (`--operation push`): does the actual Git push
+  destination — every one of its push URLs, and the named remote itself —
+  match `.dev.json`'s `pushRepository`? Fetch URLs are context, never a
+  destination. This also runs the branch/refspec check and a `--dry-run`
+  push using the exact validated remote and refspec.
+- **Operation-target identity** (`--operation pr` / `--operation issue`): does
+  the *explicit* `--repo`/`--target` argument the caller is about to pass to
+  `gh` match the confirmed value for this operation — `pullRequestRepository`
+  for an ordinary PR, `pushRepository` for a plugin-created Issue, or an
+  explicitly assigned existing Issue's own qualified identity (pass
+  `--allow-target-override` for that last case)? This has nothing to do with
+  git push URLs.
+- **Transport/CLI account** (`--mode check-https-account` / `check-ssh-account`
+  / `check-gh-account`): does the credential Git or the `gh` CLI will
+  actually use match `.dev.json`'s `account`? Neither commit authorship, a
+  URL username, nor `gh auth status` establishes this.
+
+`--fixture` is a separate, lower-level path that exercises the pure push-
+target decision function (`_decide_push_target` via `resolve_repository()`)
+against a hand-written remotes/defaults JSON document, without loading
+`.dev.json` or touching the filesystem beyond that one file. It exists for
+unit-testing the decision logic in isolation and is not the production
+entrypoint: every real caller uses the default (non-fixture) `--operation`
+path below, which loads and requires a valid `.dev.json`.
 
 The GitHub CLI's own repository default (`gh repo set-default`) is recorded
 for the ledger but never blocks a resolution: every supported operation is
-explicitly scoped (`--repo`, an explicit endpoint, or a positional argument),
-so an unrelated CLI default may legitimately disagree with a correctly
-configured fork's operation target.
+explicitly scoped, so an unrelated CLI default may legitimately disagree with
+a correctly configured fork's operation target.
 """
 
 from __future__ import annotations
@@ -38,6 +53,14 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
+
+# Make the sibling `dev_config` module importable regardless of how this file
+# is loaded (as `__main__`, or via `importlib.util.spec_from_file_location` in
+# tests) rather than relying on `sys.path[0]` being set for us.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import dev_config  # noqa: E402
 
 GITHUB_HOST = "github.com"
 SUPPORTED_SCHEMES = frozenset({"https", "http", "ssh", "git"})
@@ -70,8 +93,8 @@ class RepositoryError(RuntimeError):
         self.code = code
 
 
-def normalize_remote(url: str) -> str:
-    """Return canonical `OWNER/REPO` for an ordinary HTTPS or SSH GitHub remote."""
+def _parse_scheme_host_path(url: str) -> tuple[str | None, str, str]:
+    """Split *url* into (scheme-or-None, host, path) without validating the host."""
     text = (url or "").strip()
     if not text:
         raise RepositoryError("ambiguous_origin", "remote URL is empty")
@@ -79,41 +102,91 @@ def normalize_remote(url: str) -> str:
     if "://" in text:
         scheme, _, rest = text.partition("://")
         if scheme.lower() not in SUPPORTED_SCHEMES:
-            raise RepositoryError(
-                "non_github_origin", f"unsupported remote scheme: {scheme}"
-            )
+            raise RepositoryError("non_github_origin", f"unsupported remote scheme: {scheme}")
         authority, _, path = rest.partition("/")
         host = authority.rpartition("@")[2].partition(":")[0]
-    else:
-        match = SCP_LIKE.match(text)
-        if not match:
-            raise RepositoryError(
-                "ambiguous_origin", f"unrecognized remote URL: {text}"
-            )
-        host = match.group("host")
-        path = match.group("path")
+        return scheme.lower(), host, path
 
-    if host.lower() != GITHUB_HOST:
-        raise RepositoryError(
-            "non_github_origin",
-            f"remote host is not {GITHUB_HOST}: {host or text}",
-        )
+    match = SCP_LIKE.match(text)
+    if not match:
+        raise RepositoryError("ambiguous_origin", f"unrecognized remote URL: {text}")
+    return None, match.group("host"), match.group("path")
 
+
+def _owner_repo_from_path(path: str) -> str:
     trimmed = path.strip().strip("/")
     if trimmed[-4:].lower() == ".git":
         trimmed = trimmed[:-4].strip("/")
     segments = [segment for segment in trimmed.split("/") if segment]
     if len(segments) != 2:
-        raise RepositoryError(
-            "ambiguous_origin", f"remote path is not OWNER/REPO: {path}"
-        )
-
+        raise RepositoryError("ambiguous_origin", f"remote path is not OWNER/REPO: {path}")
     owner, repository = segments
     if not OWNER_PATTERN.match(owner) or not REPO_PATTERN.match(repository):
-        raise RepositoryError(
-            "ambiguous_origin", f"remote path is not OWNER/REPO: {path}"
-        )
+        raise RepositoryError("ambiguous_origin", f"remote path is not OWNER/REPO: {path}")
     return f"{owner}/{repository}"
+
+
+def normalize_remote(url: str) -> str:
+    """Return canonical `OWNER/REPO` for an ordinary HTTPS or SSH GitHub remote.
+
+    Pure and offline: only recognizes the literal host `github.com`. An SSH
+    host alias that resolves to GitHub via `ssh -G` is a *different*, wider
+    check -- see `normalize_remote_with_ssh_resolution` -- because resolving
+    an alias requires consulting the actual SSH configuration, which this
+    function deliberately does not do.
+    """
+    _scheme, host, path = _parse_scheme_host_path(url)
+    if host.lower() != GITHUB_HOST:
+        raise RepositoryError("non_github_origin", f"remote host is not {GITHUB_HOST}: {host or url}")
+    return _owner_repo_from_path(path)
+
+
+def resolve_ssh_effective_host(
+    repo_dir: Path, host_or_alias: str, *, ssh_command: tuple[str, ...] = ("ssh",)
+) -> tuple[str, str, str] | None:
+    """Return `(hostname, user, port)` via `ssh -G <host_or_alias>`, or None on failure.
+
+    `ssh_command` defaults to the real `ssh` binary, consulting whatever
+    config the environment's actual user resolves (OpenSSH looks up the home
+    directory from the system user database, not the `HOME` environment
+    variable, so tests inject an explicit `-F <config>` here rather than
+    trying to override `HOME`).
+    """
+    status, output = read_command([*ssh_command, "-G", host_or_alias], cwd=repo_dir)
+    if status != 0:
+        return None
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0] in ("hostname", "user", "port") and parts[0] not in values:
+            values[parts[0]] = parts[1]
+    if "hostname" not in values:
+        return None
+    return values["hostname"], values.get("user", "git"), values.get("port", "22")
+
+
+def normalize_remote_with_ssh_resolution(
+    url: str, repo_dir: Path | None, *, ssh_command: tuple[str, ...] = ("ssh",)
+) -> str:
+    """Like `normalize_remote`, but a non-literal SSH host gets a second chance
+    via `ssh -G` alias resolution when *repo_dir* is available.
+
+    The original alias is what a real push/probe must keep using -- this
+    function only uses the resolved hostname to decide whether the alias
+    points at GitHub, never to rewrite the URL itself.
+    """
+    try:
+        return normalize_remote(url)
+    except RepositoryError as exc:
+        if repo_dir is None or exc.code != "non_github_origin":
+            raise
+        scheme, host, path = _parse_scheme_host_path(url)
+        if scheme is not None and scheme != "ssh":
+            raise
+        resolved = resolve_ssh_effective_host(repo_dir, host, ssh_command=ssh_command)
+        if resolved is None or resolved[0].lower() != GITHUB_HOST:
+            raise
+        return _owner_repo_from_path(path)
 
 
 def redact_remote(url: str | None) -> str | None:
@@ -163,22 +236,48 @@ def _as_list(value: object) -> list[str]:
     return [str(item) for item in value]
 
 
+def _effective_push_urls(
+    remotes: dict[str, list[str] | str],
+    push_remotes: dict[str, list[str] | str] | None,
+    remote_name: str,
+) -> list[str]:
+    """The URLs that actually receive a push for *remote_name*.
+
+    An explicit `push_remotes` entry for this remote is authoritative -- it is
+    exactly what `git remote get-url --push --all` reports. When absent, real
+    Git itself falls back to the fetch URL as the push URL, so mirroring that
+    fallback here (rather than blending both sets into one equality class) is
+    what keeps a genuinely split fetch/push remote (fetch upstream, push
+    fork) from being flagged as internally inconsistent.
+    """
+    push_lookup = push_remotes or {}
+    explicit_push = _as_list(push_lookup.get(remote_name, []))
+    if explicit_push:
+        return explicit_push
+    return _as_list(remotes.get(remote_name, []))
+
+
 def _first_canonical(
     remotes: dict[str, list[str] | str],
     push_remotes: dict[str, list[str] | str] | None,
     remote_name: str,
+    *,
+    repo_dir: Path | None = None,
 ) -> str | None:
-    push_lookup = push_remotes or {}
-    urls = _as_list(remotes.get(remote_name, [])) + _as_list(push_lookup.get(remote_name, []))
-    for url in urls:
+    """Return the first normalisable canonical repo for *remote_name*, preferring
+    its actual push URLs (falling back to fetch only when no push URL exists),
+    or None."""
+    push_urls = _effective_push_urls(remotes, push_remotes, remote_name)
+    fetch_urls = _as_list(remotes.get(remote_name, []))
+    for url in push_urls + [u for u in fetch_urls if u not in push_urls]:
         try:
-            return normalize_remote(url)
+            return normalize_remote_with_ssh_resolution(url, repo_dir)
         except RepositoryError:
             continue
     return None
 
 
-def _decide_repository(
+def _decide_push_target(
     *,
     remotes: dict[str, list[str] | str],
     push_remotes: dict[str, list[str] | str] | None = None,
@@ -188,14 +287,18 @@ def _decide_repository(
     expected: str | None = None,
     remote_name: str = "origin",
     configured_remote: str | None = None,
+    repo_dir: Path | None = None,
 ) -> dict[str, object]:
-    """Decide the canonical repository, or fail closed with a named mismatch.
+    """Decide the canonical **push** repository, or fail closed with a named mismatch.
 
-    `expected` is the operation's configured target from `.dev.json` (its
-    `pushRepository` for a push, `pullRequestRepository` for a PR). It is not
-    optional in the supported workflow -- a caller that omits it gets whatever
-    the checkout happens to resolve to, with no confirmation that it is the
-    intended target.
+    Only the remote's actual push URLs (falling back to its fetch URL when no
+    push URL is configured, matching Git's own behavior) are validated against
+    `expected` -- a fetch-only URL that disagrees (e.g. a fork's `upstream`
+    fetch remote, or a contributor-mode remote that fetches upstream but
+    pushes the fork) is recorded in `conflicting_remotes` and never blocks.
+
+    `expected` is the operation's configured target from `.dev.json`'s
+    `pushRepository`. It is not optional in the supported workflow.
 
     `configured_remote` is `.dev.json`'s named `pushRemote`. When git's own
     effective push remote (`remote_name`) disagrees, that is a stop: a
@@ -207,8 +310,6 @@ def _decide_repository(
     so an unrelated CLI default may legitimately disagree with a correctly
     configured fork's operation target.
     """
-    push_lookup = push_remotes or {}
-
     result: dict[str, object] = {
         "status": "incomplete",
         "repository": None,
@@ -232,26 +333,24 @@ def _decide_repository(
         )
         return result
 
-    fetch_urls = _as_list(remotes.get(remote_name, []))
-    push_urls = _as_list(push_lookup.get(remote_name, []))
-    origin_urls = push_urls + fetch_urls
+    push_urls = _effective_push_urls(remotes, push_remotes, remote_name)
 
-    if not origin_urls:
+    if not push_urls:
         result["reason_code"] = "missing_origin"
         result["reason"] = (
-            f"effective push remote `{remote_name}` has no configured fetch or push URLs; "
-            "repository identity cannot be established"
+            f"effective push remote `{remote_name}` has no configured push (or fetch) "
+            "URLs; repository identity cannot be established"
         )
         return result
 
     candidate: str | None = None
     first_valid_url: str | None = None
-    for url in origin_urls:
+    for url in push_urls:
         try:
-            canon = normalize_remote(url)
+            canon = normalize_remote_with_ssh_resolution(url, repo_dir)
         except RepositoryError as exc:
             result["reason_code"] = exc.code
-            result["reason"] = f"`{remote_name}` URL `{redact_remote(url)}` is unusable: {exc}"
+            result["reason"] = f"`{remote_name}` push URL `{redact_remote(url)}` is unusable: {exc}"
             return result
 
         if first_valid_url is None:
@@ -264,7 +363,7 @@ def _decide_repository(
             result["push_url"] = redact_remote(url)
             result["reason_code"] = "remote_url_mismatch"
             result["reason"] = (
-                f"`{remote_name}` has multiple URLs that resolve differently: "
+                f"`{remote_name}` has multiple push URLs that resolve differently: "
                 f"{redact_remote(first_valid_url)} -> {candidate} but "
                 f"{redact_remote(url)} -> {canon}"
             )
@@ -276,32 +375,40 @@ def _decide_repository(
     result["repository"] = candidate
     result["remote_url"] = redact_remote(first_valid_url)
 
-    all_remote_names = set(remotes) | set(push_lookup)
+    # Other remotes' URLs -- and this remote's own *fetch* URL when it differs
+    # from its push URL -- are recorded, never blocking. A fork's `upstream`
+    # fetch source, or a contributor-mode remote whose fetch source is
+    # upstream while its push target is the fork, are supported shapes, not
+    # errors.
+    all_remote_names = set(remotes) | set(push_remotes or {})
     conflicts: set[str] = set()
+    own_fetch_urls = [u for u in _as_list(remotes.get(remote_name, [])) if u not in push_urls]
+    for url in own_fetch_urls:
+        try:
+            other = normalize_remote_with_ssh_resolution(url, repo_dir)
+        except RepositoryError:
+            continue
+        if not same_repository(other, candidate):
+            conflicts.add(f"{remote_name} (fetch)={other}")
     for name in sorted(all_remote_names):
         if name == remote_name:
             continue
-        other_urls = _as_list(remotes.get(name, [])) + _as_list(push_lookup.get(name, []))
+        other_urls = _effective_push_urls(remotes, push_remotes, name) or _as_list(remotes.get(name, []))
         for other_url in other_urls:
             try:
-                other = normalize_remote(other_url)
+                other = normalize_remote_with_ssh_resolution(other_url, repo_dir)
             except RepositoryError:
                 continue
             if not same_repository(other, candidate):
                 conflicts.add(f"{name}={other}")
 
-    # Record other GitHub remotes that disagree, but do not fail closed: the
-    # push destination is already the one validated above. An unrelated
-    # `upstream` on a fork (or a PR base that differs from the push target) is
-    # for the ledger, not a hard stop -- explicit separate push/PR targets are
-    # the supported shape, not an error.
     if conflicts:
         result["conflicting_remotes"] = sorted(conflicts)
 
     # Informational only. Every supported operation is explicitly scoped
     # (`--repo`, an explicit endpoint, or a positional argument), so the CLI's
-    # unrelated repository default has no bearing on whether this operation is
-    # safe to run, and must not block a correctly configured fork.
+    # unrelated repository default has no bearing on whether this push is
+    # safe, and must not block a correctly configured fork.
     if gh_default is not None:
         try:
             default = parse_owner_repo(gh_default, label="gh default repository")
@@ -318,9 +425,7 @@ def _decide_repository(
         if verified_name is None:
             result["repository"] = None
             result["reason_code"] = "inaccessible_repository"
-            result["reason"] = (
-                f"{candidate} could not be read with the current gh credentials"
-            )
+            result["reason"] = f"{candidate} could not be read with the current gh credentials"
             return result
         if not same_repository(verified_name, candidate):
             result["repository"] = None
@@ -335,8 +440,8 @@ def _decide_repository(
         result["repository"] = None
         result["reason_code"] = "expected_mismatch"
         result["reason"] = (
-            f"the assignment names {expected} but this checkout's "
-            f"effective push remote `{remote_name}` is {candidate}"
+            f".dev.json names {expected} as pushRepository, but this checkout's "
+            f"effective push remote `{remote_name}` resolves to {candidate}"
         )
         return result
 
@@ -344,26 +449,82 @@ def _decide_repository(
     conflict_note = ""
     if conflicts:
         conflict_note = (
-            "; non-target GitHub remotes disagree ("
+            "; non-target sources disagree ("
             f"{', '.join(sorted(conflicts))}) but the effective push target is {candidate}"
         )
     result["reason_code"] = "target_confirmed"
-    result["reason"] = (
-        f"effective push remote `{remote_name}` resolves to {candidate}{conflict_note}"
-    )
+    result["reason"] = f"effective push remote `{remote_name}` resolves to {candidate}{conflict_note}"
+    return result
+
+
+def _decide_operation_target(
+    *,
+    target: str | None,
+    expected: str | None,
+    allow_override: bool = False,
+) -> dict[str, object]:
+    """Decide whether an explicit PR/Issue operation target is confirmed.
+
+    This has no relationship to Git push URLs: a PR or Issue API call takes
+    its repository as a literal argument, so the only question is whether
+    that literal argument matches confirmed intent. `allow_override` is for
+    an explicitly assigned existing Issue, whose own qualified repository
+    identity is expected to differ from the project's default and has
+    already been confirmed elsewhere (the ledger), not re-derived here.
+    """
+    result: dict[str, object] = {
+        "status": "incomplete",
+        "repository": target,
+        "reason_code": "",
+        "reason": "",
+    }
+    if not target:
+        result["reason_code"] = "missing_argument"
+        result["reason"] = "no explicit --target repository was supplied for this operation"
+        return result
+    try:
+        canonical_target = parse_owner_repo(target, label="--target")
+    except RepositoryError as exc:
+        result["reason_code"] = exc.code
+        result["reason"] = str(exc)
+        return result
+    if allow_override:
+        result["status"] = "ready"
+        result["repository"] = canonical_target
+        result["reason_code"] = "explicit_override_accepted"
+        result["reason"] = f"{canonical_target} accepted as an explicitly assigned qualified identity"
+        return result
+    if not expected:
+        result["reason_code"] = "missing_expected"
+        result["reason"] = ".dev.json has no confirmed target for this operation"
+        return result
+    try:
+        canonical_expected = parse_owner_repo(expected, label="confirmed target")
+    except RepositoryError as exc:
+        result["reason_code"] = exc.code
+        result["reason"] = str(exc)
+        return result
+    if not same_repository(canonical_target, canonical_expected):
+        result["reason_code"] = "operation_target_mismatch"
+        result["reason"] = f"the operation targets {canonical_target}, but .dev.json confirms {canonical_expected}"
+        return result
+    result["status"] = "ready"
+    result["repository"] = canonical_target
+    result["reason_code"] = "target_confirmed"
+    result["reason"] = f"operation target {canonical_target} matches .dev.json"
     return result
 
 
 def resolve_repository(**kwargs: object) -> dict[str, object]:
-    """Decide the canonical repository and enforce the do-not-act invariant.
+    """Decide the canonical push repository and enforce the do-not-act invariant.
 
-    `_decide_repository` has multiple failure returns. Rather than remember to
-    clear the actionable field at each one, the invariant is enforced once,
-    here, on the way out: a verdict whose status is not `ready` carries no
-    push target. A consumer that ignores the status still cannot harvest a
+    `_decide_push_target` has multiple failure returns. Rather than remember
+    to clear the actionable field at each one, the invariant is enforced
+    once, here, on the way out: a verdict whose status is not `ready` carries
+    no push target. A consumer that ignores the status still cannot harvest a
     usable remote.
     """
-    result = _decide_repository(**kwargs)  # type: ignore[arg-type]
+    result = _decide_push_target(**kwargs)  # type: ignore[arg-type]
     if result.get("status") != "ready":
         for actionable in ("effective_push_remote", "remote"):
             result[actionable] = None
@@ -373,7 +534,7 @@ def resolve_repository(**kwargs: object) -> dict[str, object]:
 def read_command(
     command: list[str], *, cwd: Path, merge_stderr: bool = True, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
-    """Run one read-only command and return its exit status and stdout."""
+    """Run one command and return its exit status and stdout."""
     try:
         completed = subprocess.run(
             command,
@@ -431,6 +592,13 @@ def get_effective_push_remote(repo_dir: Path, *, fallback: str = "origin") -> st
     return fallback
 
 
+def get_current_branch(repo_dir: Path) -> str | None:
+    status, output = read_command(["git", "branch", "--show-current"], cwd=repo_dir)
+    if status != 0 or not output:
+        return None
+    return output.splitlines()[0].strip()
+
+
 def collect_gh_default(repo_dir: Path) -> str | None:
     status, output = read_command(
         ["gh", "repo", "set-default", "--view"],
@@ -446,10 +614,6 @@ def collect_gh_default(repo_dir: Path) -> str | None:
         except RepositoryError:
             return None
         return first
-    if status == 0:
-        return None
-    if status != 0 and output and ("no default" in output.lower() or "no default repository" in output.lower()):
-        return None
     return None
 
 
@@ -471,29 +635,76 @@ def load_fixture(path: Path) -> dict[str, object]:
     except (OSError, json.JSONDecodeError) as exc:
         raise RepositoryError("ambiguous_origin", f"cannot read fixture {path}: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("remotes"), dict):
-        raise RepositoryError(
-            "ambiguous_origin", "fixture must contain a remotes object"
-        )
+        raise RepositoryError("ambiguous_origin", "fixture must contain a remotes object")
     return payload
+
+
+# --- Branch/refspec verification and dry-run push --------------------------
+
+
+def verify_branch_and_dry_run(
+    repo_dir: Path,
+    *,
+    remote: str,
+    assigned_branch: str,
+    dest_ref: str | None = None,
+    dry_run_runner: Callable[[list[str], Path], tuple[int, str]] | None = None,
+) -> dict[str, object]:
+    """Confirm the current checkout is on the ledger-assigned branch, then run
+    a `git push --dry-run` for the exact remote/refspec a real push would use.
+
+    A dry run is read-only in effect (it never advances a ref) but is a real
+    network round-trip against the actual remote, so it is the only
+    non-offline check in this module; it is also the strongest evidence that
+    the push will actually succeed against the intended destination.
+    """
+    current = get_current_branch(repo_dir)
+    if current is None:
+        return {
+            "status": "incomplete",
+            "reason_code": "branch_unavailable",
+            "reason": "could not determine the current branch",
+        }
+    if current != assigned_branch:
+        return {
+            "status": "incomplete",
+            "reason_code": "branch_mismatch",
+            "reason": f"the ledger assigns `{assigned_branch}` but the checkout is on `{current}`",
+        }
+
+    ref = dest_ref or f"refs/heads/{assigned_branch}"
+    refspec = f"{assigned_branch}:{ref}"
+    command = ["git", "push", "--dry-run", remote, refspec]
+    runner = dry_run_runner or (lambda cmd, cwd: read_command(cmd, cwd=cwd))
+    status, output = runner(command, repo_dir)
+    if status != 0:
+        return {
+            "status": "incomplete",
+            "reason_code": "dry_run_failed",
+            "reason": f"`git push --dry-run {remote} {refspec}` did not succeed (exit {status})",
+        }
+    return {
+        "status": "ready",
+        "reason_code": "dry_run_confirmed",
+        "reason": f"dry run of `git push {remote} {refspec}` succeeded",
+        "remote": remote,
+        "refspec": refspec,
+    }
 
 
 # --- Transport account verification -----------------------------------------
 #
 # Bounded to the two supported transports named in the plan: an ordinary HTTPS
 # credential helper, and standard OpenSSH including host aliases. Anything
-# else -- a custom SSH command/variant, an HTTP auth header override, or an
-# askpass fallback -- returns `unsupported_transport_auth` rather than probing
+# else -- a custom SSH command/variant, an HTTP auth header override (matched
+# the way Git itself matches it), or an askpass fallback (env or
+# `core.askPass`) -- returns `unsupported_transport_auth` rather than probing
 # a different, lower-precedence source and reporting on the wrong identity.
 #
 # No network call in this module is exercised during development or in the
-# test suite: `lookup_login` is always injected by the caller (production
-# wiring calls `lookup_authenticated_login_https`; tests inject a stub).
-
-
-class AccountVerificationError(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+# test suite: `lookup_login` / `prober` / `runner` are always injected by the
+# caller (production wiring calls the real implementations; tests inject a
+# stub).
 
 
 def detect_ssh_overrides(repo_dir: Path) -> str | None:
@@ -515,21 +726,29 @@ def detect_ssh_overrides(repo_dir: Path) -> str | None:
 def detect_https_auth_overrides(repo_dir: Path, url: str) -> str | None:
     """Return the name of a higher-precedence HTTP auth override, if any.
 
-    A separate authorization header or other URL-matched auth setting means
-    the credential helper does not speak for the account Git will actually
-    use; probing it anyway would attest to the wrong identity.
+    Uses Git's own effective URL-matching resolution
+    (`git config --get-urlmatch`) rather than literal key lookups: Git
+    commonly stores a URL-scoped override under a prefix like
+    `http.https://github.com/.extraHeader`, which a literal
+    `http.<url>.extraHeader` key lookup never finds. A separate authorization
+    header means the credential helper does not speak for the account Git
+    will actually use; probing it anyway would attest to the wrong identity.
     """
-    for key in ("http.extraHeader", f"http.{url}.extraHeader"):
-        status, output = read_command(["git", "config", "--get-all", key], cwd=repo_dir)
-        if status == 0 and output:
-            return key
+    status, output = read_command(
+        ["git", "config", "--get-urlmatch", "http.extraHeader", url], cwd=repo_dir
+    )
+    if status == 0 and output:
+        return "http.extraHeader"
     return None
 
 
-def detect_askpass_overrides() -> str | None:
+def detect_askpass_overrides(repo_dir: Path) -> str | None:
     for env_var in ("GIT_ASKPASS", "SSH_ASKPASS"):
         if os.environ.get(env_var):
             return env_var
+    status, output = read_command(["git", "config", "core.askPass"], cwd=repo_dir)
+    if status == 0 and output:
+        return "core.askPass"
     return None
 
 
@@ -615,7 +834,7 @@ def verify_https_account(
             "reason_code": "unsupported_transport_auth",
             "reason": f"`{override}` overrides HTTPS authentication for this URL",
         }
-    askpass_override = detect_askpass_overrides()
+    askpass_override = detect_askpass_overrides(repo_dir)
     if askpass_override:
         return {
             "status": "incomplete",
@@ -645,11 +864,12 @@ def verify_https_account(
     return {"status": "verified", "reason_code": "account_matches", "reason": f"authenticated as {login}"}
 
 
-def probe_ssh_account(
-    repo_dir: Path, host: str, *, ssh_command: tuple[str, ...] = ("ssh",)
-) -> tuple[int, str]:
+def probe_ssh_account(repo_dir: Path, target: str, user: str) -> tuple[int, str]:
+    """Probe `<user>@<target>`, where *target* is the original alias/host --
+    never the resolved hostname -- so SSH's own config resolution (identity,
+    port, proxy) applies exactly as it would for a real push."""
     env = {**os.environ, **NONINTERACTIVE_ENV_OVERRIDES}
-    command = [*ssh_command, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"git@{host}"]
+    command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"{user}@{target}"]
     try:
         completed = subprocess.run(
             command,
@@ -670,15 +890,21 @@ def probe_ssh_account(
 
 def verify_ssh_account(
     repo_dir: Path,
-    host: str,
+    host_or_alias: str,
     expected_account: str,
     *,
-    prober: Callable[[Path, str], tuple[int, str]] = probe_ssh_account,
+    prober: Callable[[Path, str, str], tuple[int, str]] = probe_ssh_account,
+    resolver: Callable[[Path, str], tuple[str, str, str] | None] = resolve_ssh_effective_host,
 ) -> dict[str, object]:
-    """Verify the account an OpenSSH probe authenticates as for *host*.
+    """Verify the account an OpenSSH probe authenticates as for *host_or_alias*.
 
-    GitHub's documented successful SSH test exits **1** with an account-bearing
-    greeting; a generic zero-exit rule would misclassify both directions.
+    *host_or_alias* is resolved via `ssh -G` first, both to confirm it
+    actually points at GitHub and to obtain the effective user -- the alias
+    itself (never the resolved hostname) is what gets probed, preserving
+    whatever `Host` block, port, or identity file the alias configures.
+    GitHub's documented successful SSH test exits **1** with an
+    account-bearing greeting; a generic zero-exit rule would misclassify
+    both directions.
     """
     override = detect_ssh_overrides(repo_dir)
     if override:
@@ -687,7 +913,21 @@ def verify_ssh_account(
             "reason_code": "unsupported_transport_auth",
             "reason": f"`{override}` overrides the SSH transport",
         }
-    status, output = prober(repo_dir, host)
+    resolved = resolver(repo_dir, host_or_alias)
+    if resolved is None:
+        return {
+            "status": "incomplete",
+            "reason_code": "identity_unavailable",
+            "reason": f"`ssh -G {host_or_alias}` did not resolve an effective host",
+        }
+    hostname, user, _port = resolved
+    if hostname.lower() != GITHUB_HOST:
+        return {
+            "status": "incomplete",
+            "reason_code": "non_github_origin",
+            "reason": f"`{host_or_alias}` resolves to {hostname}, not {GITHUB_HOST}",
+        }
+    status, output = prober(repo_dir, host_or_alias, user)
     if status == -1:
         return {
             "status": "incomplete",
@@ -711,23 +951,76 @@ def verify_ssh_account(
     return {"status": "verified", "reason_code": "account_matches", "reason": f"authenticated as {login}"}
 
 
+def verify_gh_cli_login(
+    repo_dir: Path,
+    expected_account: str,
+    *,
+    runner: Callable[[], tuple[int, str]] | None = None,
+) -> dict[str, object]:
+    """Verify the account the `gh` CLI is actually authenticated as.
+
+    Distinct from the Git transport account: two accounts can both have
+    access to a repository, so a correct Git credential does not establish
+    which account `gh` will use for an API mutation. `gh auth status` alone
+    is not accepted -- it names the configured account, not necessarily the
+    one a given command will authenticate as -- so this calls the
+    authenticated-user endpoint through `gh api` directly.
+    """
+    run = runner or (lambda: read_command(["gh", "api", "user", "--jq", ".login"], cwd=repo_dir))
+    status, output = run()
+    if status == -1:
+        return {"status": "incomplete", "reason_code": "gh_cli_missing", "reason": "gh CLI is not installed or not in PATH"}
+    if status != 0 or not output:
+        return {
+            "status": "incomplete",
+            "reason_code": "identity_unavailable",
+            "reason": "`gh api user` did not return an authenticated login",
+        }
+    login = output.splitlines()[0].strip()
+    if login.casefold() != expected_account.casefold():
+        return {
+            "status": "incomplete",
+            "reason_code": "account_mismatch",
+            "reason": f"gh CLI is authenticated as {login}, but .dev.json names {expected_account}",
+        }
+    return {"status": "verified", "reason_code": "account_matches", "reason": f"gh CLI authenticated as {login}"}
+
+
+# --- CLI ---------------------------------------------------------------
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--mode",
-        choices=("resolve", "check-https-account", "check-ssh-account"),
+        choices=("resolve", "check-https-account", "check-ssh-account", "check-gh-account"),
         default="resolve",
-        help="'resolve' (default) decides repository identity; the check-* modes verify the transport account",
+        help="'resolve' (default) decides the operation target; the check-* modes verify an account",
+    )
+    parser.add_argument(
+        "--operation",
+        choices=("push", "pr", "issue"),
+        default="push",
+        help="'push' validates the Git push destination; 'pr'/'issue' validate an explicit API target",
     )
     parser.add_argument("--repo-dir", type=Path, default=Path.cwd())
+    parser.add_argument("--config", type=Path, help="path to .dev.json; defaults to the auto-detected file at --repo-dir")
     parser.add_argument("--remote", default="origin")
-    parser.add_argument("--expect", help="canonical OWNER/REPO for this operation's configured target")
-    parser.add_argument("--configured-remote", help=".dev.json's pushRemote; mismatch with the effective push remote stops")
+    parser.add_argument("--target", help="explicit OWNER/REPO this pr/issue operation is about to use")
+    parser.add_argument(
+        "--allow-target-override",
+        action="store_true",
+        help="accept --target as an already-confirmed, explicitly assigned Issue's own qualified identity",
+    )
+    parser.add_argument("--assigned-branch", help="the ledger-assigned branch for a push operation")
+    parser.add_argument("--dest-ref", help="destination ref for the dry run; defaults to refs/heads/<assigned-branch>")
     parser.add_argument(
         "--fixture",
         type=Path,
-        help="read deterministic remote/default state instead of running commands",
+        help="pure decision-logic testing only: read deterministic remote/default state instead of loading .dev.json",
     )
+    parser.add_argument("--expect", help="(--fixture only) canonical OWNER/REPO override")
+    parser.add_argument("--configured-remote", help="(--fixture only) pushRemote override")
     parser.add_argument(
         "--print-push-remote",
         action="store_true",
@@ -739,53 +1032,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-verify-access",
         action="store_true",
-        help="skip the read-only gh accessibility check",
+        help="skip the read-only gh accessibility check (bootstrap before a remote is reachable)",
     )
     parser.add_argument("--url", help="HTTPS remote URL for --mode check-https-account")
     parser.add_argument("--host", help="SSH host/alias for --mode check-ssh-account")
-    parser.add_argument("--account", help="expected account for either check-*-account mode")
+    parser.add_argument("--account", help="expected account for a check-*-account mode")
     return parser.parse_args()
 
 
-def _run_resolve(args: argparse.Namespace) -> int:
-    try:
-        if args.fixture is not None:
-            fixture = load_fixture(args.fixture)
-            remotes = {str(k): _as_list(v) for k, v in fixture["remotes"].items()}
-            push_raw = fixture.get("push_remotes")
-            push_remotes = {str(k): _as_list(v) for k, v in push_raw.items()} if isinstance(push_raw, dict) else None
-            raw_default = fixture.get("gh_default")
-            gh_default = None if raw_default is None else str(raw_default)
-            access_verified = bool(fixture.get("access_verified", False))
-            raw_verified = fixture.get("verified_name")
-            verified_name = None if raw_verified is None else str(raw_verified)
-            remote_name = str(fixture.get("effective_push_remote", args.remote))
-            configured_remote = fixture.get("configured_remote", args.configured_remote)
-            configured_remote = None if configured_remote is None else str(configured_remote)
-        else:
-            repo_dir = args.repo_dir.resolve()
-            remotes, push_remotes = collect_remotes(repo_dir)
-            remote_name = get_effective_push_remote(repo_dir)
-            gh_default = collect_gh_default(repo_dir)
-            access_verified = not args.no_verify_access
-            verified_name = None
-            if access_verified:
-                try:
-                    canonical = _first_canonical(remotes, push_remotes, remote_name)
-                except RepositoryError:
-                    access_verified = False
-                else:
-                    if canonical is not None:
-                        verified_name = collect_verified_name(repo_dir, canonical)
-            configured_remote = args.configured_remote
+def _emit(decision: dict[str, object]) -> int:
+    ready = decision.get("status") == "ready"
+    print(json.dumps(decision, sort_keys=True, separators=(",", ":")))
+    return 0 if ready else 2
 
+
+def _run_resolve_fixture(args: argparse.Namespace) -> int:
+    """Pure decision-logic path: exercises `_decide_push_target` against a
+    hand-written fixture. Never loads `.dev.json` -- see the module
+    docstring for why this is not the production entrypoint."""
+    try:
+        fixture = load_fixture(args.fixture)
+        remotes = {str(k): _as_list(v) for k, v in fixture["remotes"].items()}
+        push_raw = fixture.get("push_remotes")
+        push_remotes = {str(k): _as_list(v) for k, v in push_raw.items()} if isinstance(push_raw, dict) else None
+        raw_default = fixture.get("gh_default")
+        gh_default = None if raw_default is None else str(raw_default)
+        access_verified = bool(fixture.get("access_verified", False))
+        raw_verified = fixture.get("verified_name")
+        verified_name = None if raw_verified is None else str(raw_verified)
+        remote_name = str(fixture.get("effective_push_remote", args.remote))
+        configured_remote = fixture.get("configured_remote", args.configured_remote)
+        configured_remote = None if configured_remote is None else str(configured_remote)
+        expect = fixture.get("expect", args.expect)
         decision = resolve_repository(
             remotes=remotes,
             push_remotes=push_remotes,
             gh_default=gh_default,
             verified_name=verified_name,
             access_verified=access_verified,
-            expected=args.expect,
+            expected=expect,
             remote_name=remote_name,
             configured_remote=configured_remote,
         )
@@ -795,45 +1080,151 @@ def _run_resolve(args: argparse.Namespace) -> int:
             "repository": None,
             "effective_push_remote": None,
             "remote": args.remote,
-            "remote_url": None,
-            "push_url": None,
-            "gh_default": None,
-            "conflicting_remotes": [],
-            "notes": [],
             "reason_code": exc.code,
             "reason": str(exc),
         }
+    if args.print_push_remote:
+        if decision.get("status") == "ready":
+            print(decision["effective_push_remote"])
+            return 0
+        print(decision["reason"], file=sys.stderr)
+        return 2
+    return _emit(decision)
 
-    ready = decision["status"] == "ready"
+
+def _load_required_config(args: argparse.Namespace) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Load and require a valid `.dev.json`. Returns (config, error-decision);
+    exactly one is None."""
+    if args.config is not None:
+        config_path = args.config.resolve()
+    else:
+        repo_dir = args.repo_dir.resolve()
+        git_root = dev_config.find_git_root(repo_dir)
+        config_path = (git_root or repo_dir) / dev_config.CONFIG_FILENAME
+    status = dev_config.resolve_status(config_path)
+    if status["status"] != "valid":
+        return None, {
+            "status": "incomplete",
+            "reason_code": status["reason_code"] or f"config_{status['status']}",
+            "reason": status["reason"] or f".dev.json status is {status['status']}",
+        }
+    return status["config"], None
+
+
+def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> int:
+    github = config["github"]
+    if not args.assigned_branch:
+        return _emit({
+            "status": "incomplete",
+            "reason_code": "missing_argument",
+            "reason": "--assigned-branch is required for --operation push",
+        })
+
+    repo_dir = args.repo_dir.resolve()
+    try:
+        remotes, push_remotes = collect_remotes(repo_dir)
+        remote_name = get_effective_push_remote(repo_dir)
+        gh_default = collect_gh_default(repo_dir)
+        access_verified = not args.no_verify_access
+        verified_name = None
+        if access_verified:
+            try:
+                canonical = _first_canonical(remotes, push_remotes, remote_name, repo_dir=repo_dir)
+            except RepositoryError:
+                access_verified = False
+            else:
+                if canonical is not None:
+                    verified_name = collect_verified_name(repo_dir, canonical)
+    except RepositoryError as exc:
+        return _emit({
+            "status": "incomplete",
+            "repository": None,
+            "effective_push_remote": None,
+            "reason_code": exc.code,
+            "reason": str(exc),
+        })
+
+    decision = resolve_repository(
+        remotes=remotes,
+        push_remotes=push_remotes,
+        gh_default=gh_default,
+        verified_name=verified_name,
+        access_verified=access_verified,
+        expected=github["pushRepository"],
+        remote_name=remote_name,
+        configured_remote=github["pushRemote"],
+        repo_dir=repo_dir,
+    )
+
+    if decision["status"] == "ready":
+        dry_run = verify_branch_and_dry_run(
+            repo_dir,
+            remote=str(decision["effective_push_remote"]),
+            assigned_branch=args.assigned_branch,
+            dest_ref=args.dest_ref,
+        )
+        if dry_run["status"] != "ready":
+            decision["status"] = "incomplete"
+            decision["reason_code"] = dry_run["reason_code"]
+            decision["reason"] = dry_run["reason"]
+            decision["effective_push_remote"] = None
+            decision["remote"] = None
+            decision["repository"] = None
+        else:
+            decision["dry_run"] = {"remote": dry_run["remote"], "refspec": dry_run["refspec"]}
 
     if args.print_push_remote:
-        if ready:
+        if decision.get("status") == "ready":
             print(decision["effective_push_remote"])
-        else:
-            print(decision["reason"], file=sys.stderr)
-        return 0 if ready else 2
+            return 0
+        print(decision["reason"], file=sys.stderr)
+        return 2
+    return _emit(decision)
 
-    print(json.dumps(decision, sort_keys=True, separators=(",", ":")))
-    return 0 if ready else 2
+
+def _run_resolve_operation(args: argparse.Namespace, config: dict[str, object]) -> int:
+    github = config["github"]
+    expected = github["pullRequestRepository"] if args.operation == "pr" else github["pushRepository"]
+    decision = _decide_operation_target(target=args.target, expected=expected, allow_override=args.allow_target_override)
+    if decision["status"] == "ready":
+        repo_dir = args.repo_dir.resolve()
+        login_check = verify_gh_cli_login(repo_dir, github["account"])
+        if login_check["status"] != "verified":
+            decision["status"] = "incomplete"
+            decision["reason_code"] = login_check["reason_code"]
+            decision["reason"] = login_check["reason"]
+    return _emit(decision)
+
+
+def _run_resolve(args: argparse.Namespace) -> int:
+    if args.fixture is not None:
+        return _run_resolve_fixture(args)
+
+    config, error = _load_required_config(args)
+    if error is not None:
+        return _emit(error)
+    assert config is not None
+
+    if args.operation == "push":
+        return _run_resolve_push(args, config)
+    return _run_resolve_operation(args, config)
 
 
 def _run_check_account(args: argparse.Namespace) -> int:
     if not args.account:
-        print(json.dumps({"status": "incomplete", "reason_code": "missing_argument", "reason": "--account is required"}))
-        return 2
+        return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--account is required"})
     repo_dir = args.repo_dir.resolve()
     if args.mode == "check-https-account":
         if not args.url:
-            print(json.dumps({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"}))
-            return 2
+            return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"})
         result = verify_https_account(repo_dir, args.url, args.account)
-    else:
+    elif args.mode == "check-ssh-account":
         if not args.host:
-            print(json.dumps({"status": "incomplete", "reason_code": "missing_argument", "reason": "--host is required"}))
-            return 2
+            return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--host is required"})
         result = verify_ssh_account(repo_dir, args.host, args.account)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["status"] == "verified" else 2
+    else:
+        result = verify_gh_cli_login(repo_dir, args.account)
+    return _emit(result)
 
 
 def main() -> int:
