@@ -80,6 +80,63 @@ REPORT_BACK_CAUSES = ("absent", "malformed", "truncated")
 # the cause is derived from the condition rather than written beside it.
 REPORT_BACK_TERMINATIONS = ("completed", "stalled", "page_cap", "time_bound")
 
+_COMPLETED, *_TRUNCATING = REPORT_BACK_TERMINATIONS
+_ABSENT, _MALFORMED, _TRUNCATED = REPORT_BACK_CAUSES
+
+# The derivation itself, as data: which terminating condition (with the section
+# check, when the read completed) yields which verdict and cause.
+#
+# This is the guarantee the whole field rests on. `report_back_cause` is safe
+# to keep beside `report_back_termination` only because it is read off a total
+# mapping rather than authored independently - so the mapping's CONTENT is
+# load-bearing, not just its presence. Asserting that the table contains the
+# right words in some order leaves a wrong row silently authoritative, and a
+# wrong row sends a lead to re-request the shape of a reply that was truncated:
+# the wrong remedy, chosen confidently, off a ledger that looks right.
+#
+# Built from the tuples above rather than retyped, so a renamed condition or
+# cause cannot leave this mapping describing the old vocabulary.
+REPORT_BACK_DERIVATION = (
+    (("null",), "not examined", "incomplete", _ABSENT),
+    ((_COMPLETED,), "all seven", "complete", "null"),
+    ((_COMPLETED,), "any missing", "incomplete", _MALFORMED),
+    (tuple(_TRUNCATING), "not judged", "incomplete", _TRUNCATED),
+)
+
+
+def _mapping_rows(text: str) -> list[tuple[tuple[str, ...], str, str, str]]:
+    """Parse the ledger's termination-to-cause table into comparable tuples.
+
+    Returns (terminations, sections, verdict, cause) per row, with backticked
+    tokens extracted so a reflow or added emphasis is not a policy change while
+    a changed value is.
+    """
+    rows: list[tuple[tuple[str, ...], str, str, str]] = []
+    for line in text.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 4:
+            continue
+        terminations = tuple(re.findall(r"`([^`]+)`", cells[0]))
+        verdict = re.findall(r"`([^`]+)`", cells[2])
+        cause = re.findall(r"`([^`]+)`", cells[3])
+        if not terminations or not verdict or not cause:
+            continue
+        # Skip the header row, which names the fields rather than values.
+        if terminations[0] == "report_back_termination":
+            continue
+        rows.append((terminations, cells[1], verdict[0], cause[0]))
+    return rows
+
+
+def _sentence_containing(text: str, needle: str) -> str | None:
+    """Return the sentence containing `needle`, for cross-document checks."""
+    for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*])", text):
+        if needle in sentence:
+            return sentence
+    return None
+
 
 def _markdown_section(text: str, heading: str) -> str | None:
     """Return the body under `heading` up to the next same-level heading."""
@@ -156,6 +213,23 @@ def _validator_module():
 class BackendContractTests(unittest.TestCase):
     def read(self, relative: str) -> str:
         return (SKILL / relative).read_text(encoding="utf-8")
+
+    def mapping_rows(self) -> list[tuple[tuple[str, ...], str, str, str]]:
+        """Parse the mapping table from the section that governs it.
+
+        Scoped rather than file-wide, for the reason four earlier assertions
+        in this module were not: a table parsed from the whole document would
+        happily bind to some other table added later, and the check would go on
+        passing while the section it exists to guard drifted.
+        """
+        section = _markdown_section(
+            self.read("templates/DEV_STATE_TEMPLATE.md"),
+            "## Report-back record schema",
+        )
+        self.assertIsNotNone(section, "template has no report-back record schema")
+        rows = _mapping_rows(section)
+        self.assertTrue(rows, "the report-back schema carries no mapping table")
+        return rows
 
     def test_contract_has_all_fail_closed_operations(self) -> None:
         contract = self.read("backends/contract.md")
@@ -365,17 +439,54 @@ class BackendContractTests(unittest.TestCase):
             "Record the terminating condition itself, and derive the cause from it.",
             contract,
         )
-        # The mapping is a table, and it is total: every condition appears in
-        # its left column, and the invalid pairings are named as invalid.
-        table = [line for line in state.splitlines() if line.startswith("| `")]
-        self.assertTrue(table, "template has no termination-to-cause mapping table")
-        joined = "\n".join(table)
-        for condition in REPORT_BACK_TERMINATIONS:
-            with self.subTest(condition=condition):
-                self.assertIn(f"`{condition}`", joined)
-        self.assertIn("`null`", joined)
         self.assertIn("The mapping is total", state)
         self.assertIn("any pairing not in this table is an invalid record", state)
+
+    def test_the_mapping_table_states_the_exact_pairings(self) -> None:
+        # Content, not shape. The previous version of this check collected the
+        # table's lines and asserted every value appeared somewhere in the
+        # joined block - which stays true when a row's cause is changed, so a
+        # table saying a stalled read is `malformed` passed the whole suite
+        # while contradicting `contract.md`. The pairing is the guarantee; a
+        # table asserted only for its vocabulary is not asserted at all.
+        self.assertEqual(
+            self.mapping_rows(),
+            list(REPORT_BACK_DERIVATION),
+            "the ledger's termination-to-cause mapping does not match the "
+            "derivation it is supposed to encode",
+        )
+
+    def test_the_ledger_mapping_and_the_contract_prose_cannot_drift(self) -> None:
+        # Two documents stating one rule is how they diverge, which is the
+        # defect fixed at the contract level in b2632ba reappearing in the
+        # artifact that resolves it. The contract's sentences are checked
+        # against the cause parsed out of the ledger table, not against a
+        # literal - so a wrong row fails here too, from the other side.
+        rows = self.mapping_rows()
+        by_terminations = {row[0]: row for row in rows}
+        truncating = by_terminations.get(tuple(_TRUNCATING))
+        completed_missing = next(
+            (r for r in rows if r[0] == (_COMPLETED,) and r[3] != "null"), None
+        )
+        self.assertIsNotNone(truncating, "no row for the truncating conditions")
+        self.assertIsNotNone(completed_missing, "no row for a completed read")
+
+        bullet = _bullet(
+            self.read("backends/contract.md"),
+            "**The cause is decided by which condition ended the read",
+        )
+        self.assertIsNotNone(bullet, "contract.md has no cause-decision bullet")
+        stall_sentence = _sentence_containing(bullet, "ended by a stall")
+        completed_sentence = _sentence_containing(bullet, "ended by the completion")
+        self.assertIsNotNone(stall_sentence, "contract states no stall outcome")
+        self.assertIsNotNone(completed_sentence, "contract states no completed outcome")
+
+        # The cause the ledger assigns each case must be the cause the contract
+        # names for it, and must not be the one it names for the other case.
+        self.assertIn(f"`{truncating[3]}`", stall_sentence)
+        self.assertNotIn(f"`{truncating[3]}`", completed_sentence)
+        self.assertIn(f"`{completed_missing[3]}`", completed_sentence)
+        self.assertNotIn(f"`{completed_missing[3]}`", stall_sentence)
 
     def test_absent_is_not_a_terminating_condition(self) -> None:
         # A lane with no correlated reply never ran a bounded read, so its
