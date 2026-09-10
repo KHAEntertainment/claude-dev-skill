@@ -82,6 +82,6 @@ Whether launched through Claude-native or Traycer execution:
 
 12. If self-check changed code, rerun the full relevant regression and static-check set.
 13. Create semantic, bisectable commits; keep every commit runnable.
-14. Push the assigned branch with `rtk git push ...` and use `rtk gh pr create`:
-    - body: include `Closes #N`, root cause, fix approach, AC completion status, test output, impact scope assessment
+14. Immediately before pushing, run this worktree's `.dev.json` pre-write verification (`${CLAUDE_SKILL_DIR}/phases/repository-context.md`) for the push and again for the PR target. Do not push or create the PR on anything other than an explicit `ready`/`verified` result; stop and report the reason if it is not. Push the assigned branch with `rtk git push <validated remote> ...` and use `rtk gh pr create --repo <github.pullRequestRepository from .dev.json>`:
+    - body: include `Closes #N` (or `Closes OWNER/REPO#N` when the Issue is not in the PR's own repository), root cause, fix approach, AC completion status, test output, impact scope assessment
 15. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown

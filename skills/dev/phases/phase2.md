@@ -57,9 +57,10 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
    1. Create and clone the repository with a server-generated initial commit: `rtk gh repo create [project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
    2. Enter the clone and verify readiness with `rtk git status --short`, `rtk git branch --show-current`, and `rtk git rev-parse HEAD`. Require `main`, a real commit, and a clean tree.
-   3. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
-   4. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`).
-   5. Create one Issue per development task using the template below, then create a milestone linking all Issues.
+   3. If Phase 0's setup produced a confirmed `.dev.json` at a pre-Git project root, move it into this clone now and re-run its pre-write verification (`${CLAUDE_SKILL_DIR}/phases/repository-context.md`) before any further write — the actual remote/repository/Git identity must now be confirmed, not just the earlier intent. If no confirmed config exists yet, run first-invocation setup here before continuing.
+   4. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
+   5. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`), scoped to `github.pushRepository` from `.dev.json` — plugin-created task Issues default to the push repository, not the PR destination.
+   6. Create one Issue per development task using the template below, scoped the same way, then create a milestone linking all Issues.
 
    Do not create coding worktrees until the bootstrap PR is merged and `origin/main` contains the project context.
 

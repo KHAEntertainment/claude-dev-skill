@@ -97,6 +97,16 @@ Recovery state: initialize `.agent/dev-state.md` from `${CLAUDE_SKILL_DIR}/templ
 
 **Execute this Phase first on every new request. Never skip.**
 
+### Repository & Account Setup (run before any GitHub mutation)
+
+Before the first GitHub write in this worktree — regardless of whether
+`PROJECT_CONTEXT.md` already exists — run first-invocation setup from
+`${CLAUDE_SKILL_DIR}/phases/repository-context.md`. Read-only discovery may
+precede setup; a GitHub push or mutation may not. That file is the single
+canonical procedure for `.dev.json` setup and pre-write verification; every
+later Phase and agent prompt in this document references it rather than
+redefining the check.
+
 Detect current directory:
 - Not a git repo → **New Project**
 - Git repo + `PROJECT_CONTEXT.md` exists → read context, report status (completed features, open Issues, unmerged PRs)
@@ -155,6 +165,8 @@ Worker Agent prompt files:
 
 **Resolve `${CLAUDE_SKILL_DIR}` to its absolute path and substitute it into every reference in the pasted content before dispatch.** Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so an unsubstituted reference reaches the worker as literal text it cannot expand. This is the shared pre-dispatch invariant recorded in `${CLAUDE_SKILL_DIR}/backends/contract.md` and applies to every delegated lane in every Phase — prototype, worker, QA, and reviewer alike. Record the resolved path as `skill_dir` in the ledger, and re-resolve it at the start of each run rather than trusting a stored value, because the path changes when the Skill is reinstalled or upgraded.
 
+Before launching a worker/QA/reviewer worktree, copy the confirmed `.dev.json` from the lead's worktree into it per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`'s "Worktrees" section. Do not overwrite a differing file already present; report the conflict instead. Every push or GitHub mutation that lane performs re-runs that file's pre-write verification immediately before the write, using the assignment's explicit target and branch — never a value carried over from an earlier check.
+
 All delegated lanes end with the shared report-back contract in `${CLAUDE_SKILL_DIR}/agents/report-back.md`.
 
 ---
@@ -199,6 +211,7 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 - **gh CLI path**: `export PATH="$PATH:/c/Program Files/GitHub CLI"`
 - **git operations**: always run in the correct worktree/directory and through `rtk git ...` or `rtk proxy git ...`
 - **GitHub operations**: always run through `rtk gh ...`; use summary fields for scans and deep-read only one Issue/PR at a time
+- **Repository/account target**: every push and every GitHub mutation runs `${CLAUDE_SKILL_DIR}/phases/repository-context.md`'s pre-write verification immediately before the write and uses its validated remote/target — never a bare `git push`, a `gh` command that relies on the CLI's own repository default, or a stale check from earlier in the session
 - **Unclear requirements**: go back to Phase 1 and ask; never assume
 - **main branch**: only modify via PR, never push directly
 - **PROJECT_CONTEXT.md**: update immediately when architecture decisions change; after repository initialization, commit tracked context changes through a docs-only or related PR; update the main index and `docs/feature-log.md` at the end of each round

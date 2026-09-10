@@ -4,7 +4,7 @@
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations.
+- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations, explicitly scoped with `--repo <github.pullRequestRepository from .dev.json>` (see `${CLAUDE_SKILL_DIR}/phases/repository-context.md`). Never rely on a cwd-derived default or an inherited `gh` repository default — an unscoped read can silently return evidence about the wrong PR.
 - Use compact fields for broad PR scans. Do not request PR bodies, comments, commits, files, or reviews unless reviewing exactly one PR.
 - Use `rtk git ...`, `rtk diff`, `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, or equivalent RTK wrappers for local checks.
 - If an exact wrapper is unavailable, use `rtk proxy <command> ...`.
@@ -153,7 +153,7 @@ below before rating the PR.
 Must give one explicit rating:
 
 - **APPROVE**: Pass 1 is clear, all blocking DELEGATE-FIX findings assigned to this PR are resolved, external review is `clear` or `not_applicable`, and only recorded non-blocking Pass 2 findings remain
-  → `rtk gh pr merge --squash`, close the corresponding Issue
+  → re-run `.dev.json` pre-write verification (`${CLAUDE_SKILL_DIR}/phases/repository-context.md`) against `github.pullRequestRepository` immediately before merging, then `rtk gh pr merge --repo <that repository> --squash`; close the corresponding Issue using its own qualified `(repository, number)` identity — `Closes OWNER/REPO#N` when it differs from the PR's repository — and verify the actual closure rather than assuming the merge did it
 
 - **REQUEST CHANGES**: any Pass 1 failure, confirmed Scope Drift, or unresolved ASK item
   → list each issue and expected fix in comments
