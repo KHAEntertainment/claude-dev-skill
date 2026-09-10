@@ -77,7 +77,7 @@ REPORT_BACK_CAUSES = ("absent", "malformed", "truncated")
 # The four bounded-read terminating conditions, under the names the contract,
 # both adapters, and the ledger all use. Held once for the same reason: the
 # adapters record one of these and the ledger has to store exactly these, and
-# the cause is derived from the condition rather than written beside it.
+# the cause uses termination, reply correlation, and section presence.
 REPORT_BACK_TERMINATIONS = ("completed", "stalled", "page_cap", "time_bound")
 
 _COMPLETED, *_TRUNCATING = REPORT_BACK_TERMINATIONS
@@ -456,17 +456,16 @@ class BackendContractTests(unittest.TestCase):
             with self.subTest(adapter=relative):
                 self.assertIn("`report_back_termination`", adapter)
 
-    def test_the_cause_is_derived_from_the_condition_not_written_beside_it(self) -> None:
-        # Two independently-authored fields describing one fact can disagree,
-        # and the ledger would have no way to say which is authoritative. Only
-        # the condition is written from evidence; the cause is read off a total
-        # mapping, so a contradictory pair is not merely discouraged but has no
-        # row to be recorded under.
+    def test_the_cause_is_derived_from_the_full_mapping(self) -> None:
+        # Completed reads have multiple outcomes; termination alone cannot
+        # select the row. Preserve the explicit inputs and total mapping.
         state = self.read("templates/DEV_STATE_TEMPLATE.md")
         contract = self.read("backends/contract.md")
-        self.assertIn("never authored beside it", state)
+        for document in (state, contract, self.read("backends/traycer.md"),
+                         self.read("backends/claude-native.md")):
+            self.assertIn("termination, reply correlation, and section presence", document)
         self.assertIn(
-            "Record the terminating condition itself, and derive the cause from it.",
+            "Record the terminating condition, and derive the verdict and cause from the full mapping.",
             contract,
         )
         self.assertIn("The mapping is total", state)
@@ -508,7 +507,7 @@ class BackendContractTests(unittest.TestCase):
 
         bullet = _bullet(
             self.read("backends/contract.md"),
-            "**The cause is decided by which condition ended the read",
+            "**Termination decides whether section inspection is permitted",
         )
         self.assertIsNotNone(bullet, "contract.md has no cause-decision bullet")
         stall_sentence = _sentence_containing(bullet, "ended by a stall")
@@ -1114,16 +1113,11 @@ class BackendContractTests(unittest.TestCase):
                     f"{relative}: `absent` must be classified before the paging branch",
                 )
 
-    def test_cause_is_decided_by_the_terminating_condition(self) -> None:
-        # Two independent lanes found the same ambiguity: from what the adapter
-        # surfaces, a lead could not always tell `truncated` from `malformed`,
-        # and the two carry different remedies. Deciding on the recorded
-        # terminating condition rather than on the reply's text removes the
-        # judgment entirely - including the case that looks most like a pass,
-        # a cut read that happens to contain all seven headings.
+    def test_termination_controls_whether_shape_can_be_judged(self) -> None:
+        # A cut read cannot pass from its visible headings. Completed reads
+        # still require the correlation and section checks in the full mapping.
         contract = self.read("backends/contract.md")
-        self.assertIn("decided by which condition ended the read", contract)
-        self.assertIn("never by inspecting the reply", contract)
+        self.assertIn("Termination decides whether section inspection is permitted", contract)
         self.assertIn("whatever sections it happens to contain", contract)
         # Both adapters have to record the condition, or the lead has nothing
         # to read it from.

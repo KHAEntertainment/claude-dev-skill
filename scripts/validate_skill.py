@@ -253,9 +253,9 @@ def main() -> int:
         # "Read until the transport declares completion" is unbounded, so the
         # `truncated` cause was unreachable in the exact state it exists for.
         "Paging must be bounded",
-        # And the bound is only useful if it decides the cause. Reading the
-        # reply to tell `truncated` from `malformed` puts the judgment back.
-        "decided by which condition ended the read",
+        # Termination decides whether section inspection is permitted;
+        # completed reads still need correlation and section evidence.
+        "Termination decides whether section inspection is permitted",
         # The cause taxonomy was right and ran too late: an empty read reached
         # the shape branch as `malformed`, or stalled as `truncated`, when what
         # happened was that nothing arrived. Precedence is part of the
@@ -274,10 +274,10 @@ def main() -> int:
         # checked" are the same absence - this contract's own failure mode.
         "A lane is never `complete` by never having been looked at.",
         # The cause is lossy on purpose - three conditions collapse to
-        # `truncated` - so the condition itself is kept for diagnosis. Derived,
-        # never authored beside the cause, or the two can contradict.
+        # `truncated` - so the condition itself is kept for diagnosis. The
+        # verdict and cause use the full mapping of observed inputs.
         "report_back_termination",
-        "derive the cause from it",
+        "derive the verdict and cause from the full mapping",
         # The ledger recorded `report_back_termination: null` for an absent
         # lane on the reasoning that no read had run - while `contract.md` said
         # nothing can be known to be absent without looking. Two documents, one
@@ -321,11 +321,11 @@ def main() -> int:
             "never substitute for the seven required sections",
             "at least one line containing a non-whitespace character",
             "Paging must be bounded",
-            "decided by which condition ended the read",
+            "Termination decides whether section inspection is permitted",
             "An empty read is never evidence of a reply's shape.",
             "no correlated reply after `completed` is `absent`",
             "A verified report is recorded too, not only a failed one.",
-            "Record the terminating condition itself, and derive the cause from it.",
+            "Record the terminating condition, and derive the verdict and cause from the full mapping.",
             "still ran a bounded read",
         ),
         # The ledger is the other half of Issue #3's "recorded in
@@ -336,7 +336,7 @@ def main() -> int:
             "A `report_back: incomplete` with a null cause is an invalid record.",
             "A lane is never `complete` by never having been looked at.",
             "report_back_termination",
-            "never authored beside it",
+            "termination, reply correlation, and section presence",
             "Every bounded read records how it ended",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to

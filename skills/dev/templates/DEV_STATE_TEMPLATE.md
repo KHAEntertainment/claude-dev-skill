@@ -62,7 +62,7 @@ Allowed `report_back_termination` values: `null` (no bounded read has been perfo
 
 Allowed `report_back_cause` values: `null` when `report_back` is `pending` or `complete`, and otherwise exactly one of `absent`, `malformed`, or `truncated`, as defined in that same section. **A `report_back: incomplete` with a null cause is an invalid record.** The verdict only says the lane is unverified; the cause is the sole field that selects the remedy, so a verdict without one records that something failed while discarding what to do about it.
 
-**`report_back_cause` is derived from `report_back_termination`, never authored beside it.** The lead records the termination condition it observed and reads the cause off this table; the two cannot disagree, because only one of them is written from evidence:
+**Derive `report_back` and `report_back_cause` from termination, reply correlation, and section presence.** The lead uses those observed inputs to select the row below; the verdict and cause must match that row:
 
 | Correlated reply | `report_back_termination` | Sections present | `report_back` | `report_back_cause` |
 |---|---|---|---|---|
