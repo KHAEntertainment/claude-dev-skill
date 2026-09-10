@@ -144,6 +144,22 @@ def _mapping_rows(text: str) -> list[tuple[str, tuple[str, ...], str, str, str]]
     return rows
 
 
+def _assigns(cause: str) -> str:
+    """Regex matching a sentence that ASSIGNS `cause`, not one mentioning it.
+
+    The distinction is the whole difference between a guard and a nuisance. A
+    sentence that assigns a cause makes a claim about when it applies and must
+    name what licenses it; one that refers to the cause — a remedy, a
+    cross-reference, a pointer at the contract — makes no such claim, and
+    failing on it is a guard crying wolf, which is how guards get disabled.
+
+    Deliberately narrower than "mentions the cause": phrasings that assign
+    without one of these constructions will escape. A narrow guard that is
+    trusted beats a broad one that is switched off.
+    """
+    return rf"(?:is|as|in|cause|record(?:s|ed)?|classified|file[ds]?)\s+`{cause}`"
+
+
 def _sentence_containing(text: str, needle: str) -> str | None:
     """Return the sentence containing `needle`, for cross-document checks."""
     for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*])", text):
@@ -585,10 +601,7 @@ class BackendContractTests(unittest.TestCase):
             sentence
             for chunk in re.split(r"\n- ", section)
             for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*\"])", chunk)
-            if re.search(
-                rf"(?:is|as|cause|record(?:s|ed)?|classified)\s+`{absent_cause}`",
-                sentence,
-            )
+            if re.search(_assigns(absent_cause), sentence)
         ]
         self.assertTrue(classifying, "no sentence assigns the absent cause")
         for sentence in classifying:
@@ -606,12 +619,82 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn(f"a `{_COMPLETED}` read carried no reply correlated", section)
         self.assertIn("For a reply that was observed", section)
 
+    def test_adapters_license_every_cause_they_assign(self) -> None:
+        """The same rule as the contract's, extended to both adapters.
+
+        Third pass at one class. The contract's section was swept and guarded;
+        the identical stale rationale was then found living in both adapters,
+        where nothing bound it. Each sweep fixed the sites someone listed and
+        the drift was wherever nobody looked — so this binds the adapters by
+        the same rule rather than by another list of sites.
+
+        Both directions:
+
+        - a sentence assigning `absent` must name `completed`;
+        - inside the classification bullet, a sentence naming `truncated` must
+          name a cut condition.
+
+        The second is scoped to that bullet on purpose. Elsewhere `truncated`
+        appears in definitional prose that licenses it by negating completion
+        rather than by naming a condition, and a blanket rule would fail on
+        correct writing.
+        """
+        rows = self.mapping_rows()
+        absent_cause = next(
+            r[4] for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)
+        )
+        cut_cause = next(
+            r[4] for r in rows if r[0] == "not observed" and r[1] == tuple(_TRUNCATING)
+        )
+        assigns = _assigns(absent_cause)
+
+        for relative, opener in (
+            ("backends/traycer.md", "**Classify `absent` before anything else."),
+            ("backends/claude-native.md", "**Classify `absent` before anything else."),
+        ):
+            adapter = self.read(relative)
+            bullet = _bullet(adapter, opener) or _line_starting(
+                adapter, f"   1. {opener}"
+            )
+            self.assertIsNotNone(bullet, f"{relative}: no absent-classification step")
+
+            sentences = re.split(r"(?<=\.)\s+(?=[A-Z`*\"])", bullet)
+            assigning = [s for s in sentences if re.search(assigns, s)]
+            self.assertTrue(assigning, f"{relative}: nothing assigns `{absent_cause}`")
+            for sentence in assigning:
+                with self.subTest(adapter=relative, sentence=sentence[:70]):
+                    self.assertIn(
+                        f"`{_COMPLETED}`",
+                        sentence,
+                        f"{relative} assigns `{absent_cause}` without naming "
+                        f"`{_COMPLETED}`",
+                    )
+
+            # Inverse direction. Every one of the three sites in this round
+            # named `truncated` while describing an empty read and named no
+            # condition that licenses it — which is what made each of them
+            # read as a misclassification to avoid rather than the rule.
+            for sentence in sentences:
+                if not re.search(_assigns(cut_cause), sentence):
+                    continue
+                with self.subTest(adapter=relative, sentence=sentence[:70]):
+                    self.assertTrue(
+                        any(f"`{c}`" in sentence for c in _TRUNCATING),
+                        f"{relative} names `{cut_cause}` in the classification "
+                        "step without naming a condition that licenses it: "
+                        f"{sentence[:120]}",
+                    )
+
     def test_absent_is_not_a_terminating_condition(self) -> None:
-        # A lane with no correlated reply never ran a bounded read, so its
-        # condition is null rather than a fifth value. Without this the
-        # `absent`-first precedence and the termination field contradict each
-        # other: one says classify before the read is characterised, the other
-        # would need a characterisation to record.
+        # `absent` is a cause, not a fifth terminating condition — but the read
+        # that established it still ran and its condition is recorded. `null`
+        # is reserved for a lane never read at all, which is `pending`.
+        #
+        # This comment previously said the opposite: that a lane with no
+        # correlated reply never ran a bounded read. It survived the revision
+        # that made it false, sitting directly above assertions checking for
+        # "still ran a bounded read" — the test body was right the whole time
+        # and the comment above it contradicted every line of it.
         contract = self.read("backends/contract.md")
         state = self.read("templates/DEV_STATE_TEMPLATE.md")
         self.assertIn("`absent` is not a fourth terminating condition", contract)
