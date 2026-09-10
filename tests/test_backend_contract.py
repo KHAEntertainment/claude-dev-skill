@@ -523,6 +523,89 @@ class BackendContractTests(unittest.TestCase):
         self.assertNotIn("no bounded read ran", state)
         self.assertIn("Absence is established by reading, not instead of reading", state)
 
+    def test_no_prose_claims_absence_without_a_completed_read(self) -> None:
+        """The drift guard's hole, found twice in one file.
+
+        The cross-document check binds the rows where the two documents agree,
+        and both times the drift went to prose no row covers — a bullet three
+        sections above the mapping still saying an empty read "was already
+        classified `absent` above and never reaches" the four conditions, which
+        contradicts the table on two counts at once.
+
+        So this binds the prose to the table instead of to a literal: any
+        sentence in the enforcement section that names `absent` as a
+        classification must also name the termination the mapping pairs it
+        with. A reintroduced sentence claiming absence without a completed read
+        has no way to satisfy that, whatever words it uses.
+        """
+        rows = self.mapping_rows()
+        absent_row = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)), None
+        )
+        cut_row = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == tuple(_TRUNCATING)),
+            None,
+        )
+        self.assertIsNotNone(absent_row, "no completed-read absent row")
+        self.assertIsNotNone(cut_row, "no cut-read row for an uncorrelated reply")
+        absent_cause, cut_cause = absent_row[4], cut_row[4]
+
+        section = _markdown_section(
+            self.read("backends/contract.md"), "## Report-back enforcement"
+        )
+        self.assertIsNotNone(section, "contract.md has no enforcement section")
+
+        # The paging bullet is where the stale sentence lived and where the
+        # split has to be stated, in the mapping's own terms.
+        paging = _bullet(section, "**Paging must be bounded")
+        self.assertIsNotNone(paging, "no bounded-paging bullet")
+        self.assertIn(
+            f"no correlated reply after `{_COMPLETED}` is `{absent_cause}`", paging
+        )
+        self.assertIn(f"is `{cut_cause}`", paging)
+        for condition in _TRUNCATING:
+            with self.subTest(condition=condition):
+                self.assertIn(f"`{condition}`", paging)
+
+        # And across the WHOLE enforcement section, no sentence that ASSIGNS
+        # the cause may do so without naming the condition that licenses it.
+        # Matched on the assignment construction — "cause `absent`", "is
+        # `absent`", "classified `absent`" — rather than on any mention, so
+        # prose that merely refers to the cause stays exempt: "`absent`
+        # questions whether the lane is alive" is a remedy, and "`absent`
+        # having already been ruled out" is a cross-reference. Neither assigns.
+        #
+        # Section-wide rather than bullet-scoped because the first pass of this
+        # guard covered only the paging bullet and two other bullets carrying
+        # the same stale assumption went through untouched.
+        # Split per bullet before splitting sentences: a "sentence" spanning a
+        # bullet boundary is a parsing artifact, and treating one as a claim
+        # fails the guard on prose that is correct.
+        classifying = [
+            sentence
+            for chunk in re.split(r"\n- ", section)
+            for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*\"])", chunk)
+            if re.search(
+                rf"(?:is|as|cause|record(?:s|ed)?|classified)\s+`{absent_cause}`",
+                sentence,
+            )
+        ]
+        self.assertTrue(classifying, "no sentence assigns the absent cause")
+        for sentence in classifying:
+            with self.subTest(sentence=sentence[:70]):
+                self.assertIn(
+                    f"`{_COMPLETED}`",
+                    sentence,
+                    f"classifies a read as `{absent_cause}` without naming "
+                    f"`{_COMPLETED}`, which is the only condition that licenses it",
+                )
+
+        # The two bullets the section sweep corrected, pinned directly: the
+        # cause gloss must carry the qualification, and the cause-decision
+        # bullet must say which replies it governs.
+        self.assertIn(f"a `{_COMPLETED}` read carried no reply correlated", section)
+        self.assertIn("For a reply that was observed", section)
+
     def test_absent_is_not_a_terminating_condition(self) -> None:
         # A lane with no correlated reply never ran a bounded read, so its
         # condition is null rather than a fifth value. Without this the
@@ -896,9 +979,12 @@ class BackendContractTests(unittest.TestCase):
         # `traycer.md` too: an empty inbox stalls like any non-advancing
         # cursor.
         contract = self.read("backends/contract.md")
+        # Half of this sentence used to read "or of its transport", which the
+        # termination field falsified: the condition ending an empty read is
+        # precisely transport evidence, and is the reason it is now recorded.
+        self.assertIn("An empty read is never evidence of a reply's shape.", contract)
         self.assertIn(
-            "An empty read is never evidence of a reply's shape or of its transport.",
-            contract,
+            "What an empty read *is* evidence of is its own transport", contract
         )
         self.assertIn("`absent` is classified first", contract)
         # Precedence is stated centrally rather than left to each adapter,

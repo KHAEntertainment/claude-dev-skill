@@ -260,7 +260,11 @@ def main() -> int:
         # the shape branch as `malformed`, or stalled as `truncated`, when what
         # happened was that nothing arrived. Precedence is part of the
         # taxonomy - two adapters deriving it independently is how they drift.
-        "An empty read is never evidence of a reply's shape or of its transport.",
+        "An empty read is never evidence of a reply's shape.",
+        # The other half of that sentence used to say "or of its transport",
+        # which the termination field falsified: the condition that ended an
+        # empty read is exactly transport evidence, and is why it is recorded.
+        "What an empty read *is* evidence of is its own transport",
         # Three adapters instructed recording a verdict and cause into a ledger
         # with no field for either, so every lead would have invented a shape.
         # The cause is the half that selects the remedy; a verdict without one
@@ -318,7 +322,8 @@ def main() -> int:
             "at least one line containing a non-whitespace character",
             "Paging must be bounded",
             "decided by which condition ended the read",
-            "An empty read is never evidence of a reply's shape or of its transport.",
+            "An empty read is never evidence of a reply's shape.",
+            "no correlated reply after `completed` is `absent`",
             "A verified report is recorded too, not only a failed one.",
             "Record the terminating condition itself, and derive the cause from it.",
             "still ran a bounded read",
