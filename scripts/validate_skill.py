@@ -269,6 +269,11 @@ def main() -> int:
         # And the clean lane records too, or "reported and verified" and "never
         # checked" are the same absence - this contract's own failure mode.
         "A lane is never `complete` by never having been looked at.",
+        # The cause is lossy on purpose - three conditions collapse to
+        # `truncated` - so the condition itself is kept for diagnosis. Derived,
+        # never authored beside the cause, or the two can contradict.
+        "report_back_termination",
+        "derive the cause from it",
     )
     for token in required_policy:
         if token not in combined:
@@ -308,6 +313,7 @@ def main() -> int:
             "decided by which condition ended the read",
             "An empty read is never evidence of a reply's shape or of its transport.",
             "A verified report is recorded too, not only a failed one.",
+            "Record the terminating condition itself, and derive the cause from it.",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
@@ -316,6 +322,8 @@ def main() -> int:
             "report_back_cause",
             "A `report_back: incomplete` with a null cause is an invalid record.",
             "A lane is never `complete` by never having been looked at.",
+            "report_back_termination",
+            "never authored beside it",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it

@@ -46,7 +46,7 @@ Allowed `backend_source` values: `null` (not yet resolved), `detected` (the dete
 
 ## Worker record schema
 
-Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `report_back`, `report_back_cause`, `created_at`, and `updated_at`.
+Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `report_back`, `report_back_termination`, `report_back_cause`, `created_at`, and `updated_at`.
 
 Allowed status values: `planned`, `worktree_ready`, `active`, `blocked`, `pr_created`, `qa`, `review`, `complete`, `stopped`.
 
@@ -56,7 +56,22 @@ Allowed status values: `planned`, `worktree_ready`, `active`, `blocked`, `pr_cre
 
 Allowed `report_back` values: `pending` (the lane has been dispatched and no report-back has been observed yet), `complete` (a reply correlated to `communication_response_id` carried all seven required sections), and `incomplete` (it did not).
 
-Allowed `report_back_cause` values: `null` when `report_back` is `pending` or `complete`, and otherwise exactly one of `absent`, `malformed`, or `truncated`, as defined in the report-back enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`. **A `report_back: incomplete` with a null cause is an invalid record.** The verdict only says the lane is unverified; the cause is the sole field that selects the remedy, so a verdict without one records that something failed while discarding what to do about it.
+Allowed `report_back_termination` values: `null` (no bounded read ran, because no correlated reply was observed), `completed` (the transport declared the reply complete), `stalled` (a page returned no new content, or a cursor that did not advance), `page_cap` (the adapter's page or re-read cap was reached), and `time_bound` (the adapter's time bound elapsed). These are the four conditions named in the report-back enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`, under one set of names for the contract, both adapters, and this ledger.
+
+Allowed `report_back_cause` values: `null` when `report_back` is `pending` or `complete`, and otherwise exactly one of `absent`, `malformed`, or `truncated`, as defined in that same section. **A `report_back: incomplete` with a null cause is an invalid record.** The verdict only says the lane is unverified; the cause is the sole field that selects the remedy, so a verdict without one records that something failed while discarding what to do about it.
+
+**`report_back_cause` is derived from `report_back_termination`, never authored beside it.** The lead records the termination condition it observed and reads the cause off this table; the two cannot disagree, because only one of them is written from evidence:
+
+| `report_back_termination` | Sections present | `report_back` | `report_back_cause` |
+|---|---|---|---|
+| `null` | not examined | `incomplete` | `absent` |
+| `completed` | all seven | `complete` | `null` |
+| `completed` | any missing | `incomplete` | `malformed` |
+| `stalled`, `page_cap`, `time_bound` | not judged | `incomplete` | `truncated` |
+
+The mapping is total, so every observation has exactly one row, and any pairing not in this table is an invalid record — `truncated` beside `completed`, `malformed` beside a stall, or any non-null cause beside `report_back: complete`. A `pending` lane has not been observed at all: both fields are `null`.
+
+The termination condition is kept because the cause is lossy on purpose. `truncated` covers three conditions that share one remedy — re-read — so the cause is sufficient to decide what to do next and insufficient to see a pattern across lanes. A transport that stalls on every lane and one that rarely hits the time bound are the same `truncated` in the cause and distinguishable only here.
 
 `pending` is not a cosmetic default. Without it, a lane that reported cleanly and a lane nobody ever observed occupy the same absence in the ledger — which is the failure this field exists to make visible, one level up. A lane is never `complete` by never having been looked at.
 

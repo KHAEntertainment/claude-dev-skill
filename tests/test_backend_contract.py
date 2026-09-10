@@ -74,6 +74,12 @@ REPORT_BACK_SECTIONS = (
 # would let the adapters record a cause the ledger cannot hold.
 REPORT_BACK_CAUSES = ("absent", "malformed", "truncated")
 
+# The four bounded-read terminating conditions, under the names the contract,
+# both adapters, and the ledger all use. Held once for the same reason: the
+# adapters record one of these and the ledger has to store exactly these, and
+# the cause is derived from the condition rather than written beside it.
+REPORT_BACK_TERMINATIONS = ("completed", "stalled", "page_cap", "time_bound")
+
 
 def _markdown_section(text: str, heading: str) -> str | None:
     """Return the body under `heading` up to the next same-level heading."""
@@ -292,6 +298,7 @@ class BackendContractTests(unittest.TestCase):
         self.assertIsNotNone(workers, "template has no worker record schema")
         self.assertIn("`report_back`", workers)
         self.assertIn("`report_back_cause`", workers)
+        self.assertIn("`report_back_termination`", workers)
         # The ledger stores exactly the causes the contract defines. Asserted
         # from one list so the two cannot drift into a cause the ledger cannot
         # hold, or a field the adapters never produce.
@@ -305,6 +312,84 @@ class BackendContractTests(unittest.TestCase):
             with self.subTest(cause=cause):
                 self.assertIn(f"`{cause}`", allowed)
                 self.assertIn(f"`{cause}`", contract)
+
+    def test_every_document_names_the_same_four_terminating_conditions(self) -> None:
+        # External review, Medium: the ledger stored the cause but not the
+        # condition it came from, and `truncated` collapses three conditions
+        # into one value. The omission was deliberate and argued on remedy -
+        # all three share one - and overturned on diagnosis, which the cause
+        # cannot serve. One list, so contract, adapters and ledger cannot drift
+        # into names that no longer match.
+        # Scoped to the construct in each document that has to define the
+        # names. File-wide, every name also appears in the prose explaining why
+        # the cause is lossy, so a renamed condition in the definition would
+        # still be "found" in the explanation of it.
+        contract = self.read("backends/contract.md")
+        traycer = self.read("backends/traycer.md")
+        native = self.read("backends/claude-native.md")
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        scopes = {
+            "contract.md paging bullet": _bullet(contract, "**Paging must be bounded"),
+            "traycer.md bound bullet": _bullet(traycer, "**Bound that read."),
+            "claude-native.md bound step": _line_starting(
+                native, "   2. **Bound the read**"
+            ),
+            "template allowed values": _line_starting(
+                state, "Allowed `report_back_termination` values:"
+            ),
+        }
+        for name, scope in scopes.items():
+            self.assertIsNotNone(scope, f"{name}: not found")
+            for condition in REPORT_BACK_TERMINATIONS:
+                with self.subTest(scope=name, condition=condition):
+                    self.assertIn(f"`{condition}`", scope)
+        # Each adapter must name the ledger field it writes, or the condition
+        # is observed and then has nowhere to go - the defect one level up.
+        for relative, adapter in (
+            ("backends/traycer.md", traycer),
+            ("backends/claude-native.md", native),
+        ):
+            with self.subTest(adapter=relative):
+                self.assertIn("`report_back_termination`", adapter)
+
+    def test_the_cause_is_derived_from_the_condition_not_written_beside_it(self) -> None:
+        # Two independently-authored fields describing one fact can disagree,
+        # and the ledger would have no way to say which is authoritative. Only
+        # the condition is written from evidence; the cause is read off a total
+        # mapping, so a contradictory pair is not merely discouraged but has no
+        # row to be recorded under.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        contract = self.read("backends/contract.md")
+        self.assertIn("never authored beside it", state)
+        self.assertIn(
+            "Record the terminating condition itself, and derive the cause from it.",
+            contract,
+        )
+        # The mapping is a table, and it is total: every condition appears in
+        # its left column, and the invalid pairings are named as invalid.
+        table = [line for line in state.splitlines() if line.startswith("| `")]
+        self.assertTrue(table, "template has no termination-to-cause mapping table")
+        joined = "\n".join(table)
+        for condition in REPORT_BACK_TERMINATIONS:
+            with self.subTest(condition=condition):
+                self.assertIn(f"`{condition}`", joined)
+        self.assertIn("`null`", joined)
+        self.assertIn("The mapping is total", state)
+        self.assertIn("any pairing not in this table is an invalid record", state)
+
+    def test_absent_is_not_a_terminating_condition(self) -> None:
+        # A lane with no correlated reply never ran a bounded read, so its
+        # condition is null rather than a fifth value. Without this the
+        # `absent`-first precedence and the termination field contradict each
+        # other: one says classify before the read is characterised, the other
+        # would need a characterisation to record.
+        self.assertIn(
+            "`absent` is not a fourth terminating condition",
+            self.read("backends/contract.md"),
+        )
+        self.assertIn(
+            "no bounded read ran", self.read("templates/DEV_STATE_TEMPLATE.md")
+        )
 
     def test_an_incomplete_verdict_cannot_discard_its_cause(self) -> None:
         # The verdict says the lane is unverified; the cause is the only field
