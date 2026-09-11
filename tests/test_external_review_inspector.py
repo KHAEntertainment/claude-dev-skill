@@ -37,6 +37,24 @@ def inspect_fixture(name: str, *, dispositions: dict[str, str] | None = None, re
     return MODULE.inspect(current, threads, recent, review_policy or policy(), dispositions or {})
 
 
+def comments_selection_block(query: str) -> str:
+    """Extract the `comments(first:100){...}` selection set from the
+    `fetch_threads` GraphQL query, brace-matching so nested selections
+    (`author{login}`, `commit{oid}`, ...) do not truncate it early.
+    """
+    marker = "comments(first:100){"
+    start = query.index(marker) + len(marker) - 1
+    depth = 0
+    for index in range(start, len(query)):
+        if query[index] == "{":
+            depth += 1
+        elif query[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return query[start : index + 1]
+    raise AssertionError("unbalanced braces in comments selection")
+
+
 class ExternalReviewInspectorTests(unittest.TestCase):
     def test_submitted_head_thread_comment_completes(self):
         current, _, recent = MODULE.load_fixture(FIXTURES / "green-check-no-review.json")
@@ -599,6 +617,127 @@ class VerdictRegressionTests(unittest.TestCase):
         current["statusCheckRollup"] = []
         current["reviews"] = [{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","commit":{"oid":"old-head"}}]
         self.assertEqual(MODULE.inspect(current, threads, recent, policy(), {})["state"], "pending")
+
+
+class LiveFetchThreadsTests(unittest.TestCase):
+    """fetch_threads() is the one path a fully green suite never touched
+    (Issue #25): every test above reaches inspect() through load_fixture()
+    and never calls fetch_threads at all, so replacing it with `return []`
+    left every test green. These exercise it directly against a stubbed
+    run_json -- no network access -- so the #23 guards (nested pagination,
+    the comment `state` field) cannot be silently removed again unnoticed.
+    """
+
+    def query_from(self, command):
+        for index, token in enumerate(command):
+            if token == "-f" and index + 1 < len(command) and command[index + 1].startswith("query="):
+                return command[index + 1][len("query="):]
+        raise AssertionError(f"no query= argument found in {command}")
+
+    def test_fetch_threads_paginates_across_outer_thread_pages(self):
+        # Two outer pages of review threads. Replacing fetch_threads with
+        # `return []`, or dropping the outer pageInfo.hasNextPage loop,
+        # would return zero or one thread instead of two.
+        page_one = {
+            "data": {"repository": {"pullRequest": {"reviewThreads": {
+                "nodes": [{"id": "thread-1", "comments": {"nodes": [], "pageInfo": {"hasNextPage": False}}}],
+                "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+            }}}}
+        }
+        page_two = {
+            "data": {"repository": {"pullRequest": {"reviewThreads": {
+                "nodes": [{"id": "thread-2", "comments": {"nodes": [], "pageInfo": {"hasNextPage": False}}}],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }}}}
+        }
+        responses = [page_one, page_two]
+        calls = []
+
+        def fake_run_json(command, **kwargs):
+            calls.append(command)
+            return responses.pop(0)
+
+        with mock.patch.object(MODULE, "run_json", side_effect=fake_run_json):
+            threads = MODULE.fetch_threads("owner/repo", 7)
+
+        self.assertEqual([thread["id"] for thread in threads], ["thread-1", "thread-2"])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("cursor=cursor-1", calls[1])
+
+    def test_fetch_threads_query_selects_state_and_nested_page_guard_fields(self):
+        response = {
+            "data": {"repository": {"pullRequest": {"reviewThreads": {
+                "nodes": [],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }}}}
+        }
+        captured = {}
+
+        def fake_run_json(command, **kwargs):
+            captured["command"] = command
+            return response
+
+        with mock.patch.object(MODULE, "run_json", side_effect=fake_run_json):
+            MODULE.fetch_threads("owner/repo", 7)
+
+        query = self.query_from(captured["command"])
+        block = comments_selection_block(query)
+        tokens = block.split()
+        self.assertIn("state", tokens, block)
+        self.assertIn("pageInfo{hasNextPage}", tokens, block)
+
+    def test_fetch_threads_raises_when_nested_comment_page_is_full(self):
+        response = {
+            "data": {"repository": {"pullRequest": {"reviewThreads": {
+                "nodes": [{
+                    "id": "thread-full",
+                    "comments": {
+                        "nodes": [{"id": f"c{i}"} for i in range(100)],
+                        "pageInfo": {"hasNextPage": True},
+                    },
+                }],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }}}}
+        }
+        with mock.patch.object(MODULE, "run_json", return_value=response):
+            with self.assertRaisesRegex(MODULE.InspectionError, "exceed the fetched page"):
+                MODULE.fetch_threads("owner/repo", 7)
+
+    def test_fetch_threads_comment_state_reaches_submitted_state_gate(self):
+        def comment(state):
+            return {
+                "id": "c1", "body": "finding", "url": "https://example/pr/7#c1",
+                "state": state, "author": {"login": "coderabbitai"},
+                "commit": {"oid": "head-sha"},
+            }
+
+        def response_for(state):
+            return {
+                "data": {"repository": {"pullRequest": {"reviewThreads": {
+                    "nodes": [{
+                        "id": "thread-1", "isResolved": False, "isOutdated": False,
+                        "comments": {"nodes": [comment(state)], "pageInfo": {"hasNextPage": False}},
+                    }],
+                    "pageInfo": {"hasNextPage": False, "endCursor": ""},
+                }}}}
+            }
+
+        current = {
+            "number": 7, "headRefOid": "head-sha", "reviews": [], "comments": [],
+            "reviewRequests": [], "statusCheckRollup": [],
+        }
+
+        with mock.patch.object(MODULE, "run_json", return_value=response_for("SUBMITTED")):
+            submitted_threads = MODULE.fetch_threads("owner/repo", 7)
+        submitted_result = MODULE.inspect(current, submitted_threads, [], policy(), {"thread-1": "advisory"})
+        self.assertEqual(submitted_result["completed_on_head"], ["coderabbit"])
+        self.assertEqual(submitted_result["state"], "clear")
+
+        with mock.patch.object(MODULE, "run_json", return_value=response_for("PENDING")):
+            pending_threads = MODULE.fetch_threads("owner/repo", 7)
+        pending_result = MODULE.inspect(current, pending_threads, [], policy(), {"thread-1": "advisory"})
+        self.assertEqual(pending_result["completed_on_head"], [])
+        self.assertEqual(pending_result["state"], "pending")
 
 
 if __name__ == "__main__":
