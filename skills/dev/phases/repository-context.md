@@ -93,7 +93,7 @@ file existence never makes a push ready. If the user has not chosen a name or
 usable account yet, leave setup incomplete rather than inventing one; finish
 it before the first GitHub write. Phase 2's bootstrap step is responsible for
 the actual repository creation; before that write, check the CLI account
-(`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-gh-account --account <github.account>`)
+(`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-project-root>" --mode check-gh-account --account <github.account>`)
 and create using the full confirmed `github.pushRepository` (which may belong to an organization), never a bare
 project name. After creation/clone, re-run this procedure to verify the
 actual remote, repository, and Git identity before any push. If bootstrap
@@ -188,9 +188,9 @@ sequence unscoped.
 
 | Transport | Supported verification |
 | --- | --- |
-| Ordinary HTTPS with an existing credential helper | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
-| Standard OpenSSH, including host aliases | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-ssh-account --url <exact push URL> --account <github.account>` — resolves the alias via `ssh -G` with the URL-explicit user and port applied, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
-| GitHub CLI / API mutation | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-gh-account --account <github.account>` — `gh api --hostname github.com user`, never `gh auth status` alone |
+| Ordinary HTTPS with an existing credential helper | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<worktree>" --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
+| Standard OpenSSH, including host aliases | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<worktree>" --mode check-ssh-account --url <exact push URL> --account <github.account>` — resolves the alias via `ssh -G` with the URL-explicit user and port applied, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
+| GitHub CLI / API mutation | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<worktree>" --mode check-gh-account --account <github.account>` — `gh api --hostname github.com user`, never `gh auth status` alone |
 
 Ordinary account modes load the validated config and verify its account;
 an optional `--account` must agree with it. `verified` is the only account

@@ -2,6 +2,7 @@
 import contextlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -116,3 +117,16 @@ class ConfigWorktreeBindingTests(unittest.TestCase):
                           side_effect=MODULE.dev_config.ConfigError("git_provenance_unavailable", "unavailable")):
             code, result = self.run_cli("--config", str(self.root / ".dev.json"), "--mode", "check-gh-account")
         self.assertEqual((2, "git_provenance_unavailable"), (code, result["reason_code"]))
+
+class ResolverPromptBindingTests(unittest.TestCase):
+    def test_every_documented_resolver_command_selects_its_worktree(self):
+        skills = Path(__file__).resolve().parents[1] / "skills"
+        commands = 0
+        for path in skills.rglob("*.md"):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                # Match executable examples, not prose naming the script.
+                for call in re.finditer(r'python3\s+"[^"\n]*resolve_repository\.py"([^`\n]*)', line):
+                    commands += 1
+                    with self.subTest(path=str(path.relative_to(skills)), line=number):
+                        self.assertRegex(call.group(1), r'--repo-dir\s+(?:"[^"\n]+"|[^\s`]+)')
+        self.assertGreater(commands, 0, "resolver command scan must exercise examples")

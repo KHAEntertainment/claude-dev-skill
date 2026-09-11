@@ -21,7 +21,7 @@ If Mode is `off`, record that external review was disabled by repository policy 
 
 ## Start Observation in Phase 3.5
 
-After resolving the PR's operation target (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`) and its branch, resolve its exact head commit:
+After resolving the PR's operation target (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`) and its branch, resolve its exact head commit:
 
 ```bash
 rtk gh pr view [N] --repo github.com/<confirmed pullRequestRepository> --json headRefName,headRefOid --jq '{branch: .headRefName, head: .headRefOid}'
