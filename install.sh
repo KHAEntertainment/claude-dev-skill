@@ -7,13 +7,32 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SOURCE_DIR="$SCRIPT_DIR/skills/dev"
 VALIDATOR="$SCRIPT_DIR/scripts/validate_skill.py"
 
-# When SCRIPT_DIR is a git checkout, stage from committed content instead of
-# the working tree so untracked/ignored files and uncommitted edits never
-# ship. A release tarball (or the Homebrew libexec copy, ADR-007) has no
-# .git, so it falls back to the working-tree copy unchanged.
+# When SCRIPT_DIR is itself the root of a git checkout that tracks
+# skills/dev, stage from committed content instead of the working tree so
+# untracked/ignored files and uncommitted edits never ship. A release
+# tarball (or the Homebrew libexec copy, ADR-007) has no .git, so it falls
+# back to the working-tree copy unchanged. Requiring SCRIPT_DIR to *be* the
+# repo root (not merely inside one) matters: a plain `rev-parse --git-dir`
+# search walks up to any ancestor .git, so a bare copy of this distribution
+# dropped underneath an unrelated checkout would otherwise be misclassified
+# as that ancestor repo, and `git archive HEAD -- skills/dev` would then
+# either fail on an unmatched pathspec or, worse, archive that ancestor
+# repo's unrelated tree. `--show-prefix` answers "is cwd the repo root"
+# directly (empty output means yes), avoiding a path-string comparison that
+# could otherwise be thrown off by symlink resolution.
 IS_GIT_CHECKOUT=0
-if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  IS_GIT_CHECKOUT=1
+if command -v git >/dev/null 2>&1; then
+  # The `if VAR=$(cmd)` form (rather than capturing output unconditionally)
+  # is what lets an empty result be told apart from a failed lookup: git
+  # exits non-zero with no output at all when SCRIPT_DIR isn't inside any
+  # git repository, so a bare `-z "$GIT_PREFIX"` check alone would wrongly
+  # treat that failure the same as "cwd is the repo root."
+  if GIT_PREFIX="$(git -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)"; then
+    if [[ -z "$GIT_PREFIX" ]] \
+      && [[ -n "$(git -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]]; then
+      IS_GIT_CHECKOUT=1
+    fi
+  fi
 fi
 INSTALL_COMMIT=""
 
@@ -93,6 +112,10 @@ fi
 
 command -v python3 >/dev/null || { printf 'ERROR: python3 is required for preflight validation.\n' >&2; exit 1; }
 command -v rtk >/dev/null || { printf 'ERROR: RTK is required by this customized /dev workflow.\n' >&2; exit 1; }
+if ((IS_GIT_CHECKOUT)) && ! command -v tar >/dev/null 2>&1; then
+  printf 'ERROR: this is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead.\n' >&2
+  exit 1
+fi
 python3 "$VALIDATOR" --skill-dir "$SOURCE_DIR"
 
 LEGACY_FILE="$CONFIG_DIR/commands/dev.md"
