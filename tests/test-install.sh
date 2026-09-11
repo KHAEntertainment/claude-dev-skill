@@ -138,6 +138,25 @@ if ! grep -q 'Installed from: no git metadata (tarball install)' <<<"$nogit_outp
 fi
 pass "no-.git source installs via the copy path with tarball provenance"
 
+# A source with no .git of its own, sitting underneath an unrelated git
+# checkout, must not be misclassified as that ancestor's repo: it has to
+# install via the copy path too, not attempt (and fail) a git archive of
+# the ancestor's unrelated tree (Issue #44 follow-up).
+nested_parent="$TEST_ROOT/nested-parent"
+mkdir -p "$nested_parent"
+git init --quiet -- "$nested_parent"
+git -C "$nested_parent" commit --quiet --allow-empty -m "unrelated ancestor root commit"
+mkdir -p "$nested_parent/nested"
+cp -R -- "$REPO_DIR/." "$nested_parent/nested/repo"
+rm -rf -- "$nested_parent/nested/repo/.git"
+nested_target="$TEST_ROOT/nested target"
+nested_output="$(bash "$nested_parent/nested/repo/install.sh" --config-dir "$nested_target" --lang en)"
+expect_file "$nested_target/skills/dev/SKILL.md"
+if ! grep -q 'Installed from: no git metadata (tarball install)' <<<"$nested_output"; then
+  fail "nested no-own-.git install did not report tarball provenance"
+fi
+pass "nested source with no own .git installs via the copy path"
+
 # Clean checkout: the installed tree matches a plain git archive of HEAD,
 # and the install reports the staged commit (Issue #44).
 clean_target="$TEST_ROOT/clean target"

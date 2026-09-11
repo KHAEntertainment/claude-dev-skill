@@ -107,6 +107,59 @@ try {
     }
     Pass "no-.git source installs via the copy path with tarball provenance"
 
+    # A source with no .git of its own, sitting underneath an unrelated git
+    # checkout, must not be misclassified as that ancestor's repo: it has to
+    # install via the copy path too, not attempt (and fail) a git archive of
+    # the ancestor's unrelated tree (Issue #44 follow-up).
+    $nestedParent = Join-Path $testRoot "nested-parent"
+    New-Item -ItemType Directory -Force -Path (Join-Path $nestedParent "nested") | Out-Null
+    & git init --quiet -- $nestedParent
+    & git -C $nestedParent commit --quiet --allow-empty -m "unrelated ancestor root commit"
+    $nestedRepo = Join-Path $nestedParent "nested\repo"
+    Copy-Item $repo $nestedRepo -Recurse -Force
+    Remove-Item (Join-Path $nestedRepo ".git") -Recurse -Force -ErrorAction SilentlyContinue
+    $nestedTarget = Join-Path $testRoot "nested target"
+    $nestedOutput = & (Join-Path $nestedRepo "install.ps1") -ConfigDir $nestedTarget -Lang en 6>&1
+    Assert-Path (Join-Path $nestedTarget "skills\dev\SKILL.md")
+    if (-not ($nestedOutput -match "Installed from: no git metadata \(tarball install\)")) {
+        throw "Nested no-own-.git install did not report tarball provenance"
+    }
+    Pass "nested source with no own .git installs via the copy path"
+
+    # A genuine git checkout with tar unavailable must abort with an
+    # actionable error and install nothing, rather than silently falling
+    # back to the working-tree copy while still claiming git provenance
+    # (Issue #44 follow-up). Only git/python3/rtk are carried into the
+    # scratch PATH; tar is deliberately left out.
+    $fakeBin = Join-Path $testRoot "fakebin-no-tar"
+    New-Item -ItemType Directory -Force -Path $fakeBin | Out-Null
+    foreach ($toolName in @("git", "python3", "python", "rtk")) {
+        $toolCmd = Get-Command $toolName -ErrorAction SilentlyContinue
+        if ($toolCmd -and $toolCmd.Source -and (Test-Path $toolCmd.Source -PathType Leaf)) {
+            $destPath = Join-Path $fakeBin (Split-Path $toolCmd.Source -Leaf)
+            if (-not (Test-Path $destPath)) {
+                Copy-Item -LiteralPath $toolCmd.Source -Destination $destPath
+                if (-not $IsWindows) { & chmod +x $destPath }
+            }
+        }
+    }
+    $noTarTarget = Join-Path $testRoot "no-tar target"
+    $originalPath = $env:PATH
+    $noTarThrew = $false
+    try {
+        $env:PATH = $fakeBin
+        & $installer -ConfigDir $noTarTarget -Lang en 2>$null | Out-Null
+    }
+    catch {
+        $noTarThrew = $true
+    }
+    finally {
+        $env:PATH = $originalPath
+    }
+    if (-not $noTarThrew) { throw "Install unexpectedly succeeded with tar unavailable in a git checkout" }
+    Assert-Absent $noTarTarget
+    Pass "git checkout with tar unavailable aborts and installs nothing"
+
     # Clean checkout: the install reports the staged commit (Issue #44).
     $cleanTarget = Join-Path $testRoot "clean target"
     $cleanOutput = & $installer -ConfigDir $cleanTarget -Lang en 6>&1
