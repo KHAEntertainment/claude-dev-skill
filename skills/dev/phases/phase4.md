@@ -56,10 +56,14 @@ If the dependency scans find High or Critical vulnerabilities, also send back an
 
 ## Two-Pass Review
 
-Classify each finding as:
+First classify whether a finding blocks delivery using the two passes below.
+Only then choose how to handle blocking work:
 
-- **DELEGATE-FIX**: the fix is clear, but must be performed by a Worker Agent in its assigned worktree.
-- **ASK**: intent, interface semantics, permissions, or tradeoffs are unclear; batch these questions for the user or worker.
+- **DELEGATE-FIX**: a blocking finding has a clear fix, performed by a Worker Agent in its assigned worktree.
+- **ASK**: resolving a potentially blocking finding requires clarification of intent, interface semantics, permissions, or tradeoffs; batch these questions.
+
+An easy fix is not necessarily blocking. Record advisory findings with a rationale
+and follow-up location in the existing debt records or issue tracker.
 
 ### Pass 1 — Critical (any unresolved failure blocks merge)
 
@@ -102,6 +106,12 @@ Classify each finding as:
 
 Use `rtk gh pr review` for concrete findings. Batch ASK items rather than interrupting one at a time.
 
+Before dispatching a fix batch, consolidate findings already available from QA,
+internal review, and external review. Dispatch confirmed blockers together.
+Do not wait indefinitely for another review source to join the batch or delay
+urgent security/data-loss containment. Once the batch is ready, avoid extra
+commits solely for advisory cleanup. New material evidence can still require a fix.
+
 ## Coverage-Path Audit
 
 Trace each changed entry point and show which paths have executed tests versus static evidence:
@@ -132,7 +142,9 @@ Launch and observe it through the selected adapter. If its identity, route, resp
 
 Before assigning a rating, rerun the external-review inspector, triage every active current-head trusted-reviewer finding, and verify that the PR's current `headRefOid` still matches `.agent/dev-state.md`.
 
-If the head changed, invalidate QA, internal review, and external-review completion, update the ledger, and rerun Phase 3.5 and Phase 4 against the new commit.
+If the head changed, invalidate QA, internal review, and external-review completion
+for the new head, retain historical evidence, and follow **Review after fixes**
+below before rating the PR.
 
 - `blocking` external review → REQUEST CHANGES.
 - `pending` or `incomplete` external review → do not merge; follow the explicit waiting/approval choices in the external-review gate.
@@ -140,17 +152,45 @@ If the head changed, invalidate QA, internal review, and external-review complet
 
 Must give one explicit rating:
 
-- **APPROVE**: Pass 1 is clear, all DELEGATE-FIX findings are resolved, external review is `clear` or `not_applicable`, and only non-blocking Pass 2 findings remain
+- **APPROVE**: Pass 1 is clear, all blocking DELEGATE-FIX findings assigned to this PR are resolved, external review is `clear` or `not_applicable`, and only recorded non-blocking Pass 2 findings remain
   → `rtk gh pr merge --squash`, close the corresponding Issue
 
 - **REQUEST CHANGES**: any Pass 1 failure, confirmed Scope Drift, or unresolved ASK item
   → list each issue and expected fix in comments
   → re-dispatch Worker Agent to make changes
-  → **after fixes, must re-run Phase 3.5 (QA) + Phase 4 (Review) — never skip**
+  → **after fixes, run Phase 3.5 (QA) + Phase 4 (Review) using Review after fixes below**
 
 - **COMMENT**: questions that don't block the merge (decide after user confirmation)
 
 ---
+
+## Review after fixes
+
+Every push invalidates approval for the previous head, not the historical record.
+Both QA and internal review must issue fresh results for the new head:
+
+1. Pin the current `headRefOid` and each lane's last reviewed base. Read the full
+   diff between them, including intervening commits, and reconcile every known
+   finding. A push alone does not resolve or supersede a finding. If there is no
+   usable prior review/base, perform the full review.
+2. For a bounded correction within the agreed scope, focus internal QA and review
+   on changed behavior, affected callers/invariants, and regression evidence.
+   Reopen the full review if scope, interfaces, architecture, a safety boundary,
+   or material dependencies changed, or if the affected scope is uncertain.
+3. Run the full required Verification Gate at the final head under the existing
+   role requirements. Keep QA and reviewer identities distinct from implementation
+   and each other, with a clean checkout and an unchanged head during each turn.
+4. Each lane's fresh report names its reviewed base, target head, review scope,
+   executed checks and remaining findings. Prior reports may inform analysis but
+   cannot stand in for current test results or approval.
+5. Re-run the external-review inspector and verify the head immediately before the
+   final rating. Internal delta review does not satisfy external review.
+   Current-head evidence and explicit bypass rules in
+   `${CLAUDE_SKILL_DIR}/phases/external-review.md` still apply.
+
+Record base/target, review scope and outcome in the existing timestamped recovery
+entries in `.agent/dev-state.md`. Complete the correction review when these
+steps pass; do not reopen unrelated settled analysis without new evidence.
 
 ## Merge Order
 

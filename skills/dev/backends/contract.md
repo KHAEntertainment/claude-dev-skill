@@ -24,9 +24,9 @@ Each adapter must implement these operations and either return verified state fo
 - Every coding agent receives a pre-created, verified branch/worktree and explicit ownership.
 - GitHub Issues and PRs are canonical; backend task lists are runtime coordination only.
 - Worker → PR → QA → Review is unchanged for both adapters.
-- QA and review are distinct, one-shot read-only SOP roles. They receive no implementation ownership and must leave zero tracked changes.
+- QA and review are distinct read-only SOP roles. Each turn receives no implementation ownership and must leave zero tracked changes; a correction review requires a fresh report.
 - The reviewer and QA must have agent IDs distinct from each other and from every implementation worker; the reviewer reviews the recorded current `headRefOid`.
-- A new push invalidates QA, internal review, and external-review evidence for the prior head.
+- A new push resets QA, internal review, and external-review completion to pending for the new head; retain prior reports as historical evidence. Run **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md` for fresh results. Internal delta review does not satisfy external review.
 - RTK-first command rules apply everywhere. Traycer CLI calls use `rtk proxy traycer`.
 - Record every transition in `.agent/dev-state.md`; the lead is its sole writer.
 

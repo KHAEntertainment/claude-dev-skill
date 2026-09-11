@@ -89,7 +89,17 @@ Each `pull_requests` entry records: `number`, `issue`, `branch`, `headRefOid`, `
 
 `external_review_payload_snapshots` is an append-only list of `{observed_at, headRefOid, path}` records, one per gate run, including disposition reruns. Each path points to the verbatim raw current-PR JSON saved by `--payload-snapshot` before inspection. Keep every snapshot unchanged, including its original formatting; do not replace it with a summary, diff, or interpretation. A missing or failed snapshot is an evidence failure, not a successful observation. The lead records the failure and resolves it before accepting the gate result.
 
-Accepted reviews apply only to the recorded `headRefOid`. After any push, reset QA, internal review, and external-review completion to pending for the new head.
+Accepted reviews apply only to the recorded `headRefOid`. After any push, reset QA,
+internal review, and external-review completion to pending for the new head;
+retain earlier reports as historical evidence. Record each correction review's
+base, target, scope and outcome in the timestamped recovery entries, following
+**Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
+
+For external-review waits, use `approved_review_requests` and recovery entries to
+record the reviewer, request time, target head, attempts used and remaining budget.
+Keep `review_deadline` and `next_action` current with the deadline and next
+observation/retry time. Follow `${CLAUDE_SKILL_DIR}/phases/external-review.md`;
+polling, acknowledgements and new pushes do not renew an unfinished wait episode.
 
 ## Recovery entries
 
