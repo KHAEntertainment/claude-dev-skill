@@ -17,6 +17,30 @@ fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 expect_file() { [[ -f "$1" ]] || fail "missing file $1"; }
 expect_absent() { [[ ! -e "$1" ]] || fail "unexpected path $1"; }
 
+# Builds a scratch PATH containing everything reachable on the real PATH
+# except the named tool, so a test can prove "X is unavailable" without
+# actually uninstalling anything on the host.
+build_path_without() {
+  local exclude="$1" scratch dir target base
+  scratch="$(mktemp -d "$TEST_ROOT/fakebin-no-$exclude.XXXXXX")"
+  local saved_ifs="$IFS"
+  IFS=':'
+  for dir in $PATH; do
+    IFS="$saved_ifs"
+    [[ -d "$dir" ]] || continue
+    for target in "$dir"/*; do
+      [[ -x "$target" ]] || continue
+      base="$(basename -- "$target")"
+      [[ "$base" == "$exclude" ]] && continue
+      [[ -e "$scratch/$base" ]] && continue
+      ln -s -- "$target" "$scratch/$base" 2>/dev/null || true
+    done
+    IFS=':'
+  done
+  IFS="$saved_ifs"
+  printf '%s\n' "$scratch"
+}
+
 # Fresh installation, compatibility argument, and path containing spaces.
 fresh="$TEST_ROOT/fresh config"
 bash "$INSTALLER" --config-dir "$fresh" --lang=en >/dev/null
@@ -145,7 +169,11 @@ pass "no-.git source installs via the copy path with tarball provenance"
 nested_parent="$TEST_ROOT/nested-parent"
 mkdir -p "$nested_parent"
 git init --quiet -- "$nested_parent"
-git -C "$nested_parent" commit --quiet --allow-empty -m "unrelated ancestor root commit"
+# -c user.name/user.email keep this fixture hermetic: a CI runner with no
+# git identity configured (no ~/.gitconfig, no GECOS full name) otherwise
+# fails this commit with "Please tell me who you are."
+git -c user.name=test -c user.email=test@example.com \
+  -C "$nested_parent" commit --quiet --allow-empty -m "unrelated ancestor root commit"
 mkdir -p "$nested_parent/nested"
 cp -R -- "$REPO_DIR/." "$nested_parent/nested/repo"
 rm -rf -- "$nested_parent/nested/repo/.git"
@@ -156,6 +184,30 @@ if ! grep -q 'Installed from: no git metadata (tarball install)' <<<"$nested_out
   fail "nested no-own-.git install did not report tarball provenance"
 fi
 pass "nested source with no own .git installs via the copy path"
+
+# A source with its own .git but no git binary on PATH must abort with an
+# actionable error and install nothing — never silently fall back to the
+# copy path, which would ship possibly-dirty working-tree content while
+# looking, from the outside, exactly like the safe case (Issue #44
+# follow-up).
+no_git_bin_path="$(build_path_without git)"
+no_git_bin_target="$TEST_ROOT/no-git-bin target"
+if PATH="$no_git_bin_path" bash "$INSTALLER" --config-dir "$no_git_bin_target" --lang en >/dev/null 2>&1; then
+  fail "install unexpectedly succeeded with git unavailable in a git checkout"
+fi
+expect_absent "$no_git_bin_target"
+pass "git checkout with git binary unavailable aborts and installs nothing"
+
+# A genuine git checkout with tar unavailable must abort the same way,
+# rather than silently shipping the working tree with false git provenance
+# (Issue #44 follow-up; PowerShell has the mirrored case already).
+no_tar_bin_path="$(build_path_without tar)"
+no_tar_bin_target="$TEST_ROOT/no-tar-bin target"
+if PATH="$no_tar_bin_path" bash "$INSTALLER" --config-dir "$no_tar_bin_target" --lang en >/dev/null 2>&1; then
+  fail "install unexpectedly succeeded with tar unavailable in a git checkout"
+fi
+expect_absent "$no_tar_bin_target"
+pass "git checkout with tar unavailable aborts and installs nothing"
 
 # Clean checkout: the installed tree matches a plain git archive of HEAD,
 # and the install reports the staged commit (Issue #44).

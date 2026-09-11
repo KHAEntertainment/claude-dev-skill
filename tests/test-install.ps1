@@ -15,6 +15,23 @@ function Pass([string]$Name) {
     $script:passCount++
     Write-Host "PASS: $Name"
 }
+# Builds a scratch PATH carrying copies of the named tools (skipping any
+# not found), so a test can prove "X is unavailable" without touching the
+# host's real PATH. Copies are used rather than symlinks so this also
+# works without elevated/Developer Mode permissions on Windows.
+function New-ScratchPathWithout([string]$Destination, [string[]]$ToolNames) {
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    foreach ($toolName in $ToolNames) {
+        $toolCmd = Get-Command $toolName -ErrorAction SilentlyContinue
+        if ($toolCmd -and $toolCmd.Source -and (Test-Path $toolCmd.Source -PathType Leaf)) {
+            $destPath = Join-Path $Destination (Split-Path $toolCmd.Source -Leaf)
+            if (-not (Test-Path $destPath)) {
+                Copy-Item -LiteralPath $toolCmd.Source -Destination $destPath
+                if (-not $IsWindows) { & chmod +x $destPath }
+            }
+        }
+    }
+}
 
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -114,7 +131,11 @@ try {
     $nestedParent = Join-Path $testRoot "nested-parent"
     New-Item -ItemType Directory -Force -Path (Join-Path $nestedParent "nested") | Out-Null
     & git init --quiet -- $nestedParent
-    & git -C $nestedParent commit --quiet --allow-empty -m "unrelated ancestor root commit"
+    # -c user.name/user.email keep this fixture hermetic: a CI runner with
+    # no git identity configured (no ~/.gitconfig, no GECOS full name)
+    # otherwise fails this commit with "Please tell me who you are."
+    & git -c user.name=test -c user.email=test@example.com `
+        -C $nestedParent commit --quiet --allow-empty -m "unrelated ancestor root commit"
     $nestedRepo = Join-Path $nestedParent "nested\repo"
     Copy-Item $repo $nestedRepo -Recurse -Force
     Remove-Item (Join-Path $nestedRepo ".git") -Recurse -Force -ErrorAction SilentlyContinue
@@ -126,28 +147,42 @@ try {
     }
     Pass "nested source with no own .git installs via the copy path"
 
+    # A source with its own .git but no git binary on PATH must abort with
+    # an actionable error and install nothing — never silently fall back
+    # to the copy path, which would ship possibly-dirty working-tree
+    # content while looking, from the outside, exactly like the safe case
+    # (Issue #44 follow-up).
+    $noGitBin = Join-Path $testRoot "fakebin-no-git"
+    New-ScratchPathWithout -Destination $noGitBin -ToolNames @("python3", "python", "rtk", "tar")
+    $noGitTarget = Join-Path $testRoot "no-git-bin target"
+    $originalPath = $env:PATH
+    $noGitThrew = $false
+    try {
+        $env:PATH = $noGitBin
+        & $installer -ConfigDir $noGitTarget -Lang en 2>$null | Out-Null
+    }
+    catch {
+        $noGitThrew = $true
+    }
+    finally {
+        $env:PATH = $originalPath
+    }
+    if (-not $noGitThrew) { throw "Install unexpectedly succeeded with git unavailable in a git checkout" }
+    Assert-Absent $noGitTarget
+    Pass "git checkout with git binary unavailable aborts and installs nothing"
+
     # A genuine git checkout with tar unavailable must abort with an
     # actionable error and install nothing, rather than silently falling
     # back to the working-tree copy while still claiming git provenance
     # (Issue #44 follow-up). Only git/python3/rtk are carried into the
     # scratch PATH; tar is deliberately left out.
-    $fakeBin = Join-Path $testRoot "fakebin-no-tar"
-    New-Item -ItemType Directory -Force -Path $fakeBin | Out-Null
-    foreach ($toolName in @("git", "python3", "python", "rtk")) {
-        $toolCmd = Get-Command $toolName -ErrorAction SilentlyContinue
-        if ($toolCmd -and $toolCmd.Source -and (Test-Path $toolCmd.Source -PathType Leaf)) {
-            $destPath = Join-Path $fakeBin (Split-Path $toolCmd.Source -Leaf)
-            if (-not (Test-Path $destPath)) {
-                Copy-Item -LiteralPath $toolCmd.Source -Destination $destPath
-                if (-not $IsWindows) { & chmod +x $destPath }
-            }
-        }
-    }
+    $noTarBin = Join-Path $testRoot "fakebin-no-tar"
+    New-ScratchPathWithout -Destination $noTarBin -ToolNames @("git", "python3", "python", "rtk")
     $noTarTarget = Join-Path $testRoot "no-tar target"
     $originalPath = $env:PATH
     $noTarThrew = $false
     try {
-        $env:PATH = $fakeBin
+        $env:PATH = $noTarBin
         & $installer -ConfigDir $noTarTarget -Lang en 2>$null | Out-Null
     }
     catch {
