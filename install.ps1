@@ -25,26 +25,51 @@ $validator = Join-Path $PSScriptRoot "scripts\validate_skill.py"
 # skills/dev, stage from committed content instead of the working tree so
 # untracked/ignored files and uncommitted edits never ship. A release
 # tarball (or the Homebrew libexec copy, ADR-007) has no .git, so it falls
-# back to the working-tree copy unchanged. Requiring PSScriptRoot to *be*
-# the repo root (not merely inside one) matters: `rev-parse --git-dir`
-# alone walks up to any ancestor .git, so a bare copy of this distribution
-# dropped underneath an unrelated checkout would otherwise be misclassified
-# as that ancestor repo, and `git archive HEAD -- skills/dev` would then
-# either fail on an unmatched pathspec or archive that ancestor repo's
-# unrelated tree.
+# back to the working-tree copy unchanged. This is decided by a filesystem
+# check, not by whether the git command happens to be usable: whether
+# PSScriptRoot *looks like* a git checkout (a .git entry — directory or,
+# for a linked worktree, the "gitdir: ..." file — is present) and whether
+# it can actually be *validated* as one are kept separate on purpose. A
+# directory that looks like a checkout but can't be validated (git is
+# missing, or validation fails for any other reason) must never silently
+# fall back to the copy path — that would ship possibly-dirty working-tree
+# content while looking, from the outside, exactly like the safe case.
+# Resulting matrix:
+#   own .git + validates + tar available  -> git-archive path
+#   own .git + validates + tar missing    -> abort (checked further down,
+#                                             once tar's availability is known)
+#   own .git + does not validate          -> abort (git missing, or the
+#                                             directory isn't actually a
+#                                             valid checkout tracking
+#                                             skills/dev at HEAD)
+#   no own .git                           -> copy path, tarball provenance
+#                                             (git/tar not required here)
+$hasOwnGit = Test-Path (Join-Path $PSScriptRoot ".git")
 $gitCommand = Get-Command git -ErrorAction SilentlyContinue
 $tarCommand = Get-Command tar -ErrorAction SilentlyContinue
 $isGitCheckout = $false
-if ($gitCommand) {
-    # An empty --show-prefix means PSScriptRoot IS the repo root (git answers
-    # this itself, so it needs no path comparison and sidesteps symlink
-    # resolution mismatches between PowerShell's Resolve-Path and git's
-    # internal realpath handling, e.g. macOS's /var -> /private/var).
-    $gitPrefix = (& $gitCommand.Source -C $PSScriptRoot rev-parse --show-prefix) 2>$null
-    if ($LASTEXITCODE -eq 0 -and [string]::IsNullOrEmpty($gitPrefix)) {
-        $trackedSkillsDev = (& $gitCommand.Source -C $PSScriptRoot ls-tree -d HEAD -- skills/dev) 2>$null
-        if ($LASTEXITCODE -eq 0 -and $trackedSkillsDev) {
+$gitValidationError = $null
+if ($hasOwnGit) {
+    if (-not $gitCommand) {
+        $gitValidationError = "This looks like a git checkout of the Skill (a .git entry is present at $PSScriptRoot), but git is required to stage it safely from git content. Install git, or install from a release tarball instead."
+    }
+    else {
+        # An empty --show-prefix means PSScriptRoot IS the repo root (git
+        # answers this itself, so it needs no path comparison and sidesteps
+        # symlink resolution mismatches between PowerShell's Resolve-Path
+        # and git's internal realpath handling, e.g. macOS's
+        # /var -> /private/var).
+        $gitPrefix = (& $gitCommand.Source -C $PSScriptRoot rev-parse --show-prefix) 2>$null
+        $prefixOk = ($LASTEXITCODE -eq 0 -and [string]::IsNullOrEmpty($gitPrefix))
+        $trackedSkillsDev = $null
+        if ($prefixOk) {
+            $trackedSkillsDev = (& $gitCommand.Source -C $PSScriptRoot ls-tree -d HEAD -- skills/dev) 2>$null
+        }
+        if ($prefixOk -and $LASTEXITCODE -eq 0 -and $trackedSkillsDev) {
             $isGitCheckout = $true
+        }
+        else {
+            $gitValidationError = "This looks like a git checkout of the Skill (a .git entry is present at $PSScriptRoot), but its git metadata could not be validated (it may not be the repository root, or skills/dev may not be tracked at HEAD). Refusing to guess; install from a clean checkout or a release tarball instead."
         }
     }
 }
@@ -70,6 +95,9 @@ if (-not $pythonCommand) { $pythonCommand = Get-Command python -ErrorAction Sile
 if (-not $pythonCommand) { throw "Python 3 is required for validation." }
 $pythonExe = $pythonCommand.Source
 if (-not (Get-Command rtk -ErrorAction SilentlyContinue)) { throw "RTK is required by this customized /dev workflow." }
+if ($gitValidationError) {
+    throw $gitValidationError
+}
 if ($isGitCheckout -and -not $tarCommand) {
     throw "This is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead."
 }
