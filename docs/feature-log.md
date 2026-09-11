@@ -2,6 +2,11 @@
 
 ## Completed
 
+- v2.1.0 content: adapter report-back enforcement (PR #32), bounded review recovery
+  (PR #35), and `.dev.json` repository/account verification (PR #36), merged 2026-09-11.
+- Committed verification gate and current-head external-review enforcement (PR #23/#28),
+  plus role-prompt discipline (PR #30), included in v2.1.0.
+
 - CI Verification Gate: 6 jobs across ubuntu/macos/windows, archive validation,
   and packaging guards (PR #11, merged 2026-08-31)
 - Plugin-root and version-sync guard scripts (PR #10, merged 2026-08-31)
@@ -19,7 +24,7 @@
   repository root; installable in two commands and verified working end to end
   on a machine with no GitHub SSH key.
 - `v2.0.0` release line adopted, resolving a collision with upstream's `v1.x`
-  tags that live in this fork's history. `v2.0.1` is current.
+  tags that live in this fork's history. `v2.0.1` was the published version at that retrospective; v2.1.0 is the current release-preparation target.
 - Two stdlib-only packaging guards, both with proven failure modes.
 - The repository's first CI: 6 jobs across ubuntu/macos/windows, validating the
   extracted release archive as well as the working tree.
@@ -40,17 +45,44 @@
   exists.
 - PyPI packaging. Note the exec-bit hazard — wheels do not preserve file modes,
   and `detect_execution_backend.py` must stay 755.
-- Issue #3, adapter-level report-back enforcement. Its stated precondition was
-  the contract surviving real lanes; six lanes this iteration all produced clean
-  reports, so that precondition is now met.
 
 ### Recommended Next Priorities
 
 1. Homebrew tap — smallest remaining distribution gap, and now unblocked.
-2. Issue #3 — the lead hand-rolled reply correlation six times this iteration and
-   got it wrong three times. Mechanical enforcement at `observe` would remove
-   that whole class of error.
+2. Issue #3 was completed in PR #32; the next controlled run is ScadForge #48 after the tag and separate authorization.
 3. `README.zh.md` — retranslate or delete; a banner is a stopgap.
+
+## Retro — claude-dev-skill / v2.1.0
+
+### Completed
+
+- The content stack is merged; release metadata and ADR corrections are prepared.
+- Repository/account intent is persisted locally and checked against the selected
+  worktree. The rejected credential-boundary architecture is superseded by ADR-010.
+- Review corrections were batched and review waits bounded; exact-head evidence
+  and user-authorized dispositions were recorded separately.
+
+### Known Issues
+
+- Live SSH verification remains untested (#37); supported checks fail closed.
+- Pre-write checks are not containment of arbitrary agent commands.
+- Live rate-limit recovery required user-adjusted timing; fresh-session policy
+  adherence and skill selection are not established by local/static tests.
+- Reviewer status checks and formal review events can disagree. PR #36 used an
+  explicit user disposition of clean current-head substantive evidence plus prior
+  formal approval. Superseded-head finding tracking remains procedural debt (#33).
+- v2.1.0 tag publication and isolated post-tag installation are still pending.
+
+### Deferred
+
+- #17 and #38: authorship-lint follow-ups; #39: Homebrew; #40: dogfooding distillation.
+- Existing v2.1.1 engineering debt remains separate from release preparation.
+
+### Recommended Next Priorities
+
+1. Complete approved release steps, with separate authorization for release merge/tag.
+2. Run the planned controlled ScadForge #48 test in a fresh session after the tag,
+   when authorized; prioritize its findings before expanding the debt scope.
 
 ## Known Tech Debt
 

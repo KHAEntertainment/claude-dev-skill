@@ -8,6 +8,61 @@ build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries belo
 `v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
 record upstream SHAs as plain text in their `### Upstream` blocks.
 
+## v2.1.0 — 2026-09-11
+
+### Added
+
+- Adapter-layer report-back enforcement (#3, PR #32). Assignments carry the
+  seven-section contract; observation checks the correlated reply and records
+  incomplete reports with the termination and evidence-derived cause.
+- Local, Git-excluded `.dev.json` project configuration (#19, PR #36). Confirmed
+  account, push repository, PR repository, and remote are checked before supported
+  writes using existing credential stores. Independent-fork and upstream-contributor
+  presets keep task Issues and pushes on the fork while allowing a separately
+  confirmed PR destination. Every documented resolver call selects its project or
+  worktree explicitly. Checks validate all push URLs, transport and CLI accounts,
+  assigned branches and refspecs, and a push dry run; ambiguity stops the workflow.
+- Committed Verification Gate (#22), role-prompt completion and code-minimalism
+  discipline (#20), CI workflow (#6), and plugin-root/version-sync guards (#5).
+
+### Changed
+
+- External-review evidence must apply to the current head; green status checks
+  do not constitute reviews (#16). Current-head requested changes block (#27).
+- Bounded review recovery (PR #35): authorized rate-limit retries at 15 and 30
+  minutes, decision at 45, with deadlines retained across pushes and substantive
+  responses inspected before retrying. Corrections receive focused review while
+  retaining independent lanes and the full final gate; there is no implicit bypass.
+- Restored model invocation for explicit dev-workflow requests (PR #18).
+
+### Documentation
+
+- ADR-010 supersedes ADR-008's rejected credential-boundary plan with the shipped
+  verification scope. ADR-009 retains the authorship-lint classification; its
+  unshipped follow-ups remain debt (#17, #38).
+- Recorded the completed iteration, outstanding limitations, and planned controlled
+  real-world test. Updated Phase 5 retro guidance and installer/detector documentation.
+
+### Known limitations
+
+- Live SSH account verification remains unexercised (#37); unsupported or
+  unavailable identities fail closed. Local and mocked tests are not live SSH proof.
+- Pre-write verification covers the supported workflow, not containment of arbitrary
+  commands. No GitHub App, replacement credential store, or SSH rewrite is required.
+- Review timing is an operational default, not a vendor quota guarantee. Live
+  requests encountered rate limits during dogfooding; the user adjusted the final
+  retry schedule. This does not prove autonomous adherence in a fresh plugin session.
+- A green reviewer check or acknowledgement is not review evidence. Non-default
+  PR bases can skip automatic review, and substantive comments may arrive without
+  a formal review event. PR #36 landed with explicit user acceptance of its clean
+  current-head substantive review plus the preceding formal approval.
+- Fresh-session model selection and the post-tag installation check remain pending.
+  Existing sessions need to reload the plugin to pick up changed instructions.
+
+### Upstream
+
+Base unchanged: `2.1.0+upstream.3e87db0`; no new upstream source incorporated.
+
 ## v2.0.1 — 2026-08-31
 
 ### Fixed

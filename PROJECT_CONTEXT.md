@@ -66,11 +66,11 @@ Python 3, optionally Traycer CLI/Host.
 
 ## Current Status
 
-- **Last updated**: 2026-09-05 (v2.1.0 round opened)
-- **Current iteration goal**: v2.1.0 — close the four open Issues and borrow code-minimalism and completion-evidence discipline into the role prompts. Seven PRs, forced serial: arch docs, Issue #16 (external-review inspector), Issue #20 (role-prompt discipline), Issue #3 (adapter-layer report-back), Issue #19 in two parts (repository identity, then liveness preflight with Issue #17), then the release.
-- **Architecture decisions this round**: ADR-008 reframes repository identity as a capability question rather than a verification question. ADR-009 reclassifies the read-only AST guard as a CI-time authorship lint rather than a security control. Both are recorded ahead of the implementation PRs that depend on them.
-- **Next iteration**: Homebrew tap (ADR-007) — needs a tagged tarball, which exists at `v2.0.1`. Two follow-ups will be filed by this round's release PR: a GitHub App installation token for true per-run credential scoping, and a loopback fake `gh` host for resolver fixtures.
-- **Open PRs**: see `gh pr list`; this round runs one PR at a time.
+- **Last updated**: 2026-09-11
+- **Current iteration goal**: v2.1.0 content complete: report-back enforcement (#32), bounded review recovery (#35), and configured repository/account verification (#36) are merged. Release preparation is separate; the release PR, tag, and post-tag installation still require their remaining approvals/checks.
+- **Architecture decisions this round**: ADR-010 supersedes ADR-008 with verification before supported writes using existing credentials. The GitHub App, canary credential helper, per-run SSH rewrite, and liveness-preflight design are rejected. ADR-009 classifies the AST guard as an authorship lint; #17 and #38 remain deferred.
+- **Next iteration**: planned controlled ScadForge issue #48 run in a fresh session after the tag, subject to separate start authorization. Homebrew tap remains debt (#39, ADR-007); live SSH verification is #37 and dogfooding distillation is #40.
+- **Open PRs**: see `gh pr list`; release preparation follows the completed content stack.
 - **Known tech debt**: see the bottom of `docs/feature-log.md`
 
 ---
