@@ -20,6 +20,21 @@ if ($MigrateLegacy -and $KeepLegacy) {
 
 $source = Join-Path $PSScriptRoot "skills\dev"
 $validator = Join-Path $PSScriptRoot "scripts\validate_skill.py"
+
+# When PSScriptRoot is a git checkout, stage from committed content instead
+# of the working tree so untracked/ignored files and uncommitted edits never
+# ship. A release tarball (or the Homebrew libexec copy, ADR-007) has no
+# .git, so it falls back to the working-tree copy unchanged. tar.exe (bundled
+# since Windows 10 1803) is also required for the git path; its absence is a
+# documented asymmetry with install.sh and falls back to the copy as well.
+$gitCommand = Get-Command git -ErrorAction SilentlyContinue
+$tarCommand = Get-Command tar -ErrorAction SilentlyContinue
+$isGitCheckout = $false
+if ($gitCommand -and $tarCommand) {
+    & $gitCommand.Source -C $PSScriptRoot rev-parse --git-dir *> $null
+    if ($LASTEXITCODE -eq 0) { $isGitCheckout = $true }
+}
+$installCommit = ""
 $targetWasExplicit = $PSBoundParameters.ContainsKey("Target")
 if (-not $Target) {
     $Target = Join-Path $ConfigDir "skills\dev"
@@ -76,7 +91,26 @@ $installedNew = $false
 try {
     New-Item -ItemType Directory -Force -Path $targetParent | Out-Null
     New-Item -ItemType Directory -Path $stage | Out-Null
-    Copy-Item (Join-Path $source "*") $stage -Recurse -Force
+    if ($isGitCheckout) {
+        $installCommit = (& $gitCommand.Source -C $PSScriptRoot rev-parse HEAD).Trim()
+        # Write the archive to a temp file rather than piping git's binary
+        # stdout through the PowerShell pipeline: native-to-native pipes in
+        # PowerShell can reinterpret/corrupt binary streams (encoding and
+        # newline translation), which a file handoff avoids entirely.
+        $archiveFile = Join-Path ([IO.Path]::GetTempPath()) "dev-archive-$stamp.tar"
+        try {
+            & $gitCommand.Source -C $PSScriptRoot archive -o $archiveFile HEAD -- skills/dev
+            if ($LASTEXITCODE -ne 0) { throw "git archive failed with exit code $LASTEXITCODE" }
+            & $tarCommand.Source -xf $archiveFile -C $stage --strip-components=2
+            if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit code $LASTEXITCODE" }
+        }
+        finally {
+            Remove-Item $archiveFile -ErrorAction SilentlyContinue
+        }
+    }
+    else {
+        Copy-Item (Join-Path $source "*") $stage -Recurse -Force
+    }
     & $pythonExe $validator --skill-dir $stage
     if ($LASTEXITCODE -ne 0) { throw "Staged Skill validation failed." }
 
@@ -124,5 +158,11 @@ catch {
 }
 
 Write-Host "Installed /dev Skill at $Target"
+if ($isGitCheckout) {
+    Write-Host "Installed from commit $installCommit"
+}
+else {
+    Write-Host "Installed from: no git metadata (tarball install)"
+}
 if (Test-Path $backup) { Write-Host "Previous files backed up at $backup" }
 Write-Host "Restart Claude Code, then invoke /dev."

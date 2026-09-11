@@ -7,6 +7,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SOURCE_DIR="$SCRIPT_DIR/skills/dev"
 VALIDATOR="$SCRIPT_DIR/scripts/validate_skill.py"
 
+# When SCRIPT_DIR is a git checkout, stage from committed content instead of
+# the working tree so untracked/ignored files and uncommitted edits never
+# ship. A release tarball (or the Homebrew libexec copy, ADR-007) has no
+# .git, so it falls back to the working-tree copy unchanged.
+IS_GIT_CHECKOUT=0
+if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  IS_GIT_CHECKOUT=1
+fi
+INSTALL_COMMIT=""
+
 LANGUAGE="en"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${HOME:?HOME is required}/.claude}"
 TARGET=""
@@ -135,7 +145,12 @@ trap rollback EXIT
 mkdir -p -- "$TARGET_PARENT"
 [[ -w "$TARGET_PARENT" ]] || { printf 'ERROR: target parent is not writable: %s\n' "$TARGET_PARENT" >&2; exit 1; }
 mkdir -- "$STAGE_DIR"
-cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
+if ((IS_GIT_CHECKOUT)); then
+  INSTALL_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
+  git -C "$SCRIPT_DIR" archive HEAD -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+else
+  cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
+fi
 python3 "$VALIDATOR" --skill-dir "$STAGE_DIR"
 
 if [[ "${DEV_INSTALL_FAIL_AT:-}" == "after-stage" ]]; then
@@ -172,5 +187,10 @@ fi
 SUCCESS=1
 trap - EXIT
 printf 'Installed /dev Skill at %s\n' "$TARGET"
+if ((IS_GIT_CHECKOUT)); then
+  printf 'Installed from commit %s\n' "$INSTALL_COMMIT"
+else
+  printf 'Installed from: no git metadata (tarball install)\n'
+fi
 if [[ -d "$BACKUP_DIR" ]]; then printf 'Previous files backed up at %s\n' "$BACKUP_DIR"; fi
 printf 'Restart Claude Code, then invoke /dev.\n'
