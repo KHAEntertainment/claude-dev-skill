@@ -186,6 +186,8 @@ def normalize_remote_with_ssh_resolution(
         scheme, host, path = _parse_scheme_host_path(url)
         if scheme is not None and scheme != "ssh":
             raise
+        if not host or host.startswith("-"):
+            raise RepositoryError("non_github_origin", "invalid SSH host token")
         resolved = resolve_ssh_effective_host(repo_dir, host, ssh_command=ssh_command)
         if resolved is None or resolved[0].lower() != GITHUB_HOST:
             raise
@@ -1094,6 +1096,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--url", help="exact push URL for check-https-account or check-ssh-account")
     parser.add_argument("--account", help="expected account for a check-*-account mode")
+    parser.add_argument("--setup-account-check", action="store_true", help="read-only candidate check before .dev.json exists; never authorizes a write")
     return parser.parse_args()
 
 
@@ -1156,7 +1159,10 @@ def _load_required_config(args: argparse.Namespace) -> tuple[dict[str, object] |
         config_path = args.config.resolve()
     else:
         repo_dir = args.repo_dir.resolve()
-        git_root = dev_config.find_git_root(repo_dir)
+        try:
+            git_root = dev_config.find_git_root(repo_dir)
+        except dev_config.ConfigError as exc:
+            return None, {"status": "incomplete", "reason_code": exc.code, "reason": str(exc)}
         config_path = (git_root or repo_dir) / dev_config.CONFIG_FILENAME
     status = dev_config.resolve_status(config_path)
     if status["status"] != "valid":
@@ -1280,25 +1286,41 @@ def _run_resolve(args: argparse.Namespace) -> int:
 
 
 def _run_check_account(args: argparse.Namespace) -> int:
-    if not args.account:
-        return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--account is required"})
+    config, error = _load_required_config(args)
+    if args.setup_account_check:
+        if error is None or error["reason_code"] != "missing_config":
+            return _emit(error or {"status": "incomplete", "reason_code": "config_exists", "reason": "setup candidate checks require a missing config"})
+        if not args.account:
+            return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--account is required for setup"})
+        account = args.account
+    else:
+        if error is not None:
+            return _emit(error)
+        account = config["github"]["account"]
+        if args.account and args.account.lower() != account.lower():
+            return _emit({"status": "incomplete", "reason_code": "account_mismatch", "reason": "--account disagrees with the configured account"})
     repo_dir = args.repo_dir.resolve()
     if args.mode == "check-https-account":
         if not args.url:
             return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"})
-        result = verify_https_account(repo_dir, args.url, args.account)
+        result = verify_https_account(repo_dir, args.url, account)
     elif args.mode == "check-ssh-account":
         if not args.url:
             return _emit({"status": "incomplete", "reason_code": "missing_argument", "reason": "--url is required"})
-        result = verify_ssh_url_account(repo_dir, args.url, args.account)
+        result = verify_ssh_url_account(repo_dir, args.url, account)
     else:
-        result = verify_gh_cli_login(repo_dir, args.account)
+        result = verify_gh_cli_login(repo_dir, account)
+    if args.setup_account_check and result["status"] == "verified":
+        print(json.dumps({**result, "status": "candidate_verified", "reason": "candidate account verified for setup only; save confirmed config and recheck before writing"}))
+        return 0
     return _emit(result)
 
 
 def main() -> int:
     args = parse_args()
     if args.mode == "resolve":
+        if args.setup_account_check:
+            return _emit({"status": "incomplete", "reason_code": "invalid_mode", "reason": "setup candidate checks cannot resolve a write target"})
         return _run_resolve(args)
     return _run_check_account(args)
 

@@ -728,6 +728,10 @@ class ResolverCommandLineTests(unittest.TestCase):
                         'import os, sys\n'
                         'with open(os.environ["REPO_IDENTITY_LOG"], "a") as f:\n'
                         '    f.write("\\t".join(sys.argv) + "\\n")\n'
+                        'if sys.argv[1:] == ["rev-parse", "--show-toplevel"]:\n'
+                        '    print(os.getcwd()); raise SystemExit(0)\n'
+                        'if sys.argv[1:2] == ["check-ignore"]:\n'
+                        '    raise SystemExit(0)\n'
                         'if sys.argv[1:] == ["branch", "--show-current"]:\n'
                         '    print("main"); raise SystemExit(0)\n'
                         'if sys.argv[1:3] == ["config"]:\n'
@@ -1043,7 +1047,8 @@ class TransportAccountVerificationTests(unittest.TestCase):
             return (1, "Hi KHAEntertainment! You've successfully authenticated")
 
         resolver = lambda repo_dir, target: ("github.com", "git", "443")
-        result = MODULE.verify_ssh_account(Path("."), "corp-github", "KHAEntertainment", prober=prober, resolver=resolver)
+        with _patched(MODULE, "detect_ssh_overrides", lambda repo_dir: None):
+            result = MODULE.verify_ssh_account(Path("."), "corp-github", "KHAEntertainment", prober=prober, resolver=resolver)
         self.assertEqual("verified", result["status"])
         self.assertEqual("corp-github", probed_target["value"])
 
@@ -1055,7 +1060,8 @@ class TransportAccountVerificationTests(unittest.TestCase):
             called["probed"] = True
             return (1, "should never be reached")
 
-        result = MODULE.verify_ssh_account(Path("."), "corp-gitlab", "KHAEntertainment", prober=prober, resolver=resolver)
+        with _patched(MODULE, "detect_ssh_overrides", lambda repo_dir: None):
+            result = MODULE.verify_ssh_account(Path("."), "corp-gitlab", "KHAEntertainment", prober=prober, resolver=resolver)
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("non_github_origin", result["reason_code"])
         self.assertFalse(called["probed"])
@@ -1063,14 +1069,16 @@ class TransportAccountVerificationTests(unittest.TestCase):
     def test_ssh_mismatched_account_is_reported(self) -> None:
         resolver = lambda repo_dir, target: ("github.com", "git", "22")
         prober = lambda repo_dir, target, user: (1, "Hi Clarit-AI! You've successfully authenticated")
-        result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
+        with _patched(MODULE, "detect_ssh_overrides", lambda repo_dir: None):
+            result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("account_mismatch", result["reason_code"])
 
     def test_ssh_generic_zero_exit_is_not_mistaken_for_success(self) -> None:
         resolver = lambda repo_dir, target: ("github.com", "git", "22")
         prober = lambda repo_dir, target, user: (0, "some other banner")
-        result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
+        with _patched(MODULE, "detect_ssh_overrides", lambda repo_dir: None):
+            result = MODULE.verify_ssh_account(Path("."), "github.com", "KHAEntertainment", prober=prober, resolver=resolver)
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("identity_unavailable", result["reason_code"])
 

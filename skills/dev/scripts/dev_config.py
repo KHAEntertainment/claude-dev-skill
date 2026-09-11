@@ -238,6 +238,7 @@ def _run(command: list[str], *, cwd: Path) -> tuple[int, str]:
             text=True,
             check=False,
             timeout=COMMAND_TIMEOUT,
+            env={**os.environ, "LC_ALL": "C"},
         )
     except OSError as exc:
         return (-1, str(exc))
@@ -249,20 +250,33 @@ def _run(command: list[str], *, cwd: Path) -> tuple[int, str]:
 def find_git_root(start: Path) -> Path | None:
     """Return the worktree root for *start*, or None outside any Git worktree."""
     status, output = _run(["git", "rev-parse", "--show-toplevel"], cwd=start)
-    if status != 0 or not output:
+    if status == 0 and output:
+        return Path(output)
+    # Only Git's explicit outside-worktree result permits pre-Git setup.
+    # A broken checkout marker or any other failure leaves provenance unknown.
+    outside = "fatal: not a git repository (or any of the parent directories): .git"
+    start = start.resolve()
+    if status == 128 and output == outside and not any(
+        (parent / ".git").exists() or (parent / ".git").is_symlink()
+        for parent in (start, *start.parents)
+    ):
         return None
-    return Path(output)
+    raise ConfigError("git_provenance_unavailable", "cannot establish the Git worktree root")
 
 
 def is_tracked(repo_root: Path, relative_path: str) -> bool:
     """Return True if *relative_path* is tracked in the Git index."""
     status, _ = _run(["git", "ls-files", "--error-unmatch", relative_path], cwd=repo_root)
+    if status not in (0, 1):
+        raise ConfigError("git_provenance_unavailable", "cannot establish whether the config is tracked")
     return status == 0
 
 
 def is_ignored(repo_root: Path, relative_path: str) -> bool:
     """Return True if Git's own exclude resolution would ignore *relative_path*."""
     status, _ = _run(["git", "check-ignore", "-q", relative_path], cwd=repo_root)
+    if status not in (0, 1):
+        raise ConfigError("git_provenance_unavailable", "cannot establish whether the config is ignored")
     return status == 0
 
 
@@ -322,6 +336,15 @@ def nonsecret_summary(config: dict[str, object]) -> dict[str, object]:
 
 
 def resolve_status(config_path: Path) -> dict[str, object]:
+    """Return config status, failing closed when Git provenance is unavailable."""
+    try:
+        return _resolve_status(config_path)
+    except ConfigError as exc:
+        return {"status": "incomplete", "path": str(config_path), "config": None,
+                "reason_code": exc.code, "reason": str(exc)}
+
+
+def _resolve_status(config_path: Path) -> dict[str, object]:
     """Resolve the config's current status without assuming Git exists yet.
 
     Returns one of:
@@ -404,6 +427,9 @@ def parse_args() -> argparse.Namespace:
     validate_cmd = sub.add_parser("validate", help="validate a config file without Git provenance checks")
     validate_cmd.add_argument("path", type=Path)
 
+    exclude_cmd = sub.add_parser("exclude", help="exclude an existing valid, untracked config without rewriting it")
+    exclude_cmd.add_argument("--path", type=Path, default=None)
+
     create_cmd = sub.add_parser("create", help="atomically create a new config from confirmed setup values")
     create_cmd.add_argument("--path", type=Path, default=None, help=f"defaults to <repo-root or cwd>/{CONFIG_FILENAME}")
     create_cmd.add_argument("--host", default="github.com")
@@ -427,6 +453,17 @@ def _default_path() -> Path:
 
 
 def main() -> int:
+    try:
+        return _main()
+    except ConfigError as exc:
+        print(json.dumps({"status": "incomplete", "reason_code": exc.code, "reason": str(exc)}))
+        return 2
+    except OSError:
+        print(json.dumps({"status": "incomplete", "reason_code": "config_io_error", "reason": "could not read or write local config/exclusion"}))
+        return 2
+
+
+def _main() -> int:
     args = parse_args()
 
     if args.command == "validate":
@@ -444,6 +481,18 @@ def main() -> int:
     if args.command == "status":
         path = args.path or _default_path()
         result = resolve_status(path)
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["status"] == "valid" else 2
+
+    if args.command == "exclude":
+        path = args.path or _default_path()
+        result = resolve_status(path)
+        if result["status"] == "not_ignored":
+            git_root = find_git_root(path.parent)
+            if git_root is None or not ensure_excluded(git_root, str(path.resolve().relative_to(git_root.resolve()))):
+                result.update(status="incomplete", reason_code="not_ignored", reason="config exclusion was not established")
+            else:
+                result = resolve_status(path)
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] == "valid" else 2
 
@@ -479,17 +528,18 @@ def main() -> int:
             return 2
 
         ignored = True
-        if git_root is not None and not args.no_exclude:
+        if git_root is not None:
             relative_path = str(path.resolve().relative_to(git_root.resolve()))
-            ignored = ensure_excluded(git_root, relative_path)
+            ignored = is_ignored(git_root, relative_path) if args.no_exclude else ensure_excluded(git_root, relative_path)
 
         print(json.dumps({
-            "status": "created",
+            "status": "created" if ignored else "incomplete",
+            "reason_code": "config_created" if ignored else "not_ignored",
             "path": str(path),
             "ignored": ignored,
             "config": nonsecret_summary(config),
         }, sort_keys=True))
-        return 0
+        return 0 if ignored else 2
 
     return 2
 

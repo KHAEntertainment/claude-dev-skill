@@ -4,7 +4,7 @@
 
 ## Command Output Rules
 
-- Use `rtk gh ...` for PR review, PR merge, PR list, PR diff, and Issue operations, explicitly scoped with `--repo github.com/<github.pullRequestRepository from .dev.json>` (see `${CLAUDE_SKILL_DIR}/phases/repository-context.md`). Never rely on a cwd-derived default or an inherited `gh` repository default — an unscoped read can silently return evidence about the wrong PR.
+- Use `rtk gh ...` for PR review, PR merge, PR list, and PR diff, explicitly scoped with `--repo github.com/<github.pullRequestRepository from .dev.json>`. Scope Issue operations to their separately confirmed Issue repository, normally `github.pushRepository` (see `${CLAUDE_SKILL_DIR}/phases/repository-context.md`). Never rely on a cwd-derived default or an inherited `gh` repository default — an unscoped read can silently return evidence about the wrong PR.
 - Use compact fields for broad PR scans. Do not request PR bodies, comments, commits, files, or reviews unless reviewing exactly one PR.
 - Use `rtk git ...`, `rtk diff`, `rtk test`, `rtk lint`, `rtk npm`, `rtk go`, `rtk pytest`, or equivalent RTK wrappers for local checks.
 - If an exact wrapper is unavailable, use `rtk proxy <command> ...`.
@@ -28,7 +28,7 @@ Before any independent review, load `${CLAUDE_SKILL_DIR}/agents/reviewer.md`. Re
 
 ## Step 0 — Scope-Drift Gate
 
-Resolve the PR's operation target first (`resolve_repository.py --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`), then run `rtk gh pr diff [PR-number] --repo github.com/<that confirmed repository> --name-only` before any checklist.
+Resolve the PR's operation target first (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target <github.pullRequestRepository>` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`), then run `rtk gh pr diff [PR-number] --repo github.com/<that confirmed repository> --name-only` before any checklist.
 
 - Files clearly outside the Issue and ownership map → mark Scope Drift and REQUEST CHANGES; require the worker to revert unrelated changes.
 - Missing files or behavior required by an acceptance criterion → record a completeness failure.
@@ -104,7 +104,7 @@ and follow-up location in the existing debt records or issue tracker.
 □ Migration downgrade quality
 ```
 
-Immediately before each review submission, re-run `resolve_repository.py --operation pr --target <confirmed pullRequestRepository>` and require exit 0. Use `rtk gh pr review --repo github.com/<confirmed pullRequestRepository>` for concrete findings. Batch ASK items rather than interrupting one at a time.
+Immediately before each review submission, re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target <confirmed pullRequestRepository>` and require exit 0. Use `rtk gh pr review --repo github.com/<confirmed pullRequestRepository>` for concrete findings. Batch ASK items rather than interrupting one at a time.
 
 Before dispatching a fix batch, consolidate findings already available from QA,
 internal review, and external review. Dispatch confirmed blockers together.
@@ -206,5 +206,5 @@ After a PR is merged into main, immediately, all scoped to the confirmed `github
 
 1. `rtk gh pr list --repo github.com/<confirmed pullRequestRepository> --state open --json number,title,headRefName,updatedAt --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'` — list open PRs compactly
 2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --repo github.com/<confirmed pullRequestRepository> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
-3. Open PRs with file overlap → immediately re-run `resolve_repository.py --operation pr --target <confirmed pullRequestRepository>` and require exit 0, then comment (`rtk gh pr comment <PR-number> --repo github.com/<confirmed pullRequestRepository> ...`): `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
+3. Open PRs with file overlap → immediately re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target <confirmed pullRequestRepository>` and require exit 0, then comment (`rtk gh pr comment <PR-number> --repo github.com/<confirmed pullRequestRepository> ...`): `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
 4. Open PRs with logical dependencies (e.g. this refactor changed module paths or interface signatures) → re-run the same check immediately before each notification and use the same explicit repository scope.

@@ -13,6 +13,12 @@ current branch, each leave both repositories' refs untouched), using real
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import sys
+from unittest.mock import patch
+
 import importlib.util
 import subprocess
 import tempfile
@@ -44,17 +50,50 @@ def _rev(bare: Path, ref: str) -> str | None:
     return completed.stdout.strip() or None
 
 
-def _gated_push(clone: Path, verdict: dict[str, object], branch: str) -> bool:
+def _gated_push(clone: Path, verdict: dict[str, object]) -> bool:
     """The pattern every writer call site must follow: test the exit code
     before invoking the real command, and use only the remote name the
     resolver validated -- never a default the check just rejected."""
     if verdict.get("status") != "ready":
         return False
     remote = verdict.get("effective_push_remote")
-    if not remote:
+    refspec = verdict.get("dry_run", {}).get("refspec")
+    if not remote or not refspec or verdict["dry_run"].get("remote") != remote:
         return False
-    _git("push", "-q", str(remote), f"HEAD:refs/heads/{branch}", cwd=clone)
+    _git("push", "-q", str(remote), str(refspec), cwd=clone)
     return True
+
+
+def _production_verdict(clone, *, remotes=None, push_remotes=None,
+                        expected=CANONICAL, remote_name="origin", configured_remote="origin",
+                        gh_default=None, assigned_branch="feature", dest_ref=None):
+    """Exercise the CLI with real config, branch checks and local dry-run.
+
+    Inject only remote URL observations and GitHub account/access boundaries:
+    the local bare repositories stand in for the named GitHub repositories.
+    Git remote selection and the actual dry-run/push remain real.
+    """
+    config = MODULE.dev_config.build_config(
+        host="github.com", account="KHAEntertainment", push_repository=expected,
+        pull_request_repository=expected, push_remote=configured_remote)
+    path = clone / ".dev.json"
+    MODULE.dev_config.create_config(path, config)
+    MODULE.dev_config.ensure_excluded(clone)
+    _git("config", "remote.pushDefault", remote_name, cwd=clone)
+    remotes = remotes or {"origin": ORIGIN_HTTPS}
+    output = io.StringIO()
+    argv = ["resolver", "--repo-dir", str(clone), "--assigned-branch", assigned_branch]
+    if dest_ref:
+        argv += ["--dest-ref", dest_ref]
+    with patch.object(sys, "argv", argv), contextlib.redirect_stdout(output), \
+            patch.object(MODULE, "collect_remotes", return_value=(remotes, push_remotes or {})), \
+            patch.object(MODULE, "collect_gh_default", return_value=gh_default), \
+            patch.object(MODULE, "collect_verified_name", return_value=CANONICAL), \
+            patch.object(MODULE, "verify_https_account", return_value={"status": "verified"}):
+        code = MODULE.main()
+    verdict = json.loads(output.getvalue())
+    assert (code == 0) == (verdict["status"] == "ready")
+    return verdict
 
 
 class PhysicalPushSafetyTests(unittest.TestCase):
@@ -73,6 +112,8 @@ class PhysicalPushSafetyTests(unittest.TestCase):
         _git("add", "README.md", cwd=clone)
         _git("commit", "-q", "-m", "initial", cwd=clone)
         _git("push", "-q", "origin", f"HEAD:refs/heads/{branch}", cwd=clone)
+        if branch == "main":
+            _git("checkout", "-q", "-b", "feature", cwd=clone)
         return clone
 
     def _add_feature_commit(self, clone: Path) -> None:
@@ -88,7 +129,9 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             clone = self._make_clone_with_commit(root, intended)
             _git("remote", "add", "upstream", str(wrong), cwd=clone)
 
-            verdict = MODULE.resolve_repository(
+            self._add_feature_commit(clone)
+            verdict = _production_verdict(
+                clone,
                 remotes={"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
                 push_remotes=None,
                 gh_default=None,
@@ -98,8 +141,7 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             )
             self.assertEqual("ready", verdict["status"])
 
-            self._add_feature_commit(clone)
-            pushed = _gated_push(clone, verdict, "feature")
+            pushed = _gated_push(clone, verdict)
 
             self.assertTrue(pushed)
             self.assertIsNotNone(_rev(intended, "refs/heads/feature"))
@@ -113,7 +155,9 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             clone = self._make_clone_with_commit(root, intended)
             _git("remote", "add", "upstream", str(wrong), cwd=clone)
 
-            verdict = MODULE.resolve_repository(
+            self._add_feature_commit(clone)
+            verdict = _production_verdict(
+                clone,
                 remotes={"origin": ORIGIN_HTTPS, "upstream": UPSTREAM_HTTPS},
                 push_remotes=None,
                 gh_default=None,
@@ -125,8 +169,7 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             self.assertEqual("configured_remote_mismatch", verdict["reason_code"])
             self.assertIsNone(verdict["effective_push_remote"])
 
-            self._add_feature_commit(clone)
-            pushed = _gated_push(clone, verdict, "feature")
+            pushed = _gated_push(clone, verdict)
 
             self.assertFalse(pushed)
             self.assertIsNone(_rev(intended, "refs/heads/feature"))
@@ -140,7 +183,9 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             clone = self._make_clone_with_commit(root, intended)
             _git("remote", "add", "upstream", str(wrong), cwd=clone)
 
-            verdict = MODULE.resolve_repository(
+            self._add_feature_commit(clone)
+            verdict = _production_verdict(
+                clone,
                 remotes={"origin": ORIGIN_HTTPS},
                 push_remotes=None,
                 gh_default=None,
@@ -151,8 +196,7 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             self.assertEqual("incomplete", verdict["status"])
             self.assertEqual("expected_mismatch", verdict["reason_code"])
 
-            self._add_feature_commit(clone)
-            pushed = _gated_push(clone, verdict, "feature")
+            pushed = _gated_push(clone, verdict)
 
             self.assertFalse(pushed)
             self.assertIsNone(_rev(intended, "refs/heads/feature"))
@@ -168,9 +212,12 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             intended = self._make_bare(root, "intended.git")
             wrong = self._make_bare(root, "wrong.git")
             clone = self._make_clone_with_commit(root, intended)
+            _git("remote", "set-url", "origin", str(wrong), cwd=clone)
             _git("remote", "set-url", "--push", "origin", str(intended), cwd=clone)
 
-            verdict = MODULE.resolve_repository(
+            self._add_feature_commit(clone)
+            verdict = _production_verdict(
+                clone,
                 remotes={"origin": UPSTREAM_HTTPS},
                 push_remotes={"origin": [ORIGIN_HTTPS]},
                 gh_default=None,
@@ -180,8 +227,7 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             )
             self.assertEqual("ready", verdict["status"])
 
-            self._add_feature_commit(clone)
-            pushed = _gated_push(clone, verdict, "feature")
+            pushed = _gated_push(clone, verdict)
 
             self.assertTrue(pushed)
             self.assertIsNotNone(_rev(intended, "refs/heads/feature"))
@@ -199,8 +245,8 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             _git("checkout", "-q", "-B", "wrong-branch", cwd=clone)
             self._add_feature_commit(clone)
 
-            result = MODULE.verify_branch_and_dry_run(
-                clone, remote="origin", assigned_branch="feature/expected"
+            result = _production_verdict(
+                clone, assigned_branch="feature/expected"
             )
             self.assertEqual("incomplete", result["status"])
             self.assertEqual("branch_mismatch", result["reason_code"])
@@ -220,8 +266,8 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             baseline = _rev(intended, "refs/heads/feature/expected")
             self._add_feature_commit(clone)
 
-            result = MODULE.verify_branch_and_dry_run(
-                clone, remote="origin", assigned_branch="feature/expected"
+            result = _production_verdict(
+                clone, assigned_branch="feature/expected"
             )
             self.assertEqual("ready", result["status"])
             self.assertEqual(
@@ -231,7 +277,7 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             )
 
             # Only now does the gated pattern perform the real push.
-            _git("push", "-q", "origin", "feature/expected:refs/heads/feature/expected", cwd=clone)
+            self.assertTrue(_gated_push(clone, result))
             self.assertNotEqual(baseline, _rev(intended, "refs/heads/feature/expected"))
 
     def test_feature_to_main_is_rejected_without_advancing_either_repo(self) -> None:
@@ -241,14 +287,14 @@ class PhysicalPushSafetyTests(unittest.TestCase):
             wrong = self._make_bare(root, "wrong.git")
             clone = self._make_clone_with_commit(root, intended)
             before = _rev(intended, "refs/heads/main")
-            _git("checkout", "-q", "-b", "feature/expected", cwd=clone)
+            _git("checkout", "-q", "-b", "task/expected", cwd=clone)
             self._add_feature_commit(clone)
-            verdict = MODULE.verify_branch_and_dry_run(
-                clone, remote="origin", assigned_branch="feature/expected", dest_ref="refs/heads/main")
+            verdict = _production_verdict(
+                clone, assigned_branch="task/expected", dest_ref="refs/heads/main")
             self.assertEqual("destination_mismatch", verdict["reason_code"])
-            self.assertFalse(_gated_push(clone, verdict, "main"))
+            self.assertFalse(_gated_push(clone, verdict))
             self.assertEqual(before, _rev(intended, "refs/heads/main"))
-            self.assertIsNone(_rev(intended, "refs/heads/feature/expected"))
+            self.assertIsNone(_rev(intended, "refs/heads/task/expected"))
             self.assertIsNone(_rev(wrong, "refs/heads/main"))
 
 

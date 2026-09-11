@@ -9,8 +9,9 @@ It never holds a token, password, private key, or credential-bearing URL.
 `skills/dev/scripts/dev_config.py` owns its schema, validation, and creation.
 `skills/dev/scripts/resolve_repository.py` owns comparing that intent against
 what a checkout and its authentication would actually do — and **loads
-`.dev.json` itself**: every invocation below fails closed on a missing,
-invalid, or tracked config, regardless of which other flags are passed.
+`.dev.json` itself**: pre-write checks fail closed on a missing, invalid, or
+tracked config. First-use candidate checks are explicitly separate and never
+authorize a write.
 
 ```json
 {
@@ -30,15 +31,17 @@ invalid, or tracked config, regardless of which other flags are passed.
 1. Locate the worktree root (`git rev-parse --show-toplevel`, or the
    explicitly selected project root before Git exists). Do not search parent
    directories for another project's `.dev.json`.
-2. Run `dev_config.py status`. Its `status` field decides the next step:
+2. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/dev_config.py" status`. Its `status` field decides the next step:
    - `tracked` — `/.dev.json` is committed in this repository. **Stop.**
      A repository-supplied file is never trusted as user-confirmed intent.
      Ask the user for a focused decision before doing anything else.
    - `invalid` — a file exists but fails schema validation. **Stop.** Report
      the `reason`. Never rewrite or discard the file to make it valid.
    - `not_ignored` — the file is valid and untracked, but not yet covered by
-     the repository-local exclude file. Run `dev_config.py create`'s exclusion
-     step (`ensure_excluded`) before treating it as ready, then re-check status.
+     the repository-local exclude file. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/dev_config.py" exclude`
+     before treating it as ready, then re-check status. This preserves the file.
+   - `incomplete` — Git provenance or local I/O could not be verified. Stop
+     and report the reason; do not treat a Git error as a new project.
    - `valid` — reuse it. Do not ask the user to reconfirm values that already
      agree with observed reality.
    - `missing` — continue to step 3.
@@ -63,10 +66,14 @@ invalid, or tracked config, regardless of which other flags are passed.
    together. Reuse an explicit choice the user already supplied instead of
    asking again.
 5. Verify the selected values against available repository/authentication
-   facts: use the standalone account modes below with the proposed account and exact candidate push URLs. These checks do not require a saved config. An
+   facts: use the account modes below with `--setup-account-check`, the proposed
+   `--account`, and exact candidate push URLs. This option is permitted only
+   while config is missing. A successful `candidate_verified` result supports
+   setup only; it never licenses a GitHub write. After saving config, repeat
+   the ordinary check without this flag and require `verified`. An
    unresolved identity/destination mismatch on an existing checkout stops
    setup; do not stamp a guessed configuration as established.
-6. Run `dev_config.py create` with the confirmed values. It refuses to
+6. Run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/dev_config.py" create` with the confirmed values. It refuses to
    overwrite an existing file; if another setup process created one
    meanwhile, read and compare instead of replacing it.
 7. Confirm the file is excluded (`dev_config.py` runs `ensure_excluded`
@@ -78,13 +85,15 @@ invalid, or tracked config, regardless of which other flags are passed.
 
 No remote or repository may exist on the first invocation. Confirm the
 intended name/owner/account, verify the available GitHub account, and save
-those confirmed values at the selected project root with `dev_config.py
-create`. Explicitly report that remote and Git-transport checks are pending —
+those confirmed values at the selected project root with
+`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/dev_config.py" create`.
+Use `--setup-account-check` only for that initial read-only account discovery.
+Explicitly report that remote and Git-transport checks are pending —
 file existence never makes a push ready. If the user has not chosen a name or
 usable account yet, leave setup incomplete rather than inventing one; finish
 it before the first GitHub write. Phase 2's bootstrap step is responsible for
 the actual repository creation; before that write, check the CLI account
-(`resolve_repository.py --mode check-gh-account --account <github.account>`)
+(`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-gh-account --account <github.account>`)
 and create using the full confirmed `github.pushRepository` (which may belong to an organization), never a bare
 project name. After creation/clone, re-run this procedure to verify the
 actual remote, repository, and Git identity before any push. If bootstrap
@@ -113,7 +122,7 @@ that by omitting a flag.
 ### Before a Git push
 
 ```bash
-resolve_repository.py --repo-dir <worktree> --operation push \
+rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir <worktree> --operation push \
   --assigned-branch <ledger-assigned branch>
 ```
 
@@ -131,9 +140,9 @@ resolve_repository.py --repo-dir <worktree> --operation push \
   never a value read from a rejected verdict, and never a bare `git push`
   that lets Git's own default choose:
   ```bash
-  remote="$(resolve_repository.py --repo-dir <worktree> --operation push \
+  remote="$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir <worktree> --operation push \
     --assigned-branch <branch> --print-push-remote)" || exit 1
-  git push "$remote" "<branch>:refs/heads/<branch>"
+  rtk proxy git push "$remote" "<branch>:refs/heads/<branch>"
   ```
 - Exit 2 means stop — no fallback, no default selection. `gh_default` and
   `notes` in the JSON output are informational only: an unrelated `gh repo
@@ -142,7 +151,7 @@ resolve_repository.py --repo-dir <worktree> --operation push \
 ### Before a PR or Issue operation
 
 ```bash
-resolve_repository.py --repo-dir <worktree> --operation pr \
+rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir <worktree> --operation pr \
   --target <the literal OWNER/REPO you are about to pass to gh>
 ```
 
@@ -155,7 +164,7 @@ an **explicitly assigned existing Issue** whose own qualified repository
 identity is expected to differ (already confirmed via the ledger, not
 re-derived here), add `--allow-target-override`. The same flag applies to an explicitly approved one-off upstream PR recorded in the task ledger; it never changes `.dev.json` or permits an upstream Git push. Every `ready` result here
 also verifies the actual `gh` CLI login
-(`resolve_repository.py --mode check-gh-account`) against `github.account`
+against `github.account`
 before you may treat the operation as safe — two accounts can both have
 access to a repository, so a correct Git credential does not establish which
 account `gh` will use.
@@ -163,7 +172,7 @@ account `gh` will use.
 A conflicting `GH_HOST` stops the account/operation check. Use `--hostname github.com` for `gh api`, `--repo github.com/OWNER/REPO` for commands accepting it, and `GH_HOST=github.com` with the full configured `OWNER/REPO` for repository creation. Do not switch a conflicting host silently.
 
 Use the confirmed target explicitly in the command: `gh <cmd> --repo
-<owner/repo>` where accepted, the explicit REST/GraphQL endpoint path or
+github.com/<owner/repo>` where accepted, the explicit REST/GraphQL endpoint path or
 repository identity for `gh api`, and the positional repository for `gh repo
 create`. Never rely on a cwd-derived `{owner}`/`{repo}` placeholder or an
 inherited `gh` default. Reference an Issue in another repository as `Closes
@@ -179,11 +188,14 @@ sequence unscoped.
 
 | Transport | Supported verification |
 | --- | --- |
-| Ordinary HTTPS with an existing credential helper | `resolve_repository.py --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
-| Standard OpenSSH, including host aliases | `resolve_repository.py --mode check-ssh-account --url <exact push URL> --account <github.account>` — resolves the alias via `ssh -G` with the URL-explicit user and port applied, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
-| GitHub CLI / API mutation | `resolve_repository.py --mode check-gh-account --account <github.account>` — `gh api --hostname github.com user`, never `gh auth status` alone |
+| Ordinary HTTPS with an existing credential helper | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-https-account --url <exact push URL> --account <github.account>` — `git credential fill` for the exact URL/context, checked in-process only |
+| Standard OpenSSH, including host aliases | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-ssh-account --url <exact push URL> --account <github.account>` — resolves the alias via `ssh -G` with the URL-explicit user and port applied, then probes the **original alias** (never the resolved hostname) so the alias's own port/identity/user apply exactly as a real push would; requires GitHub's documented greeting and exit status **1** |
+| GitHub CLI / API mutation | `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --mode check-gh-account --account <github.account>` — `gh api --hostname github.com user`, never `gh auth status` alone |
 
-`verified` is the only status that establishes an account; `incomplete` with
+Ordinary account modes load the validated config and verify its account;
+an optional `--account` must agree with it. `verified` is the only account
+status that permits proceeding to a write; `candidate_verified` is setup
+evidence only. `incomplete` with
 `unsupported_transport_auth`, `identity_unavailable`, or `account_mismatch`
 all stop the write. Commit authorship, a URL username, and `gh auth status`
 alone never establish this — they are not accepted as substitutes.

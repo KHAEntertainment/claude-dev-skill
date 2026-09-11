@@ -41,7 +41,7 @@ class PrewriteEntrypointTests(unittest.TestCase):
                  ("check-ssh-account", "verify_ssh_url_account", ["--url", "git@github.com:A/B.git"])]
         for mode, name, args in cases:
             with self.subTest(mode=mode), patch.object(MODULE, name, return_value=VERIFIED) as probe:
-                code, payload = self.run_cli("--mode", mode, "--account", "Expected", *args)
+                code, payload = self.run_cli("--mode", mode, "--account", "KHAEntertainment", *args)
                 self.assertEqual(0, code)
                 self.assertEqual("verified", payload["status"])
                 probe.assert_called_once()
@@ -62,6 +62,7 @@ class PrewriteEntrypointTests(unittest.TestCase):
         other = ORIGIN_HTTPS.removesuffix(".git")
         code, payload, probes, dry = self.push([ORIGIN_HTTPS, other], [VERIFIED, VERIFIED])
         self.assertEqual(0, code)
+        self.assertEqual("ready", payload["status"])
         self.assertEqual([ORIGIN_HTTPS, other], [call.args[1] for call in probes])
         self.assertEqual(1, dry)
 

@@ -132,7 +132,7 @@ restating it.
 
     An entry that resolves to none of these is itself a failure of this lane. A Limitations section that grows while the score stays flat is the defect this rule exists to prevent.
 
-12. Immediately before posting, re-run `resolve_repository.py --operation pr --target [pr-repository]` and require exit 0. Leave a QA report comment on the PR (`rtk gh pr comment [N] --repo github.com/[pr-repository] ...`):
+12. Immediately before posting, re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target [pr-repository]` and require exit 0. Leave a QA report comment on the PR (`rtk gh pr comment [N] --repo github.com/[pr-repository] ...`):
 
 ```markdown
 ## QA Report — PR #[N] / Issue #[M]
