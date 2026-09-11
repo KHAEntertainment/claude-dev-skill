@@ -74,6 +74,48 @@ try {
     Assert-Path (Join-Path $rollback "commands\dev\old-phase.md")
     Pass "rollback after backup"
 
+    # Dirty checkout: uncommitted edits to tracked files and ignored/untracked
+    # files under skills/dev must not ship (Issue #44).
+    $dirtySource = Join-Path $testRoot "dirty-source"
+    New-Item -ItemType Directory -Force -Path $dirtySource | Out-Null
+    Copy-Item (Join-Path $repo "*") $dirtySource -Recurse -Force
+    Add-Content -Path (Join-Path $dirtySource "skills\dev\SKILL.md") -Value "`n<!-- local edit: must not ship -->"
+    New-Item -ItemType Directory -Force -Path (Join-Path $dirtySource "skills\dev\scripts\__pycache__") | Out-Null
+    Set-Content -Path (Join-Path $dirtySource "skills\dev\scripts\__pycache__\x.pyc") -Value "compiled"
+    $dirtyTarget = Join-Path $testRoot "dirty target"
+    & (Join-Path $dirtySource "install.ps1") -ConfigDir $dirtyTarget -Lang en | Out-Null
+    Assert-Path (Join-Path $dirtyTarget "skills\dev\SKILL.md")
+    if (Select-String -Path (Join-Path $dirtyTarget "skills\dev\SKILL.md") -Pattern "local edit: must not ship" -Quiet) {
+        throw "Uncommitted edit to a tracked file shipped in the install"
+    }
+    Assert-Absent (Join-Path $dirtyTarget "skills\dev\scripts\__pycache__")
+    Pass "dirty checkout excludes uncommitted edits and ignored files"
+
+    # No .git source: falls back to the working-tree copy and reports tarball
+    # provenance instead of a commit (Issue #44, ADR-007 tarball/libexec case).
+    $nogitSource = Join-Path $testRoot "nogit-source"
+    New-Item -ItemType Directory -Force -Path $nogitSource | Out-Null
+    Copy-Item (Join-Path $repo "*") $nogitSource -Recurse -Force
+    Remove-Item (Join-Path $nogitSource ".git") -Recurse -Force -ErrorAction SilentlyContinue
+    $nogitTarget = Join-Path $testRoot "nogit target"
+    # 6>&1 merges the Information stream (what Write-Host writes to) into the
+    # success stream so the provenance line below can be captured.
+    $nogitOutput = & (Join-Path $nogitSource "install.ps1") -ConfigDir $nogitTarget -Lang en 6>&1
+    Assert-Path (Join-Path $nogitTarget "skills\dev\SKILL.md")
+    if (-not ($nogitOutput -match "Installed from: no git metadata \(tarball install\)")) {
+        throw "No-.git install did not report tarball provenance"
+    }
+    Pass "no-.git source installs via the copy path with tarball provenance"
+
+    # Clean checkout: the install reports the staged commit (Issue #44).
+    $cleanTarget = Join-Path $testRoot "clean target"
+    $cleanOutput = & $installer -ConfigDir $cleanTarget -Lang en 6>&1
+    $expectedCommit = (& git -C $repo rev-parse HEAD).Trim()
+    if (-not ($cleanOutput -match "Installed from commit $expectedCommit")) {
+        throw "Clean checkout install did not report the staged commit"
+    }
+    Pass "clean checkout install reports commit provenance"
+
     Write-Host "All $passCount PowerShell installer tests passed."
 }
 finally {

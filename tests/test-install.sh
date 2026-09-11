@@ -107,4 +107,49 @@ if bash "$broken/repo/install.sh" --config-dir "$broken/config" >/dev/null 2>&1;
 expect_absent "$broken/config"
 pass "missing source file rejected before mutation"
 
+# Dirty checkout: uncommitted edits to tracked files and ignored/untracked
+# files under skills/dev must not ship (Issue #44).
+dirty_source="$TEST_ROOT/dirty-source"
+mkdir -p "$dirty_source"
+cp -R -- "$REPO_DIR/." "$dirty_source/repo"
+printf '\n<!-- local edit: must not ship -->\n' >>"$dirty_source/repo/skills/dev/SKILL.md"
+mkdir -p "$dirty_source/repo/skills/dev/scripts/__pycache__"
+printf 'compiled\n' >"$dirty_source/repo/skills/dev/scripts/__pycache__/x.pyc"
+dirty_target="$TEST_ROOT/dirty target"
+bash "$dirty_source/repo/install.sh" --config-dir "$dirty_target" --lang en >/dev/null
+expect_file "$dirty_target/skills/dev/SKILL.md"
+if grep -q 'local edit: must not ship' "$dirty_target/skills/dev/SKILL.md"; then
+  fail "uncommitted edit to a tracked file shipped in the install"
+fi
+expect_absent "$dirty_target/skills/dev/scripts/__pycache__"
+pass "dirty checkout excludes uncommitted edits and ignored files"
+
+# No .git source: falls back to the working-tree copy and reports tarball
+# provenance instead of a commit (Issue #44, ADR-007 tarball/libexec case).
+nogit_source="$TEST_ROOT/nogit-source"
+mkdir -p "$nogit_source"
+cp -R -- "$REPO_DIR/." "$nogit_source/repo"
+rm -rf -- "$nogit_source/repo/.git"
+nogit_target="$TEST_ROOT/nogit target"
+nogit_output="$(bash "$nogit_source/repo/install.sh" --config-dir "$nogit_target" --lang en)"
+expect_file "$nogit_target/skills/dev/SKILL.md"
+if ! grep -q 'Installed from: no git metadata (tarball install)' <<<"$nogit_output"; then
+  fail "no-.git install did not report tarball provenance"
+fi
+pass "no-.git source installs via the copy path with tarball provenance"
+
+# Clean checkout: the installed tree matches a plain git archive of HEAD,
+# and the install reports the staged commit (Issue #44).
+clean_target="$TEST_ROOT/clean target"
+clean_output="$(bash "$INSTALLER" --config-dir "$clean_target" --lang en)"
+expected_commit="$(git -C "$REPO_DIR" rev-parse HEAD)"
+if ! grep -q "Installed from commit $expected_commit" <<<"$clean_output"; then
+  fail "clean checkout install did not report the staged commit"
+fi
+archive_check="$TEST_ROOT/archive-check"
+mkdir -p "$archive_check"
+git -C "$REPO_DIR" archive HEAD -- skills/dev | tar -x -C "$archive_check" --strip-components=2
+diff -r "$archive_check" "$clean_target/skills/dev" >/dev/null || fail "installed tree differs from git archive of HEAD"
+pass "clean checkout install matches git archive and reports commit provenance"
+
 printf 'All %d installer tests passed.\n' "$pass_count"
