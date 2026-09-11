@@ -13,11 +13,14 @@ Produce:
 ### Completed
 ### Known Issues
 ### Deferred
+### Post-Merge Verification
 ### External-Review Bypasses
 ### Recommended Next Priorities
 ```
 
 Report the count of external-review bypasses used this round under `External-Review Bypasses`, reported explicitly, including `0` when none occurred — so repeated bypass is visible as a pattern across rounds, not only per PR.
+
+Under `Post-Merge Verification`, list the post-merge verification records from `.agent/dev-state.md` for every PR merged this round (gate result and acceptance-criteria verdict) — read them, do not repeat the check itself; the procedure that produces them is `${CLAUDE_SKILL_DIR}/phases/phase4.md`'s unconditional post-merge step.
 
 Update the current-status section of `PROJECT_CONTEXT.md` and the completed list in `docs/feature-log.md`. After repository initialization, make these tracked documentation changes in a docs-only worktree and PR; never push directly to main.
 

@@ -218,3 +218,4 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 - **Hotfix post-merge**: scan all open PRs, list PRs with file overlap with the hotfix changes, notify corresponding Worker Agents to rebase
 - **Backend cleanup**: ask every delegated agent to stop gracefully, then run the selected adapter's cleanup and update `.agent/dev-state.md` before Phase 5 or standby
 - **After REQUEST CHANGES**: batch blockers, then run Phase 3.5 + Phase 4 using **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`; require fresh final-head results while retaining historical evidence.
+- **Post-merge verification**: the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria after every merge, unconditionally — see `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
