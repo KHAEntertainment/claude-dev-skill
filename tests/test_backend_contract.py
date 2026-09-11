@@ -897,6 +897,69 @@ class BackendContractTests(unittest.TestCase):
             phase5,
         )
 
+    def test_post_merge_verification_is_unconditional_and_pins_the_ac_language(
+        self,
+    ) -> None:
+        """Issue #26: nothing re-examined merged code against the closed
+        Issue's acceptance criteria, and auto-closure by a merge keyword was
+        read as completion evidence. The unconditional step must exist, must
+        not be a merge gate, and must state the hazard explicitly rather than
+        leaving it implied.
+        """
+        phase4 = " ".join(self.read("phases/phase4.md").split())
+        for requirement in (
+            "Post-Merge Verification (unconditional)",
+            "This is not a merge gate",
+            "the merge commit's tree hash",
+            "the verified PR head's tree hash",
+            "run the full recorded Verification Gate",
+            "Auto-closure by a merge keyword is never evidence of completion",
+            "merge_sha",
+            "gate_result",
+            "criteria_verdict",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, phase4)
+
+        # Cross-references the bypass debt rule rather than restating its
+        # commit-range syntax — duplicating it here is exactly the drift the
+        # single-source-of-truth tokens above exist to prevent.
+        self.assertIn("external-review.md", phase4)
+        self.assertNotIn("<reviewed-head>..<merged-head>", phase4)
+        self.assertNotIn("<base-head>..<merged-head>", phase4)
+
+        phase5 = self.read("phases/phase5.md")
+        self.assertIn("### Post-Merge Verification", phase5)
+        self.assertIn("post-merge verification records", phase5)
+        # The retro reads the records phase4.md's step produces; it must not
+        # restate the check itself.
+        self.assertIn(
+            "do not repeat the check itself",
+            phase5,
+        )
+
+        skill_section = _markdown_section(self.read("SKILL.md"), "## Global Rules")
+        self.assertIsNotNone(skill_section, "SKILL.md has no Global Rules section")
+        self.assertIn(
+            "the lead reconciles the merged tree and re-confirms the closed "
+            "Issue's acceptance criteria",
+            skill_section,
+        )
+        self.assertIn("${CLAUDE_SKILL_DIR}/phases/phase4.md", skill_section)
+
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        for requirement in (
+            "Post-merge verification record schema",
+            "merge_sha",
+            "gate_result",
+            "criteria_verdict",
+            "applies_verbatim",
+            "Auto-closure by a merge keyword is never evidence of completion",
+            "unmet_criteria",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, state)
+
     def test_implementation_lanes_carry_the_reuse_first_ladder(self) -> None:
         for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
             prompt = self.read(relative)
