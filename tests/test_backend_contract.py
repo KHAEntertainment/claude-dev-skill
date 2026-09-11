@@ -867,7 +867,14 @@ class BackendContractTests(unittest.TestCase):
             "obligates a re-request at the new head, not a bypass",
             "never one invalidated by the author's own response",
             "the exact unreviewed commit range",
+            # Two forms are required: a review that completed before the fix
+            # commits anchors the range at the reviewed head, but a review
+            # that never completed at all has no reviewed head to anchor
+            # it — that case must fall back to the PR's base head, or the
+            # range degenerates to empty while every commit is unreviewed.
             "<reviewed-head>..<merged-head>",
+            "<base-head>..<merged-head>",
+            "no review ever completed on the PR",
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, external)
@@ -875,6 +882,8 @@ class BackendContractTests(unittest.TestCase):
         state = self.read("templates/DEV_STATE_TEMPLATE.md")
         self.assertIn("the exact unreviewed commit range", state)
         self.assertIn("<reviewed-head>..<merged-head>", state)
+        self.assertIn("<base-head>..<merged-head>", state)
+        self.assertIn("no review ever completed on the PR", state)
         self.assertIn("the PR number alone is not sufficient", state)
 
         phase5 = self.read("phases/phase5.md")

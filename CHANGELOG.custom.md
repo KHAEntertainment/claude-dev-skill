@@ -20,8 +20,11 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   genuinely unavailable; a review the author's own commits moved past
   obligates a re-request at the new head, and the default is to wait. Where
   a bypass is still used, the recorded debt must name the exact unreviewed
-  commit range (`<reviewed-head>..<merged-head>`), not just the PR. The
-  Phase 5 retro now reports the count of external-review bypasses per round
+  commit range, not just the PR: `<reviewed-head>..<merged-head>` when a
+  review completed at that head, or `<base-head>..<merged-head>` when no
+  review ever completed on the PR (there is no reviewed head to anchor the
+  range, so every commit is unreviewed). The Phase 5 retro now reports the
+  count of external-review bypasses per round
   (`0` reported explicitly) so repeated bypass is visible as a pattern
   rather than only per-PR. `validate_skill.py` and the doc-assertion test
   suite pin the new load-bearing sentences.

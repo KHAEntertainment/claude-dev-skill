@@ -345,6 +345,11 @@ def main() -> int:
             # same debt be re-hidden behind a later, partially-reviewed head.
             "the exact unreviewed commit range",
             "<reviewed-head>..<merged-head>",
+            # Reviewer-converged fix (CodeRabbit + internal review): when no
+            # review ever completed on the PR there is no reviewed head, so
+            # the range degenerates to empty unless the base-head form is
+            # pinned as the other required case.
+            "<base-head>..<merged-head>",
         ),
         # Issue #33: the gate's own bypass path had become the routine path
         # because a review invalidated by the author's own fix-commit push
@@ -354,6 +359,7 @@ def main() -> int:
             "never for a review that arrived and was invalidated by the author's own response",
             "obligates a re-request at the new head, not a bypass",
             "the exact unreviewed commit range",
+            "<base-head>..<merged-head>",
         ),
         # Issue #33: without a named retro line, repeated bypass across
         # rounds was only ever visible per-PR, never as a pattern.

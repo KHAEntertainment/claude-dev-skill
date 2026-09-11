@@ -101,7 +101,7 @@ Keep `review_deadline` and `next_action` current with the deadline and next
 observation/retry time. Follow `${CLAUDE_SKILL_DIR}/phases/external-review.md`;
 polling, acknowledgements and new pushes do not renew an unfinished wait episode.
 
-Each `approved_bypasses` / `review_debt` entry must record the reason, approver, timestamp, and the exact unreviewed commit range (`<reviewed-head>..<merged-head>`) that no reviewer saw — the PR number alone is not sufficient.
+Each `approved_bypasses` / `review_debt` entry must record the reason, approver, timestamp, and the exact unreviewed commit range that no reviewer saw — `<reviewed-head>..<merged-head>` when a review completed at that head, or `<base-head>..<merged-head>` when no review ever completed on the PR (there is no reviewed head to anchor the range, so every commit is unreviewed) — the PR number alone is not sufficient.
 
 ## Recovery entries
 
