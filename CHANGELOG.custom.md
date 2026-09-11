@@ -32,44 +32,60 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 ### Fixed
 
 - `install.sh` and `install.ps1` no longer ship whatever is sitting on disk
-  under `skills/dev` (#44). When the installer's own directory is the root
-  of a git checkout that tracks `skills/dev` — confirmed via `git rev-parse
-  --show-prefix` being empty (cwd is the repo root, not merely inside one)
-  plus a non-empty `git ls-tree -d HEAD -- skills/dev` — staging now runs
-  `git archive HEAD -- skills/dev` (piped through `tar` for `install.sh`;
-  written to a temp file and extracted for `install.ps1`, avoiding
-  PowerShell's native-to-native pipe binary corruption risk) instead of
-  copying the working tree, so untracked/ignored files
-  (`scripts/__pycache__/*.pyc` and similar) and uncommitted edits to
-  tracked files never reach the installed Skill; the exec bit is preserved
-  via git's stored file mode. Requiring the installer's own directory to
-  *be* the repo root — rather than a plain `rev-parse --git-dir` walk up to
-  any ancestor `.git` — matters: a bare copy of this distribution dropped
-  underneath an unrelated checkout is not misclassified as that ancestor's
-  repo, which would otherwise make `git archive` fail on an unmatched
-  pathspec (or worse, archive the ancestor's unrelated tree) instead of
-  correctly falling back to the copy path. A source with no `.git` — the
-  release tarball or the Homebrew `libexec` copy, ADR-007 — keeps the
-  previous working-tree copy verbatim, unchanged. Both installers now print
-  the commit staged from (`Installed from commit <sha>`) or, for the no-git
-  case, `Installed from: no git metadata (tarball install)`. If the
-  directory *is* a self-contained git checkout but `tar` isn't on `PATH`,
-  both installers abort with an actionable error instead of silently
-  falling back to the working-tree copy while still claiming git
-  provenance — `install.ps1`'s error names the gap explicitly since
-  Windows only bundles `tar.exe` since the 1803 update and isn't guaranteed
-  on older hosts (a documented asymmetry: `install.sh` relies on `tar`
-  being a near-universal POSIX utility and doesn't call this out
-  separately). `tests/test-install.sh` gained cases for: a dirty checkout
-  (uncommitted edit plus an ignored file both excluded), a no-`.git` source
-  (copy path used, tarball provenance reported), a source with no `.git` of
-  its own nested underneath an unrelated ancestor checkout (copy path used,
-  not misclassified as the ancestor's repo), and a clean checkout
+  under `skills/dev` (#44). Whether the installer's own directory *looks
+  like* a git checkout (a `.git` entry — directory, or for a linked
+  worktree the `gitdir: ...` file — is present) and whether it can
+  actually be *validated* as one are checked separately, and a directory
+  that looks like a checkout but can't be validated always aborts rather
+  than silently copying: doing otherwise would ship possibly-dirty
+  working-tree content while looking, from the outside, exactly like the
+  safe case. The full matrix, implemented identically in both installers:
+  - own `.git` + validates (git present; `git rev-parse --show-prefix` is
+    empty, meaning the installer's own directory *is* the repo root and
+    not merely inside one; `git ls-tree -d HEAD -- skills/dev` is
+    non-empty) + `tar` available → stage via `git archive HEAD --
+    skills/dev` (piped through `tar` for `install.sh`; written to a temp
+    file and extracted for `install.ps1`, avoiding PowerShell's
+    native-to-native pipe binary corruption risk). Untracked/ignored files
+    (`scripts/__pycache__/*.pyc` and similar) and uncommitted edits to
+    tracked files never reach the installed Skill this way; the exec bit
+    is preserved via git's stored file mode.
+  - own `.git` + validates + `tar` missing → abort with an actionable
+    error, never fall back to the copy path while still claiming git
+    provenance.
+  - own `.git` + does not validate (git binary missing, or `SCRIPT_DIR`
+    isn't actually the repo root, or `skills/dev` isn't tracked at HEAD)
+    → abort with an actionable error. (Checking `--show-prefix` for
+    emptiness, rather than comparing `--show-toplevel`'s output against
+    `SCRIPT_DIR`/`PSScriptRoot` as a string, sidesteps a real symlink
+    resolution mismatch hit during development — PowerShell's
+    `Resolve-Path` doesn't resolve macOS's `/var` → `/private/var` the way
+    git's internal realpath handling does, which produced a false
+    negative for a legitimate self-checkout under a symlinked temp path.)
+  - no own `.git` → copy path, unchanged from before this fix (the release
+    tarball or the Homebrew `libexec` copy, ADR-007 case; also covers a
+    bare copy of this distribution — no `.git` of its own — dropped
+    underneath an unrelated ancestor checkout, which a plain
+    `rev-parse --git-dir` walk-up would otherwise misclassify as that
+    ancestor's repo).
+
+  Both installers print the commit staged from (`Installed from commit
+  <sha>`) or, for the no-git case, `Installed from: no git metadata
+  (tarball install)`. `tests/test-install.sh` gained cases for: a dirty
+  checkout (uncommitted edit plus an ignored file both excluded), a
+  no-`.git` source (copy path, tarball provenance), a source with no
+  `.git` of its own nested underneath an unrelated ancestor checkout (copy
+  path, not misclassified as the ancestor's repo), a git checkout with the
+  `git` binary unavailable (aborts, installs nothing), a git checkout with
+  `tar` unavailable (aborts, installs nothing), and a clean checkout
   (installed tree diffed byte-for-byte against `git archive HEAD --
   skills/dev`, commit provenance reported); `tests/test-install.ps1`
-  mirrors all of these plus a git checkout with `tar` removed from `PATH`
-  (aborts, installs nothing), except the tree-diff comparison, which has no
-  direct PowerShell equivalent in this suite — a recorded sh/ps1 asymmetry.
+  mirrors all of these except the tree-diff comparison, which has no
+  direct PowerShell equivalent in this suite — a recorded sh/ps1
+  asymmetry. Fixture commits in both suites (the unrelated-ancestor-repo
+  case) pass an explicit `-c user.name=test -c user.email=test@example.com`
+  so they stay hermetic on a CI runner with no git identity configured,
+  rather than failing with "Please tell me who you are."
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
