@@ -1064,7 +1064,7 @@ def parse_args() -> argparse.Namespace:
         help="'push' validates the Git push destination; 'pr'/'issue' validate an explicit API target",
     )
     parser.add_argument("--repo-dir", type=Path, default=Path.cwd())
-    parser.add_argument("--config", type=Path, help="path to .dev.json; defaults to the auto-detected file at --repo-dir")
+    parser.add_argument("--config", type=Path, help="explicit path to the selected worktree root's .dev.json; other locations are rejected")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--target", help="explicit OWNER/REPO this pr/issue operation is about to use")
     parser.add_argument(
@@ -1155,15 +1155,19 @@ def _run_resolve_fixture(args: argparse.Namespace) -> int:
 def _load_required_config(args: argparse.Namespace) -> tuple[dict[str, object] | None, dict[str, object] | None]:
     """Load and require a valid `.dev.json`. Returns (config, error-decision);
     exactly one is None."""
-    if args.config is not None:
-        config_path = args.config.resolve()
-    else:
-        repo_dir = args.repo_dir.resolve()
-        try:
-            git_root = dev_config.find_git_root(repo_dir)
-        except dev_config.ConfigError as exc:
-            return None, {"status": "incomplete", "reason_code": exc.code, "reason": str(exc)}
-        config_path = (git_root or repo_dir) / dev_config.CONFIG_FILENAME
+    repo_dir = args.repo_dir.resolve()
+    try:
+        git_root = dev_config.find_git_root(repo_dir)
+    except dev_config.ConfigError as exc:
+        return None, {"status": "incomplete", "reason_code": exc.code, "reason": str(exc)}
+    config_path = (git_root or repo_dir).resolve() / dev_config.CONFIG_FILENAME
+    # Compare against the root's literal filename, not its symlink destination.
+    if config_path.resolve() != config_path or (args.config is not None and args.config.resolve() != config_path):
+        return None, {
+            "status": "incomplete",
+            "reason_code": "config_path_mismatch",
+            "reason": "config must be the selected worktree root's .dev.json, without a symlink to another location",
+        }
     status = dev_config.resolve_status(config_path)
     if status["status"] != "valid":
         return None, {

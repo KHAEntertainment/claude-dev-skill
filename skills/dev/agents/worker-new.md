@@ -28,7 +28,7 @@ Whether launched through Claude-native or Traycer execution:
 
 1. `cd` to the absolute worktree path assigned by the Tech Lead. Verify the repository root, current branch, clean status, and expected base commit. Stop and report a blocker if any value differs; do not create, switch, or reuse another branch.
 
-   Immediately after, resolve Issue #[N]'s own repository identity per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation issue --target <Issue #[N]'s assigned repository> [--allow-target-override if it is an explicitly assigned existing upstream Issue]`. This check runs **before the first Issue read**, not only before the final comment — an unscoped read can return evidence from the wrong repository. Use the confirmed `--repo <owner/repo>` on every Issue read and comment for the rest of this lane, including step 2's read and step 5's comment.
+   Immediately after, resolve Issue #[N]'s own repository identity per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<assigned-worktree>" --operation issue --target <Issue #[N]'s assigned repository> [--allow-target-override if it is an explicitly assigned existing upstream Issue]`. This check runs **before the first Issue read**, not only before the final comment — an unscoped read can return evidence from the wrong repository. Use the confirmed `--repo <owner/repo>` on every Issue read and comment for the rest of this lane, including step 2's read and step 5's comment.
 
 2. Read the Issue content (`rtk gh issue view #[N] --repo github.com/<confirmed>`), acceptance criteria, and architecture constraint references
 
@@ -43,7 +43,7 @@ Whether launched through Claude-native or Traycer execution:
    - The project's error handling conventions (find one representative existing example)
    - If `PROJECT_CONTEXT.md` / `API_CONTRACT.md` exist, you **must** read them
 
-5. Immediately before posting, re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation issue --target <assigned issue repository>` (with the confirmed per-task override when applicable) and require exit 0. Post an **understanding confirmation** comment on the Issue (`rtk gh issue comment #[N] --repo github.com/<confirmed from step 1>`), containing:
+5. Immediately before posting, re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<assigned-worktree>" --operation issue --target <assigned issue repository>` (with the confirmed per-task override when applicable) and require exit 0. Post an **understanding confirmation** comment on the Issue (`rtk gh issue comment #[N] --repo github.com/<confirmed from step 1>`), containing:
    - Describe the task in your own words (1–2 sentences)
    - List of files to modify/create
    - Restate each acceptance criterion
@@ -132,12 +132,12 @@ Whether launched through Claude-native or Traycer execution:
 
 15. If self-check changed any code, rerun the relevant full test and static-check set. Do not rely on an earlier passing run.
 16. Create semantic, bisectable commits in dependency order: shared infrastructure, core logic, interface layer, then tests. Keep every commit runnable.
-17. Immediately before pushing, run this worktree's `.dev.json` pre-write verification per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, using the exact assigned branch:
+17. Immediately before pushing, run this worktree's `.dev.json` pre-write verification per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, using the exact assigned branch. Replace `<assigned-worktree>` with the absolute path assigned and verified in Step 1, never the ambient directory:
     ```bash
-    remote="$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation push --assigned-branch <assigned-branch> --print-push-remote)" || exit 1
-    rtk proxy git push "$remote" "<assigned-branch>:refs/heads/<assigned-branch>"
+    remote="$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<assigned-worktree>" --operation push --assigned-branch <assigned-branch> --print-push-remote)" || exit 1
+    rtk proxy git -C "<assigned-worktree>" push "$remote" "<assigned-branch>:refs/heads/<assigned-branch>"
     ```
-    Then re-verify the PR target and the `gh` CLI account before creating the PR: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --operation pr --target <github.pullRequestRepository from .dev.json>`. Do not push or create the PR on anything other than an explicit `ready` result from each check; stop and report the reason if either is not `ready`. Use `rtk gh pr create --repo github.com/<that confirmed pullRequestRepository>`:
+    Then re-verify the PR target and the `gh` CLI account before creating the PR: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<assigned-worktree>" --operation pr --target <github.pullRequestRepository from .dev.json>`. Do not push or create the PR on anything other than an explicit `ready` result from each check; stop and report the reason if either is not `ready`. Use `rtk gh pr create --repo github.com/<that confirmed pullRequestRepository>`:
     - title: `[Issue #N] [task description]`
     - body: include `Closes #N` (or `Closes OWNER/REPO#N` when the Issue is not in the PR's own repository), change rationale, AC completion status, complete test output, coverage-path audit, and caller impact
 18. Stop after PR is created, report the PR and current head commit through the assigned backend, and wait for Review or shutdown
