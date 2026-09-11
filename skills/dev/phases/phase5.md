@@ -13,8 +13,11 @@ Produce:
 ### Completed
 ### Known Issues
 ### Deferred
+### External-Review Bypasses
 ### Recommended Next Priorities
 ```
+
+Report the count of external-review bypasses used this round under `External-Review Bypasses`, reported explicitly, including `0` when none occurred — so repeated bypass is visible as a pattern across rounds, not only per PR.
 
 Update the current-status section of `PROJECT_CONTEXT.md` and the completed list in `docs/feature-log.md`. After repository initialization, make these tracked documentation changes in a docs-only worktree and PR; never push directly to main.
 

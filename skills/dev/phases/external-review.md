@@ -97,6 +97,8 @@ backend supports it; otherwise report the due time for the next observation.
 Do not hold an active turn open for the wait. During active work, keep the user
 updated at least every 60 seconds.
 
+A bypass is only for a review that never arrived or is unavailable. It is never for a review that arrived and was invalidated by the author's own response to it: fixing findings and pushing moves the head, and per the Head-Commit Invariant above that obligates a re-request at the new head, not a bypass. The default is to wait for that re-request, using the deadlines and bounded-wait machinery already defined in this file.
+
 ### Rate-limited review retries
 
 Use this bounded path only after an explicit rate-limit response to a request
@@ -146,7 +148,7 @@ At the configured deadline, stop before merge and offer these explicit choices:
 
 1. Wait an additional user-specified duration. Record the extension and new deadline.
 2. Request or re-request a trusted review. This requires explicit approval unless `Allow automatic review requests` enables that specific reviewer; record potential credit usage.
-3. Bypass only a pending or unavailable review. Require explicit approval and record the reason, approver, timestamp, and review debt in `.agent/dev-state.md` and a PR comment.
+3. Bypass only a pending or unavailable review — never one invalidated by the author's own response. Require explicit approval and record the reason, approver, timestamp, and review debt — naming the exact unreviewed commit range (`<reviewed-head>..<merged-head>`) — in `.agent/dev-state.md` and a PR comment.
 4. Stop without merging.
 
 Never issue CodeRabbit full-review commands, Kilo review requests, or Copilot

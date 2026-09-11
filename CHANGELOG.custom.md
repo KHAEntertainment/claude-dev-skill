@@ -8,6 +8,24 @@ build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries belo
 `v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
 record upstream SHAs as plain text in their `### Upstream` blocks.
 
+## v2.1.1 — Unreleased
+
+### Fixed
+
+- External-review bypass no longer excuses a review invalidated by the
+  author's own response to it (#33). The bypass path had become the routine
+  path (4 of 4 PRs in one round) because fixing findings and pushing moves
+  the head, and that self-invalidated review was read as "unavailable." The
+  policy now states the bypass is only for a review that never arrived or is
+  genuinely unavailable; a review the author's own commits moved past
+  obligates a re-request at the new head, and the default is to wait. Where
+  a bypass is still used, the recorded debt must name the exact unreviewed
+  commit range (`<reviewed-head>..<merged-head>`), not just the PR. The
+  Phase 5 retro now reports the count of external-review bypasses per round
+  (`0` reported explicitly) so repeated bypass is visible as a pattern
+  rather than only per-PR. `validate_skill.py` and the doc-assertion test
+  suite pin the new load-bearing sentences.
+
 ## v2.1.0 — 2026-09-11
 
 ### Added
