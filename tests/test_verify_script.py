@@ -16,7 +16,7 @@ SCRIPT = ROOT / "scripts" / "verify.sh"
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
-def recorded_gate_commands():
+def recorded_gate_commands(text=None):
     """Commands recorded under `## Verification Gate` in PROJECT_CONTEXT.md.
 
     Only the `- **Label**:` bullets carry commands; the section's prose does
@@ -24,18 +24,32 @@ def recorded_gate_commands():
     real command always names a program with arguments or a path - the bare
     identifiers in these bullets are prose (manifest field names, a tool named
     as future work), not things to run.
+
+    The recorded format forbids indented Markdown continuation lines under a
+    bullet (Issue #31): a command wrapped onto one is invisible to this parser,
+    so the format is constrained instead of teaching the parser to follow
+    continuations. Any non-blank, indented line in the section - whether or
+    not it carries a command - is rejected outright, naming the rule, rather
+    than silently skipped.
     """
-    text = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+    if text is None:
+        text = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
     section = re.search(r"^## Verification Gate$(.*?)(?=^## |\Z)", text, re.M | re.S)
     if section is None:
         raise AssertionError("PROJECT_CONTEXT.md has no '## Verification Gate' section")
     commands = []
     for line in section.group(1).splitlines():
-        if not line.startswith("- **"):
+        if line.startswith("- **"):
+            for span in re.findall(r"`([^`]+)`", line):
+                if span != "n/a" and (" " in span or "/" in span):
+                    commands.append(span)
             continue
-        for span in re.findall(r"`([^`]+)`", line):
-            if span != "n/a" and (" " in span or "/" in span):
-                commands.append(span)
+        if line.strip() and (line[0] == " " or line[0] == "\t"):
+            raise AssertionError(
+                "PROJECT_CONTEXT.md Verification Gate has an indented "
+                f"continuation line ({line.strip()!r}); keep every gate "
+                "command on its own '- **Label**:' bullet line"
+            )
     return commands
 
 
@@ -217,6 +231,43 @@ class VerifyScriptGateCoverageTests(GateHarness, unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("GATE FAILED (strict)", self.terminal_line(result))
+
+
+class RecordedGateFormatTests(unittest.TestCase):
+    """The recorded gate format forbids indented continuation lines (#31).
+
+    QA on PR #30 found that a gate command on an indented continuation line
+    was invisible to `recorded_gate_commands()`: the coverage test passed
+    (0 missing) even though the same command on its own bullet line was
+    correctly caught. These tests exercise the parser directly against
+    synthetic gate text, so they do not depend on PROJECT_CONTEXT.md's
+    current content (which has no continuation lines today).
+    """
+
+    def test_command_on_indented_continuation_line_is_rejected(self):
+        text = (
+            "## Verification Gate\n\n"
+            "- **Lint**: `shellcheck install.sh`\n"
+            "  and also `python3 scripts/extra_check.py`\n"
+            "- **Tests**: `python3 -m unittest discover -s tests`\n"
+        )
+        with self.assertRaises(AssertionError) as failure:
+            recorded_gate_commands(text)
+        self.assertIn("continuation line", str(failure.exception))
+
+    def test_single_line_bullets_continue_to_parse_unchanged(self):
+        text = (
+            "## Verification Gate\n\n"
+            "The exact commands worker, QA, and reviewer must all run.\n\n"
+            "- **Lint**: `shellcheck install.sh`\n"
+            "- **Type check**: `n/a` — no typed surface\n"
+            "- **Tests**: `python3 -m unittest discover -s tests`\n\n"
+            "A change is not complete until every command above exits clean.\n"
+        )
+        self.assertEqual(
+            recorded_gate_commands(text),
+            ["shellcheck install.sh", "python3 -m unittest discover -s tests"],
+        )
 
 
 class VerifyScriptSkipReportingTests(GateHarness, unittest.TestCase):
