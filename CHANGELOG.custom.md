@@ -31,6 +31,29 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ### Fixed
 
+- `install.sh` and `install.ps1` no longer ship whatever is sitting on disk
+  under `skills/dev` (#44). When the installer's own directory is a git
+  checkout, staging now runs `git archive HEAD -- skills/dev` (piped through
+  `tar` for `install.sh`; written to a temp file and extracted for
+  `install.ps1`, avoiding PowerShell's native-to-native pipe binary
+  corruption risk) instead of copying the working tree, so untracked/ignored
+  files (`scripts/__pycache__/*.pyc` and similar) and uncommitted edits to
+  tracked files never reach the installed Skill; the exec bit is preserved
+  via git's stored file mode. A source with no `.git` — the release tarball
+  or the Homebrew `libexec` copy, ADR-007 — keeps the previous working-tree
+  copy verbatim, unchanged. Both installers now print the commit staged from
+  (`Installed from commit <sha>`) or, for the no-git case, `Installed from:
+  no git metadata (tarball install)`. `install.ps1` additionally falls back
+  to the copy path when `tar` isn't on `PATH`, a documented asymmetry with
+  `install.sh` (Windows has bundled `tar.exe` since the 1803 update, but it
+  isn't guaranteed on older hosts). `tests/test-install.sh` gained a dirty
+  checkout case (uncommitted edit plus an ignored file both excluded), a
+  no-`.git` case (copy path used, tarball provenance reported), and a clean
+  checkout case (installed tree diffed byte-for-byte against `git archive
+  HEAD -- skills/dev`, commit provenance reported); `tests/test-install.ps1`
+  mirrors the no-`.git` and clean-checkout provenance cases plus the dirty
+  checkout exclusion, but not the tree-diff comparison, which has no direct
+  PowerShell equivalent in this suite — another recorded sh/ps1 asymmetry.
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
