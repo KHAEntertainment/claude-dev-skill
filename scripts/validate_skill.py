@@ -341,6 +341,31 @@ def main() -> int:
             "report_back_termination",
             "termination, reply correlation, and section presence",
             "Every bounded read records how it ended",
+            # Issue #33: a bypass recorded against a PR number alone lets the
+            # same debt be re-hidden behind a later, partially-reviewed head.
+            "the exact unreviewed commit range",
+            "<reviewed-head>..<merged-head>",
+            # Reviewer-converged fix (CodeRabbit + internal review): when no
+            # review ever completed on the PR there is no reviewed head, so
+            # the range degenerates to empty unless the base-head form is
+            # pinned as the other required case.
+            "<base-head>..<merged-head>",
+        ),
+        # Issue #33: the gate's own bypass path had become the routine path
+        # because a review invalidated by the author's own fix-commit push
+        # read as "unavailable". These tokens pin the scope narrowing and the
+        # commit-range requirement in the file that states the policy itself.
+        "phases/external-review.md": (
+            "never for a review that arrived and was invalidated by the author's own response",
+            "obligates a re-request at the new head, not a bypass",
+            "the exact unreviewed commit range",
+            "<base-head>..<merged-head>",
+        ),
+        # Issue #33: without a named retro line, repeated bypass across
+        # rounds was only ever visible per-PR, never as a pattern.
+        "phases/phase5.md": (
+            "External-Review Bypasses",
+            "reported explicitly, including `0`",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it

@@ -852,6 +852,51 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("A current-head `CHANGES_REQUESTED` remains blocking", external)
         self.assertIn("A timeout bypass cannot clear a known actionable finding", external)
 
+    def test_bypass_is_scoped_to_unavailable_review_and_records_commit_range(self) -> None:
+        """Issue #33: bypass must never excuse a self-invalidated review.
+
+        A review the author's own fix commits moved past is not
+        "unavailable" — that case obligates a re-request at the new head,
+        not a bypass. Where a bypass is still used, the recorded debt must
+        name the exact unreviewed commit range, not just the PR.
+        """
+        external = " ".join(self.read("phases/external-review.md").split())
+        for requirement in (
+            "A bypass is only for a review that never arrived or is unavailable",
+            "never for a review that arrived and was invalidated by the author's own response",
+            "obligates a re-request at the new head, not a bypass",
+            "never one invalidated by the author's own response",
+            "the exact unreviewed commit range",
+            # Two forms are required: a review that completed before the fix
+            # commits anchors the range at the reviewed head, but a review
+            # that never completed at all has no reviewed head to anchor
+            # it — that case must fall back to the PR's base head, or the
+            # range degenerates to empty while every commit is unreviewed.
+            "<reviewed-head>..<merged-head>",
+            "<base-head>..<merged-head>",
+            "no review ever completed on the PR",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, external)
+
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn("the exact unreviewed commit range", state)
+        self.assertIn("<reviewed-head>..<merged-head>", state)
+        self.assertIn("<base-head>..<merged-head>", state)
+        self.assertIn("no review ever completed on the PR", state)
+        self.assertIn("the PR number alone is not sufficient", state)
+
+        phase5 = self.read("phases/phase5.md")
+        self.assertIn("### External-Review Bypasses", phase5)
+        self.assertIn(
+            "reported explicitly, including `0`",
+            phase5,
+        )
+        self.assertIn(
+            "visible as a pattern across rounds, not only per PR",
+            phase5,
+        )
+
     def test_implementation_lanes_carry_the_reuse_first_ladder(self) -> None:
         for relative in ("agents/worker-new.md", "agents/worker-fix.md"):
             prompt = self.read(relative)
