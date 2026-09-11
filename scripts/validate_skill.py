@@ -350,6 +350,15 @@ def main() -> int:
             # the range degenerates to empty unless the base-head form is
             # pinned as the other required case.
             "<base-head>..<merged-head>",
+            # Issue #26: the ledger field that actually records whether a
+            # closed Issue's acceptance criteria were checked against merged
+            # code, and the sentence that forecloses auto-closure as a
+            # substitute for checking.
+            "Post-merge verification record schema",
+            "merge_sha",
+            "gate_result",
+            "criteria_verdict",
+            "Auto-closure by a merge keyword is never evidence of completion",
         ),
         # Issue #33: the gate's own bypass path had become the routine path
         # because a review invalidated by the author's own fix-commit push
@@ -366,6 +375,28 @@ def main() -> int:
         "phases/phase5.md": (
             "External-Review Bypasses",
             "reported explicitly, including `0`",
+            # Issue #26: the retro reads post-merge verification records
+            # rather than re-running the check phase4.md already performed.
+            "### Post-Merge Verification",
+            "post-merge verification records",
+        ),
+        # Issue #26: nothing re-examined merged code against the closed
+        # Issue's acceptance criteria, and a merge keyword's auto-closure was
+        # read as completion evidence. These tokens pin the unconditional
+        # step, its non-gate status, and the sentence that names the hazard.
+        "phases/phase4.md": (
+            "Post-Merge Verification (unconditional)",
+            "This is not a merge gate",
+            "the merge commit's tree hash",
+            "the verified PR head's tree hash",
+            "run the full recorded Verification Gate",
+            "Auto-closure by a merge keyword is never evidence of completion",
+            "merge_sha",
+            "gate_result",
+            "criteria_verdict",
+        ),
+        "SKILL.md": (
+            "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it

@@ -10,6 +10,25 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ## v2.1.1 — Unreleased
 
+### Added
+
+- Unconditional post-merge verification step (#26), owned by the lead and run
+  after every merge regardless of how clean pre-merge review looked. It never
+  blocks the merge; its outputs are a ledger entry or a reopened Issue. When
+  the merge commit's tree hash matches the verified PR head's tree hash, the
+  PR-head Verification Gate result applies to `main` verbatim; otherwise the
+  gate is re-run against `main` checked out at the merge commit, which the
+  gate had otherwise only ever run against the PR branch. The closed Issue's
+  acceptance criteria are then re-read against the merged code and confirmed,
+  or the Issue is reopened naming the specific unmet items — auto-closure by
+  a merge keyword is never evidence of completion. The result (`merge_sha`,
+  `gate_result`, `criteria_verdict`) is recorded in `.agent/dev-state.md`;
+  Phase 5's retro now reads these records instead of trusting a merge to mean
+  done. A bypassed merge's debt still lives in `external-review.md`'s
+  commit-range rule, cross-referenced rather than duplicated.
+  `validate_skill.py` and the doc-assertion test suite pin the new
+  load-bearing sentences.
+
 ### Fixed
 
 - External-review bypass no longer excuses a review invalidated by the

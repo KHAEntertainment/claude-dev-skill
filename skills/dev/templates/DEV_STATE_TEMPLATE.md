@@ -103,6 +103,32 @@ polling, acknowledgements and new pushes do not renew an unfinished wait episode
 
 Each `approved_bypasses` / `review_debt` entry must record the reason, approver, timestamp, and the exact unreviewed commit range that no reviewer saw — `<reviewed-head>..<merged-head>` when a review completed at that head, or `<base-head>..<merged-head>` when no review ever completed on the PR (there is no reviewed head to anchor the range, so every commit is unreviewed) — the PR number alone is not sufficient.
 
+## Post-merge verification record schema
+
+Each merged PR gets one post-merge verification record, appended as a
+timestamped recovery entry once the lead completes the unconditional check in
+`${CLAUDE_SKILL_DIR}/phases/phase4.md`. A record holds `merge_sha`,
+`gate_result`, and `criteria_verdict`.
+
+`gate_result` is `applies_verbatim` when the merge commit's tree hash matched
+the verified PR head's tree hash, so the PR-head Verification Gate result
+carries over rather than being re-run, or `rerun_pass` / `rerun_fail` when the
+tree hashes differed and the gate was re-run against `main` checked out at the
+merge commit.
+
+`criteria_verdict` is `confirmed` when every acceptance criterion of the
+closed Issue was re-read against the merged code and held, or `unmet` when at
+least one did not — paired with an `unmet_criteria` list naming the specific
+criteria and the Issue number reopened against them.
+
+**Auto-closure by a merge keyword is never evidence of completion.** This
+record is what actually establishes `criteria_verdict`, not the Issue's
+closed/open state.
+
+When the merge used the external-review bypass, this record cross-references
+that PR's `review_debt` entry above rather than restating its commit-range
+rule.
+
 ## Recovery entries
 
 ### YYYY-MM-DDTHH:MM:SSZ — event
