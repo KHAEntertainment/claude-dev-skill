@@ -28,6 +28,19 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   (`0` reported explicitly) so repeated bypass is visible as a pattern
   rather than only per-PR. `validate_skill.py` and the doc-assertion test
   suite pin the new load-bearing sentences.
+- Closed two test-coverage gaps found after PR #30 merged (#31, #25). The
+  recorded-gate coverage test now rejects an indented Markdown continuation
+  line under a `## Verification Gate` bullet by name instead of silently
+  skipping it, so a wrapped gate command cannot go invisible to the drift
+  check again; `PROJECT_CONTEXT.md` already complies, so no gate content
+  changed. `test_external_review_inspector.py` now exercises the live
+  `fetch_threads` GraphQL fetch path directly against a stubbed `run_json` —
+  no network access — covering outer-page pagination, the query's required
+  `pageInfo{hasNextPage}` and `state` fields, the nested full-page
+  `InspectionError`, and the comment `state` field reaching the
+  submitted-state gate. Previously every test reached `inspect()` only
+  through a loaded fixture, so `fetch_threads` returning `[]` left all 40
+  tests green.
 
 ## v2.1.0 — 2026-09-11
 
