@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import re
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,160 @@ BASE_REQUIRED_POLICY = (
 )
 
 
+# The seven required report-back sections, held once. Every document that has
+# to name them is asserted against this tuple, so adding an eighth section is a
+# one-line change here that then fails until each document carries it — rather
+# than four independent lists that drift apart silently.
+REPORT_BACK_SECTIONS = (
+    "Outputs",
+    "Commands + exit codes",
+    "Deviations",
+    "Quality-gate self-assessment",
+    "Acceptance criteria",
+    "Evidence",
+    "Scope / ownership",
+)
+
+
+# The cause taxonomy, held once for the same reason as the section names: the
+# contract defines these and the ledger has to store exactly them. Two lists
+# would let the adapters record a cause the ledger cannot hold.
+REPORT_BACK_CAUSES = ("absent", "malformed", "truncated")
+
+# The four bounded-read terminating conditions, under the names the contract,
+# both adapters, and the ledger all use. Held once for the same reason: the
+# adapters record one of these and the ledger has to store exactly these, and
+# the cause uses termination, reply correlation, and section presence.
+REPORT_BACK_TERMINATIONS = ("completed", "stalled", "page_cap", "time_bound")
+
+_COMPLETED, *_TRUNCATING = REPORT_BACK_TERMINATIONS
+_ABSENT, _MALFORMED, _TRUNCATED = REPORT_BACK_CAUSES
+
+# The derivation itself, as data: which terminating condition (with the section
+# check, when the read completed) yields which verdict and cause.
+#
+# This is the guarantee the whole field rests on. `report_back_cause` is safe
+# to keep beside `report_back_termination` only because it is read off a total
+# mapping rather than authored independently - so the mapping's CONTENT is
+# load-bearing, not just its presence. Asserting that the table contains the
+# right words in some order leaves a wrong row silently authoritative, and a
+# wrong row sends a lead to re-request the shape of a reply that was truncated:
+# the wrong remedy, chosen confidently, off a ledger that looks right.
+#
+# Built from the tuples above rather than retyped, so a renamed condition or
+# cause cannot leave this mapping describing the old vocabulary.
+# Correlation is an explicit input, not an implicit one. The earlier version
+# recorded `report_back_termination: null` for an absent lane on the reasoning
+# that no bounded read had run - which is false. Absence is established BY
+# reading: the read runs, terminates, and only then is correlation checked. The
+# ledger discarded that condition and then asserted the read never happened,
+# contradicting `contract.md`'s own "nothing can be known to be absent without
+# looking" at the same head.
+#
+# `absent` additionally requires a `completed` read. A cut read that found no
+# correlated reply has established nothing - the reply may lie past the cut -
+# so it is `truncated` and re-read. Calling it `absent` would read a partial
+# absence of signal as a positive finding, in the ledger built to prevent that.
+REPORT_BACK_DERIVATION = (
+    ("not yet read", ("null",), "not examined", "pending", "null"),
+    ("not observed", tuple(_TRUNCATING), "not examined", "incomplete", _TRUNCATED),
+    ("not observed", (_COMPLETED,), "not examined", "incomplete", _ABSENT),
+    ("observed", tuple(_TRUNCATING), "not judged", "incomplete", _TRUNCATED),
+    ("observed", (_COMPLETED,), "any missing", "incomplete", _MALFORMED),
+    ("observed", (_COMPLETED,), "all seven", "complete", "null"),
+)
+
+
+def _mapping_rows(text: str) -> list[tuple[str, tuple[str, ...], str, str, str]]:
+    """Parse the ledger's derivation table into comparable tuples.
+
+    Returns (correlation, terminations, sections, verdict, cause) per row, with
+    backticked tokens extracted so a reflow or added emphasis is not a policy
+    change while a changed value is.
+    """
+    rows: list[tuple[str, tuple[str, ...], str, str, str]] = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|") or line.strip().startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 5:
+            continue
+        terminations = tuple(re.findall(r"`([^`]+)`", cells[1]))
+        verdict = re.findall(r"`([^`]+)`", cells[3])
+        cause = re.findall(r"`([^`]+)`", cells[4])
+        if not terminations or not verdict or not cause:
+            continue
+        # Skip the header row, which names the fields rather than values.
+        if terminations[0] == "report_back_termination":
+            continue
+        rows.append((cells[0], terminations, cells[2], verdict[0], cause[0]))
+    return rows
+
+
+def _assigns(cause: str) -> str:
+    """Regex matching a sentence that ASSIGNS `cause`, not one mentioning it.
+
+    The distinction is the whole difference between a guard and a nuisance. A
+    sentence that assigns a cause makes a claim about when it applies and must
+    name what licenses it; one that refers to the cause — a remedy, a
+    cross-reference, a pointer at the contract — makes no such claim, and
+    failing on it is a guard crying wolf, which is how guards get disabled.
+
+    Deliberately narrower than "mentions the cause": phrasings that assign
+    without one of these constructions will escape. A narrow guard that is
+    trusted beats a broad one that is switched off.
+    """
+    return rf"(?:is|as|in|cause|record(?:s|ed)?|classified|file[ds]?)\s+`{cause}`"
+
+
+def _sentence_containing(text: str, needle: str) -> str | None:
+    """Return the sentence containing `needle`, for cross-document checks."""
+    for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*])", text):
+        if needle in sentence:
+            return sentence
+    return None
+
+
+def _markdown_section(text: str, heading: str) -> str | None:
+    """Return the body under `heading` up to the next same-level heading."""
+    match = re.search(
+        rf"^{re.escape(heading)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
+
+
+def _bullet(text: str, starts_with: str) -> str | None:
+    """Return the single list bullet beginning with `starts_with`.
+
+    Assertions about one rule have to be scoped to the bullet stating it. A
+    file-wide `assertIn` passes on any other occurrence of the same words, so a
+    deleted condition can still be "found" in the bullet that consumes it —
+    which is a test reporting a guard it is not actually holding.
+    """
+    match = re.search(
+        rf"^- {re.escape(starts_with)}.*?(?=^- |\Z)", text, re.M | re.S
+    )
+    return match.group(0) if match else None
+
+
+def _line_starting(text: str, prefix: str) -> str | None:
+    """Return the single line beginning with `prefix`.
+
+    Same reason as `_bullet`: an enumeration has to be asserted against the
+    line that enumerates it, or a renamed value is still "found" in some other
+    field's vocabulary elsewhere in the file.
+    """
+    return next((line for line in text.splitlines() if line.startswith(prefix)), None)
+
+
+def _table_row(text: str, operation: str) -> str | None:
+    """Return the operations-table row for `operation`, or None."""
+    for line in text.splitlines():
+        if line.startswith(f"| `{operation}` |"):
+            return line
+    return None
+
+
 def _parse_required_policy(source: str) -> list[str]:
     """Return the `required_policy` tuple's literals, parsed with `ast`.
 
@@ -88,6 +243,23 @@ def _validator_module():
 class BackendContractTests(unittest.TestCase):
     def read(self, relative: str) -> str:
         return (SKILL / relative).read_text(encoding="utf-8")
+
+    def mapping_rows(self) -> list[tuple[str, tuple[str, ...], str, str, str]]:
+        """Parse the mapping table from the section that governs it.
+
+        Scoped rather than file-wide, for the reason four earlier assertions
+        in this module were not: a table parsed from the whole document would
+        happily bind to some other table added later, and the check would go on
+        passing while the section it exists to guard drifted.
+        """
+        section = _markdown_section(
+            self.read("templates/DEV_STATE_TEMPLATE.md"),
+            "## Report-back record schema",
+        )
+        self.assertIsNotNone(section, "template has no report-back record schema")
+        rows = _mapping_rows(section)
+        self.assertTrue(rows, "the report-back schema carries no mapping table")
+        return rows
 
     def test_contract_has_all_fail_closed_operations(self) -> None:
         contract = self.read("backends/contract.md")
@@ -214,6 +386,353 @@ class BackendContractTests(unittest.TestCase):
             "stopped",
         ):
             self.assertIn(f"`{status}`", state)
+
+    def test_ledger_can_hold_the_verdict_the_adapters_record(self) -> None:
+        # All three adapters instructed recording `report_back` into
+        # `.agent/dev-state.md`, which had no such field - so every lead would
+        # have invented a shape and the record would be unusable as an audit
+        # trail. Issue #3's criterion is "recorded in .agent/dev-state.md";
+        # the ledger is the other half of it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        contract = self.read("backends/contract.md")
+        self.assertIn("`report_back`", state)
+        self.assertIn("`report_back_cause`", state)
+        # The field is on the per-lane record, not floating in prose.
+        workers = _markdown_section(state, "## Worker record schema")
+        self.assertIsNotNone(workers, "template has no worker record schema")
+        self.assertIn("`report_back`", workers)
+        self.assertIn("`report_back_cause`", workers)
+        self.assertIn("`report_back_termination`", workers)
+        # The ledger stores exactly the causes the contract defines. Asserted
+        # from one list so the two cannot drift into a cause the ledger cannot
+        # hold, or a field the adapters never produce.
+        # Scoped to the line that enumerates them. File-wide, `incomplete` and
+        # `complete` already appear as a `backend_source` result and a worker
+        # status, so a renamed cause here could still be "found" against an
+        # unrelated field's vocabulary.
+        allowed = _line_starting(state, "Allowed `report_back_cause` values:")
+        self.assertIsNotNone(allowed, "template does not enumerate the causes")
+        for cause in REPORT_BACK_CAUSES:
+            with self.subTest(cause=cause):
+                self.assertIn(f"`{cause}`", allowed)
+                self.assertIn(f"`{cause}`", contract)
+
+    def test_every_document_names_the_same_four_terminating_conditions(self) -> None:
+        # External review, Medium: the ledger stored the cause but not the
+        # condition it came from, and `truncated` collapses three conditions
+        # into one value. The omission was deliberate and argued on remedy -
+        # all three share one - and overturned on diagnosis, which the cause
+        # cannot serve. One list, so contract, adapters and ledger cannot drift
+        # into names that no longer match.
+        # Scoped to the construct in each document that has to define the
+        # names. File-wide, every name also appears in the prose explaining why
+        # the cause is lossy, so a renamed condition in the definition would
+        # still be "found" in the explanation of it.
+        contract = self.read("backends/contract.md")
+        traycer = self.read("backends/traycer.md")
+        native = self.read("backends/claude-native.md")
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        scopes = {
+            "contract.md paging bullet": _bullet(contract, "**Paging must be bounded"),
+            "traycer.md bound bullet": _bullet(traycer, "**Bound that read."),
+            "claude-native.md bound step": _line_starting(
+                native, "   2. **Bound the read**"
+            ),
+            "template allowed values": _line_starting(
+                state, "Allowed `report_back_termination` values:"
+            ),
+        }
+        for name, scope in scopes.items():
+            self.assertIsNotNone(scope, f"{name}: not found")
+            for condition in REPORT_BACK_TERMINATIONS:
+                with self.subTest(scope=name, condition=condition):
+                    self.assertIn(f"`{condition}`", scope)
+        # Each adapter must name the ledger field it writes, or the condition
+        # is observed and then has nowhere to go - the defect one level up.
+        for relative, adapter in (
+            ("backends/traycer.md", traycer),
+            ("backends/claude-native.md", native),
+        ):
+            with self.subTest(adapter=relative):
+                self.assertIn("`report_back_termination`", adapter)
+
+    def test_the_cause_is_derived_from_the_full_mapping(self) -> None:
+        # Completed reads have multiple outcomes; termination alone cannot
+        # select the row. Preserve the explicit inputs and total mapping.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        contract = self.read("backends/contract.md")
+        for document in (state, contract, self.read("backends/traycer.md"),
+                         self.read("backends/claude-native.md")):
+            self.assertIn("termination, reply correlation, and section presence", document)
+        self.assertIn(
+            "Record the terminating condition, and derive the verdict and cause from the full mapping.",
+            contract,
+        )
+        self.assertIn("The mapping is total", state)
+        self.assertIn("any pairing not in this table is an invalid record", state)
+
+    def test_the_mapping_table_states_the_exact_pairings(self) -> None:
+        # Content, not shape. The previous version of this check collected the
+        # table's lines and asserted every value appeared somewhere in the
+        # joined block - which stays true when a row's cause is changed, so a
+        # table saying a stalled read is `malformed` passed the whole suite
+        # while contradicting `contract.md`. The pairing is the guarantee; a
+        # table asserted only for its vocabulary is not asserted at all.
+        self.assertEqual(
+            self.mapping_rows(),
+            list(REPORT_BACK_DERIVATION),
+            "the ledger's termination-to-cause mapping does not match the "
+            "derivation it is supposed to encode",
+        )
+
+    def test_the_ledger_mapping_and_the_contract_prose_cannot_drift(self) -> None:
+        # Two documents stating one rule is how they diverge, which is the
+        # defect fixed at the contract level in b2632ba reappearing in the
+        # artifact that resolves it. The contract's sentences are checked
+        # against the cause parsed out of the ledger table, not against a
+        # literal - so a wrong row fails here too, from the other side.
+        rows = self.mapping_rows()
+        truncating = next(
+            (r for r in rows if r[0] == "observed" and r[1] == tuple(_TRUNCATING)), None
+        )
+        completed_missing = next(
+            (r for r in rows if r[0] == "observed" and r[2] == "any missing"), None
+        )
+        uncorrelated = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)), None
+        )
+        self.assertIsNotNone(truncating, "no row for the truncating conditions")
+        self.assertIsNotNone(completed_missing, "no row for a completed read")
+        self.assertIsNotNone(uncorrelated, "no row for a completed read with no reply")
+
+        bullet = _bullet(
+            self.read("backends/contract.md"),
+            "**Termination decides whether section inspection is permitted",
+        )
+        self.assertIsNotNone(bullet, "contract.md has no cause-decision bullet")
+        stall_sentence = _sentence_containing(bullet, "ended by a stall")
+        completed_sentence = _sentence_containing(bullet, "ended by the completion")
+        self.assertIsNotNone(stall_sentence, "contract states no stall outcome")
+        self.assertIsNotNone(completed_sentence, "contract states no completed outcome")
+
+        # The cause the ledger assigns each case must be the cause the contract
+        # names for it, and must not be the one it names for the other case.
+        self.assertIn(f"`{truncating[4]}`", stall_sentence)
+        self.assertNotIn(f"`{truncating[4]}`", completed_sentence)
+        self.assertIn(f"`{completed_missing[4]}`", completed_sentence)
+        self.assertNotIn(f"`{completed_missing[4]}`", stall_sentence)
+
+        # The absent row, which the previous version of this check did not
+        # cover - and which is exactly where the two documents drifted. The
+        # contract must agree that absence needs a completed read and that a
+        # cut read establishes nothing.
+        absent_bullet = _bullet(
+            self.read("backends/contract.md"), "**Record the terminating condition"
+        )
+        self.assertIsNotNone(absent_bullet, "contract.md has no derivation bullet")
+        self.assertIn(f"`{uncorrelated[4]}`", absent_bullet)
+        self.assertIn(f"is `{_COMPLETED}`", absent_bullet)
+        self.assertIn("has not established absence", absent_bullet)
+        # And the ledger must not claim the read never happened.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertNotIn("no bounded read ran", state)
+        self.assertIn("Absence is established by reading, not instead of reading", state)
+
+    def test_no_prose_claims_absence_without_a_completed_read(self) -> None:
+        """The drift guard's hole, found twice in one file.
+
+        The cross-document check binds the rows where the two documents agree,
+        and both times the drift went to prose no row covers — a bullet three
+        sections above the mapping still saying an empty read "was already
+        classified `absent` above and never reaches" the four conditions, which
+        contradicts the table on two counts at once.
+
+        So this binds the prose to the table instead of to a literal: any
+        sentence in the enforcement section that names `absent` as a
+        classification must also name the termination the mapping pairs it
+        with. A reintroduced sentence claiming absence without a completed read
+        has no way to satisfy that, whatever words it uses.
+        """
+        rows = self.mapping_rows()
+        absent_row = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)), None
+        )
+        cut_row = next(
+            (r for r in rows if r[0] == "not observed" and r[1] == tuple(_TRUNCATING)),
+            None,
+        )
+        self.assertIsNotNone(absent_row, "no completed-read absent row")
+        self.assertIsNotNone(cut_row, "no cut-read row for an uncorrelated reply")
+        absent_cause, cut_cause = absent_row[4], cut_row[4]
+
+        section = _markdown_section(
+            self.read("backends/contract.md"), "## Report-back enforcement"
+        )
+        self.assertIsNotNone(section, "contract.md has no enforcement section")
+
+        # The paging bullet is where the stale sentence lived and where the
+        # split has to be stated, in the mapping's own terms.
+        paging = _bullet(section, "**Paging must be bounded")
+        self.assertIsNotNone(paging, "no bounded-paging bullet")
+        self.assertIn(
+            f"no correlated reply after `{_COMPLETED}` is `{absent_cause}`", paging
+        )
+        self.assertIn(f"is `{cut_cause}`", paging)
+        for condition in _TRUNCATING:
+            with self.subTest(condition=condition):
+                self.assertIn(f"`{condition}`", paging)
+
+        # And across the WHOLE enforcement section, no sentence that ASSIGNS
+        # the cause may do so without naming the condition that licenses it.
+        # Matched on the assignment construction — "cause `absent`", "is
+        # `absent`", "classified `absent`" — rather than on any mention, so
+        # prose that merely refers to the cause stays exempt: "`absent`
+        # questions whether the lane is alive" is a remedy, and "`absent`
+        # having already been ruled out" is a cross-reference. Neither assigns.
+        #
+        # Section-wide rather than bullet-scoped because the first pass of this
+        # guard covered only the paging bullet and two other bullets carrying
+        # the same stale assumption went through untouched.
+        # Split per bullet before splitting sentences: a "sentence" spanning a
+        # bullet boundary is a parsing artifact, and treating one as a claim
+        # fails the guard on prose that is correct.
+        classifying = [
+            sentence
+            for chunk in re.split(r"\n- ", section)
+            for sentence in re.split(r"(?<=\.)\s+(?=[A-Z`*\"])", chunk)
+            if re.search(_assigns(absent_cause), sentence)
+        ]
+        self.assertTrue(classifying, "no sentence assigns the absent cause")
+        for sentence in classifying:
+            with self.subTest(sentence=sentence[:70]):
+                self.assertIn(
+                    f"`{_COMPLETED}`",
+                    sentence,
+                    f"classifies a read as `{absent_cause}` without naming "
+                    f"`{_COMPLETED}`, which is the only condition that licenses it",
+                )
+
+        # The two bullets the section sweep corrected, pinned directly: the
+        # cause gloss must carry the qualification, and the cause-decision
+        # bullet must say which replies it governs.
+        self.assertIn(f"a `{_COMPLETED}` read carried no reply correlated", section)
+        self.assertIn("For a reply that was observed", section)
+
+    def test_adapters_license_every_cause_they_assign(self) -> None:
+        """The same rule as the contract's, extended to both adapters.
+
+        Third pass at one class. The contract's section was swept and guarded;
+        the identical stale rationale was then found living in both adapters,
+        where nothing bound it. Each sweep fixed the sites someone listed and
+        the drift was wherever nobody looked — so this binds the adapters by
+        the same rule rather than by another list of sites.
+
+        Both directions:
+
+        - a sentence assigning `absent` must name `completed`;
+        - inside the classification bullet, a sentence naming `truncated` must
+          name a cut condition.
+
+        The second is scoped to that bullet on purpose. Elsewhere `truncated`
+        appears in definitional prose that licenses it by negating completion
+        rather than by naming a condition, and a blanket rule would fail on
+        correct writing.
+        """
+        rows = self.mapping_rows()
+        absent_cause = next(
+            r[4] for r in rows if r[0] == "not observed" and r[1] == (_COMPLETED,)
+        )
+        cut_cause = next(
+            r[4] for r in rows if r[0] == "not observed" and r[1] == tuple(_TRUNCATING)
+        )
+        assigns = _assigns(absent_cause)
+
+        for relative, opener in (
+            ("backends/traycer.md", "**Classify `absent` before anything else."),
+            ("backends/claude-native.md", "**Classify `absent` before anything else."),
+        ):
+            adapter = self.read(relative)
+            bullet = _bullet(adapter, opener) or _line_starting(
+                adapter, f"   1. {opener}"
+            )
+            self.assertIsNotNone(bullet, f"{relative}: no absent-classification step")
+
+            sentences = re.split(r"(?<=\.)\s+(?=[A-Z`*\"])", bullet)
+            assigning = [s for s in sentences if re.search(assigns, s)]
+            self.assertTrue(assigning, f"{relative}: nothing assigns `{absent_cause}`")
+            for sentence in assigning:
+                with self.subTest(adapter=relative, sentence=sentence[:70]):
+                    self.assertIn(
+                        f"`{_COMPLETED}`",
+                        sentence,
+                        f"{relative} assigns `{absent_cause}` without naming "
+                        f"`{_COMPLETED}`",
+                    )
+
+            # Inverse direction. Every one of the three sites in this round
+            # named `truncated` while describing an empty read and named no
+            # condition that licenses it — which is what made each of them
+            # read as a misclassification to avoid rather than the rule.
+            for sentence in sentences:
+                if not re.search(_assigns(cut_cause), sentence):
+                    continue
+                with self.subTest(adapter=relative, sentence=sentence[:70]):
+                    self.assertTrue(
+                        any(f"`{c}`" in sentence for c in _TRUNCATING),
+                        f"{relative} names `{cut_cause}` in the classification "
+                        "step without naming a condition that licenses it: "
+                        f"{sentence[:120]}",
+                    )
+
+    def test_absent_is_not_a_terminating_condition(self) -> None:
+        # `absent` is a cause, not a fifth terminating condition — but the read
+        # that established it still ran and its condition is recorded. `null`
+        # is reserved for a lane never read at all, which is `pending`.
+        #
+        # This comment previously said the opposite: that a lane with no
+        # correlated reply never ran a bounded read. It survived the revision
+        # that made it false, sitting directly above assertions checking for
+        # "still ran a bounded read" — the test body was right the whole time
+        # and the comment above it contradicted every line of it.
+        contract = self.read("backends/contract.md")
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn("`absent` is not a fourth terminating condition", contract)
+        # ...but the read that established it still ran, and its condition is
+        # recorded. `null` is reserved for a lane never read at all.
+        self.assertIn("still ran a bounded read", contract)
+        self.assertIn("Every bounded read records how it ended", state)
+        self.assertIn("no bounded read has been performed yet", state)
+        for adapter in ("backends/traycer.md", "backends/claude-native.md"):
+            with self.subTest(adapter=adapter):
+                self.assertIn("the read ran, so it ended somehow", self.read(adapter))
+
+    def test_an_incomplete_verdict_cannot_discard_its_cause(self) -> None:
+        # The verdict says the lane is unverified; the cause is the only field
+        # that selects the remedy. A verdict with a null cause is the same
+        # defect one level down from the one this PR closes - recording that
+        # something failed while throwing away what to do about it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn(
+            "A `report_back: incomplete` with a null cause is an invalid record.",
+            state,
+        )
+
+    def test_a_clean_lane_is_recorded_not_left_blank(self) -> None:
+        # Without a positive record, "reported and verified" and "never looked
+        # at" are the same absence in the ledger - which is precisely the
+        # failure the report-back contract exists to detect, reappearing in the
+        # audit trail of the mechanism that detects it.
+        state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        allowed = _line_starting(state, "Allowed `report_back` values:")
+        self.assertIsNotNone(allowed, "template does not enumerate report_back values")
+        for value in ("`pending`", "`complete`", "`incomplete`"):
+            with self.subTest(value=value):
+                self.assertIn(value, allowed)
+        self.assertIn("A lane is never `complete` by never having been looked at.", state)
+        self.assertIn(
+            "A verified report is recorded too, not only a failed one.",
+            self.read("backends/contract.md"),
+        )
 
     def test_qa_and_reviewer_are_distinct_clean_current_head_lanes(self) -> None:
         qa = self.read("agents/qa-agent.md")
@@ -430,6 +949,225 @@ class BackendContractTests(unittest.TestCase):
             "ROUTING_IDENTIFIERS is subsumed by the structural check and must "
             "not be reintroduced",
         )
+
+    def test_report_back_defines_the_seven_sections(self) -> None:
+        report_back = self.read("agents/report-back.md")
+        for section in REPORT_BACK_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn(section, report_back)
+
+    def test_message_and_observe_rows_carry_the_report_back(self) -> None:
+        # The operations table is what an adapter author reads first. If the
+        # enforcement lives only in prose further down, an adapter can satisfy
+        # the table and never implement it.
+        contract = self.read("backends/contract.md")
+        message = _table_row(contract, "message")
+        observe = _table_row(contract, "observe")
+        self.assertIsNotNone(message, "contract.md has no `message` operations row")
+        self.assertIsNotNone(observe, "contract.md has no `observe` operations row")
+        self.assertIn("report-back contract", message)
+        self.assertIn("report-back shape verdict", observe)
+
+    def test_contract_enforcement_section_names_every_section(self) -> None:
+        contract = self.read("backends/contract.md")
+        section = _markdown_section(contract, "## Report-back enforcement")
+        self.assertIsNotNone(section, "contract.md missing Report-back enforcement")
+        for name in REPORT_BACK_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, section)
+        # Both operations are specified in the one place that defines them.
+        self.assertIn("`message`", section)
+        self.assertIn("`observe`", section)
+        self.assertIn(".agent/dev-state.md", section)
+        self.assertIn("never infer completion", section)
+
+    def test_silence_and_malformed_reply_share_one_verdict(self) -> None:
+        # The round's central defect class in the agent transport: no reply read
+        # as no problem. A lane that never replied must not be a lesser case
+        # than one that replied badly - both leave the lane unverified. The
+        # cause is recorded separately because the remedy differs, but a
+        # separate cause must never become a separate verdict.
+        contract = self.read("backends/contract.md")
+        self.assertIn("Absence of a report is not a report.", contract)
+        self.assertIn("the same verdict, not a lesser case", contract)
+        self.assertIn("report_back: incomplete", contract)
+        for cause in REPORT_BACK_CAUSES:
+            with self.subTest(cause=cause):
+                self.assertIn(f"`{cause}`", contract)
+
+    def test_heading_presence_has_a_non_empty_floor(self) -> None:
+        # Presence-only recognition is deliberate - the lead judges content -
+        # but without this floor seven empty headings pass the adapter check,
+        # which is the silent-lane failure wearing the shape of a report.
+        contract = self.read("backends/contract.md")
+        self.assertIn("A heading with no content under it is a missing section", contract)
+        self.assertIn("case-insensitive", contract.lower())
+
+    def test_the_presence_floor_is_itself_mechanical(self) -> None:
+        # "Has content under it" is a judgment unless what counts as content is
+        # stated, so the rule closing the empty-headings hole reopened it one
+        # level up: a heading followed by a blank line, by the next heading, or
+        # by an empty code fence were all arguable. The floor must be decidable
+        # by two leads independently, which means naming its edge case rather
+        # than leaving it to be reasoned out per reply.
+        contract = self.read("backends/contract.md")
+        self.assertIn(
+            "at least one line containing a non-whitespace character", contract
+        )
+        self.assertIn("before the next heading of any level", contract)
+        self.assertIn("empty code fence", contract)
+
+    def test_paging_is_bounded_so_truncated_is_reachable(self) -> None:
+        # `truncated` is defined for the state where the transport never
+        # declares completion - which is exactly the state an unbounded "read
+        # until it declares completion" loops in forever, never recording the
+        # cause that exists for it. The guard has to terminate to be a guard.
+        contract = self.read("backends/contract.md")
+        self.assertIn("Paging must be bounded", contract)
+        self.assertIn("An adapter that names no bound has not implemented", contract)
+        # The four terminating conditions, asserted inside the bullet that has
+        # to state them. File-wide they would also match the cause bullet
+        # downstream, so deleting one here would still "pass" against the other
+        # bullet's mention of it.
+        bullet = _bullet(contract, "**Paging must be bounded")
+        self.assertIsNotNone(bullet, "contract.md has no bounded-paging bullet")
+        for condition in (
+            "declares the reply complete",
+            "does not advance",
+            "page cap is reached",
+            "time bound elapses",
+        ):
+            with self.subTest(condition=condition):
+                self.assertIn(condition, bullet)
+
+    def test_each_adapter_states_a_concrete_bound(self) -> None:
+        # `contract.md` requires a bound but cannot supply one: a page size and
+        # a timeout are properties of a transport it does not know. Asserted
+        # structurally so tuning the numbers stays a free change while deleting
+        # the bound does not.
+        for relative in ("backends/traycer.md", "backends/claude-native.md"):
+            adapter = self.read(relative)
+            with self.subTest(adapter=relative):
+                self.assertRegex(adapter, r"\*\*\d+\s+(?:pages|re-reads)\*\*")
+                self.assertRegex(adapter, r"\*\*\d+\s+seconds\*\*")
+
+    def test_absent_is_classified_before_shape_and_paging(self) -> None:
+        # The cause taxonomy was correct and ran too late. With shape or paging
+        # classified first, a lane that never replied records `malformed`
+        # (seven sections missing from nothing) or `truncated` (a cut in a
+        # reply that never existed) - each sending the lead to a remedy for a
+        # different failure than the one that happened. Found by external
+        # review at a real head, in `claude-native.md`, and present in
+        # `traycer.md` too: an empty inbox stalls like any non-advancing
+        # cursor.
+        contract = self.read("backends/contract.md")
+        # Half of this sentence used to read "or of its transport", which the
+        # termination field falsified: the condition ending an empty read is
+        # precisely transport evidence, and is the reason it is now recorded.
+        self.assertIn("An empty read is never evidence of a reply's shape.", contract)
+        self.assertIn(
+            "What an empty read *is* evidence of is its own transport", contract
+        )
+        self.assertIn("`absent` is classified first", contract)
+        # Precedence is stated centrally rather than left to each adapter,
+        # because two adapters deriving the same ordering from prose is how
+        # they drift - which is exactly how this defect reached review.
+        self.assertIn("part of the taxonomy rather than each adapter's discretion", contract)
+
+    def test_the_absent_branch_precedes_the_others_in_every_document(self) -> None:
+        # Ordering is the whole finding, and no substring assertion can catch a
+        # reordering: every token survives being moved. Positional assertions
+        # are the only ones that bind here.
+        for relative, absent, shape, paging in (
+            (
+                "backends/contract.md",
+                "`absent` is classified first",
+                "Judge shape only after",
+                "Paging must be bounded",
+            ),
+            (
+                "backends/traycer.md",
+                "Classify `absent` before anything else.",
+                "verify it carries all seven required sections",
+                "Bound that read.",
+            ),
+            (
+                "backends/claude-native.md",
+                "Classify `absent` before anything else",
+                "Then verify the reply",
+                "Bound the read",
+            ),
+        ):
+            document = self.read(relative)
+            with self.subTest(document=relative):
+                for token in (absent, shape, paging):
+                    self.assertIn(token, document)
+                self.assertLess(
+                    document.index(absent),
+                    document.index(shape),
+                    f"{relative}: `absent` must be classified before the shape branch",
+                )
+                self.assertLess(
+                    document.index(absent),
+                    document.index(paging),
+                    f"{relative}: `absent` must be classified before the paging branch",
+                )
+
+    def test_termination_controls_whether_shape_can_be_judged(self) -> None:
+        # A cut read cannot pass from its visible headings. Completed reads
+        # still require the correlation and section checks in the full mapping.
+        contract = self.read("backends/contract.md")
+        self.assertIn("Termination decides whether section inspection is permitted", contract)
+        self.assertIn("whatever sections it happens to contain", contract)
+        # Both adapters have to record the condition, or the lead has nothing
+        # to read it from.
+        self.assertIn("Record which of the four ended it", self.read("backends/traycer.md"))
+        self.assertIn(
+            "Record which condition ended it", self.read("backends/claude-native.md")
+        )
+
+    def test_traycer_observe_checks_the_seven_sections(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        for section in REPORT_BACK_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn(section, adapter)
+        self.assertIn("report_back: incomplete", adapter)
+        # Shape is judged only after the paged read completes; otherwise
+        # pagination manufactures a lane defect.
+        self.assertIn("truncated", adapter)
+        self.assertIn("is not a completion signal", adapter)
+
+    def test_traycer_message_embeds_the_contract(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        self.assertIn("must embed the report-back contract", adapter)
+        self.assertIn("agents/report-back.md", adapter)
+
+    def test_claude_native_implements_the_same_enforcement(self) -> None:
+        # contract.md is backend-neutral, so parity is the requirement, not a
+        # courtesy: an adapter that omits this is the one every silent lane
+        # would be dispatched through.
+        adapter = self.read("backends/claude-native.md")
+        self.assertIn("seven required sections", adapter)
+        self.assertIn("agents/report-back.md", adapter)
+        self.assertIn("`incomplete`", adapter)
+        self.assertIn(".agent/dev-state.md", adapter)
+
+    def test_role_specific_close_outs_never_substitute(self) -> None:
+        # The escape hatch with a real precedent: a QA lane posting its PR
+        # comment and replying nothing looks like a lane that reported.
+        #
+        # Whitespace is collapsed first because `report-back.md` hard-wraps its
+        # prose, so a rewrap must not read as a policy change here. Note the
+        # validator pins this same sentence lexically, which is why it sits on
+        # one line there: a reflow that splits it reddens the gate in
+        # `validate_skill.py` rather than in this test.
+        for relative in ("agents/report-back.md", "backends/contract.md"):
+            with self.subTest(document=relative):
+                self.assertIn(
+                    "never substitute for the seven required sections",
+                    " ".join(self.read(relative).split()),
+                )
+        self.assertIn("seven required sections", self.read("agents/qa-agent.md"))
 
     def test_no_baseline_policy_token_is_ever_removed(self) -> None:
         """Every token pinned at base 66ecfa3 must still be pinned.

@@ -11,6 +11,10 @@ silence.
 - Include the backend correlation/response ID recorded by the adapter when one
   was provided. A missing or mismatched correlation ID fails the lane closed.
 - Read-only lanes (QA, reviewer) must also confirm they left zero tracked changes.
+- This contract is enforced by the adapter, not only by this prompt. The
+  assignment envelope carries it, and `observe` marks the operation `incomplete`
+  when a reply is missing sections or never arrives. See the report-back
+  enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`.
 
 ## Required sections (all lanes)
 
@@ -48,6 +52,11 @@ evidence.
   this contract does not restate it.
 
 ## Role-specific close-out
+
+Role-specific close-outs are additive. They
+never substitute for the seven required sections: a lane that posts its
+role-specific artifact — a QA PR comment, a reviewer finding list — and replies
+nothing has not reported.
 
 - **Worker** (`worker-new` / `worker-fix`): report the created PR URL and the
   exact head commit, then stop and wait for review or shutdown.

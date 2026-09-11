@@ -234,6 +234,57 @@ def main() -> int:
         # A convenience entry point that omits a recorded command reports
         # success over something that never ran - the same defect one layer up.
         "may be used only when it is known to run every recorded command",
+        # Report-back enforcement at the adapter layer. The same defect class
+        # one transport down: a lane that never replied is not a lane that had
+        # nothing to say. Each token pins one way the enforcement could be
+        # softened back into prompt-level etiquette.
+        "Absence of a report is not a report.",
+        "the same verdict, not a lesser case",
+        "report_back: incomplete",
+        # Without this, seven empty headings satisfy a presence check.
+        "A heading with no content under it is a missing section",
+        # The role-specific close-outs are the obvious escape hatch: a QA lane
+        # posting its PR comment and replying nothing must not read as reported.
+        "never substitute for the seven required sections",
+        # The empty-heading rule closed one hole and opened a smaller one: what
+        # counts as content was itself a judgment, so two leads could reach
+        # different verdicts on the same reply. This is the mechanical floor.
+        "at least one line containing a non-whitespace character",
+        # "Read until the transport declares completion" is unbounded, so the
+        # `truncated` cause was unreachable in the exact state it exists for.
+        "Paging must be bounded",
+        # Termination decides whether section inspection is permitted;
+        # completed reads still need correlation and section evidence.
+        "Termination decides whether section inspection is permitted",
+        # The cause taxonomy was right and ran too late: an empty read reached
+        # the shape branch as `malformed`, or stalled as `truncated`, when what
+        # happened was that nothing arrived. Precedence is part of the
+        # taxonomy - two adapters deriving it independently is how they drift.
+        "An empty read is never evidence of a reply's shape.",
+        # The other half of that sentence used to say "or of its transport",
+        # which the termination field falsified: the condition that ended an
+        # empty read is exactly transport evidence, and is why it is recorded.
+        "What an empty read *is* evidence of is its own transport",
+        # Three adapters instructed recording a verdict and cause into a ledger
+        # with no field for either, so every lead would have invented a shape.
+        # The cause is the half that selects the remedy; a verdict without one
+        # records that something failed and discards what to do about it.
+        "A `report_back: incomplete` with a null cause is an invalid record.",
+        # And the clean lane records too, or "reported and verified" and "never
+        # checked" are the same absence - this contract's own failure mode.
+        "A lane is never `complete` by never having been looked at.",
+        # The cause is lossy on purpose - three conditions collapse to
+        # `truncated` - so the condition itself is kept for diagnosis. The
+        # verdict and cause use the full mapping of observed inputs.
+        "report_back_termination",
+        "derive the verdict and cause from the full mapping",
+        # The ledger recorded `report_back_termination: null` for an absent
+        # lane on the reasoning that no read had run - while `contract.md` said
+        # nothing can be known to be absent without looking. Two documents, one
+        # head, contradicting each other on the one row the drift guard did not
+        # cover. Absence is a result of reading, and a cut read establishes none.
+        "Absence is established by reading, not instead of reading",
+        "has not established absence",
     )
     for token in required_policy:
         if token not in combined:
@@ -261,6 +312,49 @@ def main() -> int:
         "agents/worker-prototype-backend.md": (
             "Exploration favors breadth over minimality.",
         ),
+        # Report-back enforcement is per-file by nature: `contract.md` is
+        # backend-neutral, so both adapters must carry it in their own right.
+        # A combined match would let one adapter hold it up for the other.
+        "backends/contract.md": (
+            "Absence of a report is not a report.",
+            "report_back: incomplete",
+            "never substitute for the seven required sections",
+            "at least one line containing a non-whitespace character",
+            "Paging must be bounded",
+            "Termination decides whether section inspection is permitted",
+            "An empty read is never evidence of a reply's shape.",
+            "no correlated reply after `completed` is `absent`",
+            "A verified report is recorded too, not only a failed one.",
+            "Record the terminating condition, and derive the verdict and cause from the full mapping.",
+            "still ran a bounded read",
+        ),
+        # The ledger is the other half of Issue #3's "recorded in
+        # .agent/dev-state.md": a contract pointing at a field that does not
+        # exist is not a recorded verdict.
+        "templates/DEV_STATE_TEMPLATE.md": (
+            "report_back_cause",
+            "A `report_back: incomplete` with a null cause is an invalid record.",
+            "A lane is never `complete` by never having been looked at.",
+            "report_back_termination",
+            "termination, reply correlation, and section presence",
+            "Every bounded read records how it ended",
+        ),
+        # Each adapter must state its own bound; `contract.md` requires one to
+        # exist but cannot supply a page size or a timeout for a transport it
+        # does not know. An adapter naming no bound has not implemented observe.
+        "backends/traycer.md": (
+            "report_back: incomplete",
+            "Quality-gate self-assessment",
+            "Bound that read.",
+            "Classify `absent` before anything else.",
+        ),
+        "backends/claude-native.md": (
+            "seven required sections",
+            "Bound the read",
+            "Classify `absent` before anything else",
+        ),
+        "agents/report-back.md": ("never substitute for the seven required sections",),
+        "agents/qa-agent.md": ("seven required sections",),
     }
     for relative, tokens in sorted(per_file_policy.items()):
         target = skill_dir / relative

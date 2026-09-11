@@ -46,9 +46,42 @@ Allowed `backend_source` values: `null` (not yet resolved), `detected` (the dete
 
 ## Worker record schema
 
-Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `created_at`, and `updated_at`.
+Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `report_back`, `report_back_termination`, `report_back_cause`, `created_at`, and `updated_at`.
 
 Allowed status values: `planned`, `worktree_ready`, `active`, `blocked`, `pr_created`, `qa`, `review`, `complete`, `stopped`.
+
+## Report-back record schema
+
+`report_back` records whether the lane's report-back was observed and verified; `report_back_cause` records why it was not. The pair takes the same shape as `profile` / `profile_source` above — a value and the qualifier that explains it — rather than a nested record, which nothing else in a `workers` entry uses.
+
+Allowed `report_back` values: `pending` (the lane has been dispatched and no report-back has been observed yet), `complete` (a reply correlated to `communication_response_id` carried all seven required sections), and `incomplete` (it did not).
+
+Allowed `report_back_termination` values: `null` (no bounded read has been performed yet), `completed` (the transport declared the reply complete), `stalled` (a page returned no new content, or a cursor that did not advance), `page_cap` (the adapter's page or re-read cap was reached), and `time_bound` (the adapter's time bound elapsed). These are the four conditions named in the report-back enforcement section of `${CLAUDE_SKILL_DIR}/backends/contract.md`, under one set of names for the contract, both adapters, and this ledger.
+
+**Every bounded read records how it ended, including one that found no correlated reply.** Absence is established by reading, not instead of reading, so a lane recorded `absent` ran a read that terminated somehow, and that condition is evidence. `null` means only that no read has been performed — the same situation as `report_back: pending`, never the outcome of a read.
+
+Allowed `report_back_cause` values: `null` when `report_back` is `pending` or `complete`, and otherwise exactly one of `absent`, `malformed`, or `truncated`, as defined in that same section. **A `report_back: incomplete` with a null cause is an invalid record.** The verdict only says the lane is unverified; the cause is the sole field that selects the remedy, so a verdict without one records that something failed while discarding what to do about it.
+
+**Derive `report_back` and `report_back_cause` from termination, reply correlation, and section presence.** The lead uses those observed inputs to select the row below; the verdict and cause must match that row:
+
+| Correlated reply | `report_back_termination` | Sections present | `report_back` | `report_back_cause` |
+|---|---|---|---|---|
+| not yet read | `null` | not examined | `pending` | `null` |
+| not observed | `stalled`, `page_cap`, `time_bound` | not examined | `incomplete` | `truncated` |
+| not observed | `completed` | not examined | `incomplete` | `absent` |
+| observed | `stalled`, `page_cap`, `time_bound` | not judged | `incomplete` | `truncated` |
+| observed | `completed` | any missing | `incomplete` | `malformed` |
+| observed | `completed` | all seven | `complete` | `null` |
+
+The mapping is total, so every observation has exactly one row, and any pairing not in this table is an invalid record — `absent` beside a cut read, `malformed` beside a stall, or any non-null cause beside `report_back: complete`.
+
+**`absent` requires a `completed` read.** A read cut short by a stall, the page cap, or the time bound that found no correlated reply has not established absence; the reply may lie past the cut. That record is `truncated`, and the remedy is to re-read before concluding anything about the lane. Reading "no reply seen so far" as "no reply exists" would be this contract's own defect — a partial absence of signal taken as a positive finding — committed by the ledger that exists to prevent it.
+
+On an `absent` record the termination is not colour but the evidence for the claim: `completed` is what distinguishes "the transport said that is everything, and the reply was not in it" from "we stopped looking." Without it, `absent` is an assertion with nothing behind it.
+
+The termination condition is kept because the cause is lossy on purpose. `truncated` covers three conditions that share one remedy — re-read — so the cause is sufficient to decide what to do next and insufficient to see a pattern across lanes. A transport that stalls on every lane and one that rarely hits the time bound are the same `truncated` in the cause and distinguishable only here.
+
+`pending` is not a cosmetic default. Without it, a lane that reported cleanly and a lane nobody ever observed occupy the same absence in the ledger — which is the failure this field exists to make visible, one level up. A lane is never `complete` by never having been looked at.
 
 ## Pull request record schema
 
