@@ -210,3 +210,44 @@ After a PR is merged into main, immediately, all scoped to the confirmed `github
 2. Compare this merge's file list against each open PR's modified files (`rtk gh pr diff <PR-number> --repo github.com/<confirmed pullRequestRepository> --name-only`). Check one PR at a time; do not dump all diffs into the conversation.
 3. Open PRs with file overlap → immediately re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation pr --target <confirmed pullRequestRepository>` and require exit 0, then comment (`rtk gh pr comment <PR-number> --repo github.com/<confirmed pullRequestRepository> ...`): `This PR overlaps files with the just-merged #N. Please rebase: rtk git fetch origin && rtk proxy git rebase origin/main`
 4. Open PRs with logical dependencies (e.g. this refactor changed module paths or interface signatures) → re-run the same check immediately before each notification and use the same explicit repository scope.
+
+---
+
+## Post-Merge Verification (unconditional)
+
+Owner: the lead. Runs after every merge to `main`, for every PR, regardless of
+how clean pre-merge review looked. This is not a merge gate: it never blocks
+delivery, and its only outputs are a `.agent/dev-state.md` ledger entry or a
+reopened Issue. Pre-merge review answers whether the PR looked right; this
+step answers whether what actually landed on `main` is right, and whether the
+Issue it closed is actually done — a question five clean pre-merge lanes can
+each answer "yes" to individually while it stays unasked.
+
+1. **Verify the merged tree.** Compare the merge commit's tree hash against
+   the verified PR head's tree hash: `rtk proxy git -C "<selected-worktree>"
+   rev-parse <merge-sha>^{tree}` against the recorded `headRefOid^{tree}`.
+   - Equal → the PR-head Verification Gate result already on record applies
+     verbatim to `main`; record that equivalence rather than re-running the
+     gate.
+   - Unequal (a non-fast-forward merge commit, a squash that picked up late
+     changes, or any other divergence) → check out `main` at the merge commit
+     in a clean worktree and run the full recorded Verification Gate there —
+     the gate has otherwise only ever run on the PR branch.
+2. **Re-check the closed Issue's acceptance criteria against the merged
+   code.** Read each criterion and confirm it against what actually shipped
+   on `main`, not against the PR description or the review that preceded
+   merge. Confirm every criterion, or reopen the Issue naming the specific
+   unmet items.
+
+   **Auto-closure by a merge keyword is never evidence of completion.**
+   GitHub closing an Issue because a merged PR said `Closes #N` records that
+   a merge happened, not that the criteria were met.
+3. **Record the result.** Append `merge_sha`, `gate_result`, and
+   `criteria_verdict` (with the reopen list when unmet) to the post-merge
+   verification record in `.agent/dev-state.md`, per the schema in
+   `${CLAUDE_SKILL_DIR}/templates/DEV_STATE_TEMPLATE.md`.
+4. **If the merge used the external-review bypass**, this record inherits
+   that bypass's debt rather than restating it: cross-reference the recorded
+   `review_debt` entry and the commit-range rule in
+   `${CLAUDE_SKILL_DIR}/phases/external-review.md` instead of naming the
+   range again here.
