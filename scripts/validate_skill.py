@@ -22,6 +22,7 @@ REQUIRED = {
     "phases/external-review.md",
     "phases/phase4.md",
     "phases/phase5.md",
+    "phases/repository-context.md",
     "agents/report-back.md",
     "agents/worker-new.md",
     "agents/worker-fix.md",
@@ -33,6 +34,8 @@ REQUIRED = {
     "templates/DEV_STATE_TEMPLATE.md",
     "scripts/detect_execution_backend.py",
     "scripts/inspect_external_reviews.py",
+    "scripts/dev_config.py",
+    "scripts/resolve_repository.py",
 }
 
 

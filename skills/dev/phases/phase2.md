@@ -40,9 +40,9 @@ Confirm all decisions with the user before proceeding to task decomposition.
 
 When requirements conflict with existing architecture decisions in PROJECT_CONTEXT.md (e.g. replacing the auth system, rewriting a core module), **before task decomposition** you must:
 
-1. List affected merged PRs with a compact summary scan, e.g. `rtk gh pr list --state merged --limit 20 --json number,title,mergedAt,headRefName --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'`, then deep-read only the likely affected PRs
-2. Create a fix Issue for each affected merged PR (label: `[Arch Change] Fix code affected by PR #N`)
-3. Review all open Issues with compact summary output, then close or revise any that conflict with the new architecture (explain why in Issue comments)
+1. Verify the PR target with `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation pr --target <pullRequestRepository>`; then list affected merged PRs with a compact summary scan, e.g. `rtk gh pr list --repo github.com/<pullRequestRepository> --state merged --limit 20 --json number,title,mergedAt,headRefName --jq '.[] | "#\(.number) \(.headRefName) — \(.title)"'`, then deep-read only the likely affected PRs
+2. Immediately before each creation, run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation issue --target <pushRepository>` and require exit 0; create it with `rtk gh issue create --repo github.com/<pushRepository>`. Create a fix Issue for each affected merged PR (label: `[Arch Change] Fix code affected by PR #N`)
+3. Read open Issues with `rtk gh issue list --repo github.com/<pushRepository>`. Immediately before each close, edit, or comment, re-run the Issue operation check for that Issue's qualified repository; use `rtk gh issue close`, `edit`, or `comment` with `--repo github.com/<that repository>` and require the check to exit 0. If that repository differs from `pushRepository`, use `--allow-target-override` only for an explicitly assigned existing upstream Issue.
 4. Immediately update the architecture decisions section of PROJECT_CONTEXT.md (do not wait for Phase 5)
 
 ### Execution Steps
@@ -55,18 +55,19 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 2. **For new projects**, establish a real default branch before creating worktrees:
 
-   1. Create and clone the repository with a server-generated initial commit: `rtk gh repo create [project-name] --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
+   1. Before creating, verify the CLI account: `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-project-root>" --mode check-gh-account --account <confirmed github.account>`. Create and clone the repository using the full confirmed identity, never a bare project name: `GH_HOST=github.com rtk gh repo create <github.pushRepository> --private --add-readme --clone`. This establishes `main` without a direct lead-session push.
    2. Enter the clone and verify readiness with `rtk git status --short`, `rtk git branch --show-current`, and `rtk git rev-parse HEAD`. Require `main`, a real commit, and a clean tree.
-   3. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
-   4. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`).
-   5. Create one Issue per development task using the template below, then create a milestone linking all Issues.
+   3. If Phase 0's setup produced a confirmed `.dev.json` at a pre-Git project root, move it into this clone now and re-run its pre-write verification (`${CLAUDE_SKILL_DIR}/phases/repository-context.md`) before any further write — the actual remote/repository/Git identity must now be confirmed, not just the earlier intent. If no confirmed config exists yet, run first-invocation setup here before continuing.
+   4. Create a docs-only bootstrap branch/worktree. In that worktree, create `PROJECT_CONTEXT.md` from `${CLAUDE_SKILL_DIR}/templates/PROJECT_CONTEXT_TEMPLATE.md`; add `API_CONTRACT.md` when required; submit and merge the bootstrap PR before implementation work starts.
+   5. Immediately before each Issue or milestone mutation, require exit 0 from `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation issue --target <github.pushRepository>`; use `--repo github.com/<github.pushRepository>` for Issue commands and `gh api --hostname github.com repos/<github.pushRepository>/milestones` for milestones. Create Issue #1 containing the frozen PRD (title: `[PRD] Product Requirements Document`), scoped to `github.pushRepository` from `.dev.json` — plugin-created task Issues default to the push repository, not the PR destination.
+   6. Create one Issue per development task using the template below, scoped the same way, then create a milestone linking all Issues.
 
    Do not create coding worktrees until the bootstrap PR is merged and `origin/main` contains the project context.
 
 3. **For existing projects**:
    - Read `PROJECT_CONTEXT.md` to restore context
-   - Create Issues for new requirements (use the Issue template below)
-   - Update milestone
+   - Create Issues for new requirements (use the Issue template below), explicitly scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md` (`rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation issue --target <github.pushRepository>`, then `rtk gh issue create --repo github.com/<that repository>`)
+   - Immediately before updating the milestone, re-run the Issue operation check and use `gh api --hostname github.com repos/<github.pushRepository>/milestones/<number>`
 
 4. Present the task list for user confirmation using the explicit dependency format:
    ```
@@ -91,7 +92,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 **Skip the architecture decision checkpoint. Skip QA (Phase 3.5).**
 
-1. Create one Hotfix Issue directly, title format: `[Hotfix] [incident description]`
+1. Immediately before creating, require exit 0 from `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation issue --target <github.pushRepository>`, then `rtk gh issue create --repo github.com/<github.pushRepository>`. Create one Hotfix Issue directly, scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`, title format: `[Hotfix] [incident description]`
 2. Acceptance criteria only needs to cover: incident reproduction path + fix verification
 3. Present the Issue to the user for confirmation, then **immediately enter Phase 3 (single Agent, using `worker-fix.md`)**
 4. After PR is merged, **must run the affected PR coordination step** (see Phase 4 merge section)
@@ -100,7 +101,7 @@ When requirements conflict with existing architecture decisions in PROJECT_CONTE
 
 ## Lightweight Mode (Small Change / Bug Fix)
 
-1. Create one Issue directly (use the Issue template below)
+1. Immediately before creating, require exit 0 from `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<selected-worktree>" --operation issue --target <github.pushRepository>`, then `rtk gh issue create --repo github.com/<github.pushRepository>`. Create one Issue directly (use the Issue template below), scoped to `github.pushRepository` per `${CLAUDE_SKILL_DIR}/phases/repository-context.md`
 2. No task decomposition or milestone needed
 3. Present the Issue to the user for confirmation, then **immediately enter Phase 3 (single Agent)**
 
