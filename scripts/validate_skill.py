@@ -563,6 +563,36 @@ def main() -> int:
             fail(errors,
                  f"SKILL.md Global Rules missing required hook: {reply_token}")
 
+    # Issue #54: the reply contract governs only the Tech Lead's own replies
+    # to the user — never a delegated lane's prompt. The test suite enforces
+    # this on a flat `agents/` glob, but `tests/` is export-ignored (see
+    # `.gitattributes`) so archive extractions carry no test, and the gate
+    # was only structurally guaranteed in-repo. Mirror the invariant at the
+    # validator level so the archive's check is the same as the in-repo one.
+    # Recursive so a future nested layout cannot smuggle a reference past
+    # either layer. Each offending file is named in its own error so the
+    # author does not have to grep to find the offender.
+    # Matches the bare `reply-contract.md` token (same as the test) — both
+    # the variable form `${CLAUDE_SKILL_DIR}/reply-contract.md` and a bare
+    # filename reference are equivalent expressions of the same forbidden
+    # cross-reference.
+    agents_dir = skill_dir / "agents"
+    if agents_dir.is_dir():
+        for path in sorted(agents_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if "reply-contract.md" in text:
+                fail(
+                    errors,
+                    f"agents/{path.relative_to(agents_dir)} references "
+                    f"reply-contract.md; the contract governs only the lead's "
+                    "replies, never a delegated lane's prompt",
+                )
+
     detector = skill_dir / "scripts" / "detect_execution_backend.py"
     if detector.is_file():
         detector_text = detector.read_text(encoding="utf-8")
