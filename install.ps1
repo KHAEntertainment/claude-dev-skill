@@ -49,6 +49,7 @@ $gitCommand = Get-Command git -ErrorAction SilentlyContinue
 $tarCommand = Get-Command tar -ErrorAction SilentlyContinue
 $isGitCheckout = $false
 $gitValidationError = $null
+$installCommit = ""
 if ($hasOwnGit) {
     if (-not $gitCommand) {
         $gitValidationError = "This looks like a git checkout of the Skill (a .git entry is present at $PSScriptRoot), but git is required to stage it safely from git content. Install git, or install from a release tarball instead."
@@ -58,7 +59,11 @@ if ($hasOwnGit) {
         # answers this itself, so it needs no path comparison and sidesteps
         # symlink resolution mismatches between PowerShell's Resolve-Path
         # and git's internal realpath handling, e.g. macOS's
-        # /var -> /private/var).
+        # /var -> /private/var). installCommit is captured here, once, as
+        # part of the same validation chain, and reused verbatim for every
+        # later archive: resolving HEAD again at staging time would leave a
+        # window where a concurrent commit on this checkout could make the
+        # archived content disagree with the commit the install reports.
         $gitPrefix = (& $gitCommand.Source -C $PSScriptRoot rev-parse --show-prefix) 2>$null
         $prefixOk = ($LASTEXITCODE -eq 0 -and [string]::IsNullOrEmpty($gitPrefix))
         $trackedSkillsDev = $null
@@ -66,14 +71,40 @@ if ($hasOwnGit) {
             $trackedSkillsDev = (& $gitCommand.Source -C $PSScriptRoot ls-tree -d HEAD -- skills/dev) 2>$null
         }
         if ($prefixOk -and $LASTEXITCODE -eq 0 -and $trackedSkillsDev) {
-            $isGitCheckout = $true
+            $installCommit = (& $gitCommand.Source -C $PSScriptRoot rev-parse HEAD) 2>$null
+            if ($LASTEXITCODE -eq 0 -and $installCommit) {
+                $installCommit = $installCommit.Trim()
+                $isGitCheckout = $true
+            }
         }
-        else {
+        if (-not $isGitCheckout) {
+            $installCommit = ""
             $gitValidationError = "This looks like a git checkout of the Skill (a .git entry is present at $PSScriptRoot), but its git metadata could not be validated (it may not be the repository root, or skills/dev may not be tracked at HEAD). Refusing to guess; install from a clean checkout or a release tarball instead."
         }
     }
 }
-$installCommit = ""
+
+# Archives $installCommit's skills/dev into $Destination (which must
+# already exist and be empty). Shared by the preflight check below and the
+# real staging step further down so both extract the exact same commit
+# through the exact same path.
+function Export-CommittedSkillsDev([string]$Destination) {
+    $archiveFile = Join-Path ([IO.Path]::GetTempPath()) ("dev-archive-" + [guid]::NewGuid() + ".tar")
+    try {
+        # Written to a temp file rather than piping git's binary stdout
+        # through the PowerShell pipeline: native-to-native pipes in
+        # PowerShell can reinterpret/corrupt binary streams (encoding and
+        # newline translation), which a file handoff avoids entirely.
+        & $gitCommand.Source -C $PSScriptRoot archive -o $archiveFile $installCommit -- skills/dev
+        if ($LASTEXITCODE -ne 0) { throw "git archive failed with exit code $LASTEXITCODE" }
+        & $tarCommand.Source -xf $archiveFile -C $Destination --strip-components=2
+        if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit code $LASTEXITCODE" }
+    }
+    finally {
+        Remove-Item $archiveFile -ErrorAction SilentlyContinue
+    }
+}
+
 $targetWasExplicit = $PSBoundParameters.ContainsKey("Target")
 if (-not $Target) {
     $Target = Join-Path $ConfigDir "skills\dev"
@@ -101,8 +132,30 @@ if ($gitValidationError) {
 if ($isGitCheckout -and -not $tarCommand) {
     throw "This is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead."
 }
-& $pythonExe $validator --skill-dir $source
-if ($LASTEXITCODE -ne 0) { throw "Skill validation failed." }
+# Preflight validates the tree that will actually be installed. In git
+# mode that is the committed content at installCommit, not $source: an
+# uncommitted local edit or deletion under $source must not block
+# installing a perfectly valid committed tree, and conversely, a genuinely
+# broken committed tree must still be caught here, before any mutation.
+# This costs a second archive/extract beyond the one staging does later
+# (cheap for a skill-sized tree) rather than skipping preflight validation
+# for git mode entirely.
+if ($isGitCheckout) {
+    $preflightDir = Join-Path ([IO.Path]::GetTempPath()) ("dev-preflight-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $preflightDir | Out-Null
+    try {
+        Export-CommittedSkillsDev -Destination $preflightDir
+        & $pythonExe $validator --skill-dir $preflightDir
+        if ($LASTEXITCODE -ne 0) { throw "Skill validation failed." }
+    }
+    finally {
+        Remove-Item $preflightDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+else {
+    & $pythonExe $validator --skill-dir $source
+    if ($LASTEXITCODE -ne 0) { throw "Skill validation failed." }
+}
 
 $migrate = if ($MigrateLegacy) { $true } elseif ($KeepLegacy) { $false } else { -not $targetWasExplicit }
 $legacyFile = Join-Path $ConfigDir "commands\dev.md"
@@ -137,21 +190,10 @@ try {
     New-Item -ItemType Directory -Force -Path $targetParent | Out-Null
     New-Item -ItemType Directory -Path $stage | Out-Null
     if ($isGitCheckout) {
-        $installCommit = (& $gitCommand.Source -C $PSScriptRoot rev-parse HEAD).Trim()
-        # Write the archive to a temp file rather than piping git's binary
-        # stdout through the PowerShell pipeline: native-to-native pipes in
-        # PowerShell can reinterpret/corrupt binary streams (encoding and
-        # newline translation), which a file handoff avoids entirely.
-        $archiveFile = Join-Path ([IO.Path]::GetTempPath()) "dev-archive-$stamp.tar"
-        try {
-            & $gitCommand.Source -C $PSScriptRoot archive -o $archiveFile HEAD -- skills/dev
-            if ($LASTEXITCODE -ne 0) { throw "git archive failed with exit code $LASTEXITCODE" }
-            & $tarCommand.Source -xf $archiveFile -C $stage --strip-components=2
-            if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit code $LASTEXITCODE" }
-        }
-        finally {
-            Remove-Item $archiveFile -ErrorAction SilentlyContinue
-        }
+        # Archives the exact commit already captured and validated above,
+        # not HEAD again: re-resolving HEAD here would reopen the race the
+        # earlier capture exists to close (see installCommit's capture site).
+        Export-CommittedSkillsDev -Destination $stage
     }
     else {
         Copy-Item (Join-Path $source "*") $stage -Recurse -Force

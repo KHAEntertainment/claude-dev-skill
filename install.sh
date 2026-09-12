@@ -30,13 +30,18 @@ VALIDATOR="$SCRIPT_DIR/scripts/validate_skill.py"
 #                                             skills/dev at HEAD)
 #   no own .git                           -> copy path, tarball provenance
 #                                             (git/tar not required here)
+# -L (not just -e) catches a dangling .git symlink too: -e alone follows
+# the link and reports false when its target is missing, which would
+# otherwise read as "no git metadata at all" and fall through to the copy
+# path even though a .git entry — just a broken one — is genuinely present.
 HAS_OWN_GIT=0
-if [[ -e "$SCRIPT_DIR/.git" ]]; then
+if [[ -e "$SCRIPT_DIR/.git" || -L "$SCRIPT_DIR/.git" ]]; then
   HAS_OWN_GIT=1
 fi
 
 IS_GIT_CHECKOUT=0
 GIT_VALIDATION_ERROR=""
+INSTALL_COMMIT=""
 if ((HAS_OWN_GIT)); then
   if ! command -v git >/dev/null 2>&1; then
     GIT_VALIDATION_ERROR="this looks like a git checkout of the Skill (a .git entry is present at $SCRIPT_DIR), but git is required to stage it safely from git content. Install git, or install from a release tarball instead."
@@ -47,16 +52,22 @@ if ((HAS_OWN_GIT)); then
   # would wrongly treat that failure the same as "cwd is the repo root."
   # `--show-prefix` answers "is cwd the repo root" directly (empty output
   # means yes), avoiding a path-string comparison that symlink resolution
-  # could otherwise throw off.
+  # could otherwise throw off. INSTALL_COMMIT is captured here, once, as
+  # part of the same validation chain, and reused verbatim for every later
+  # archive: resolving HEAD again at staging time would leave a window
+  # where a concurrent commit on this checkout could make the archived
+  # content disagree with the commit the install reports.
   elif GIT_PREFIX="$(git -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)" \
     && [[ -z "$GIT_PREFIX" ]] \
-    && [[ -n "$(git -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]]; then
+    && [[ -n "$(git -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]] \
+    && INSTALL_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" \
+    && [[ -n "$INSTALL_COMMIT" ]]; then
     IS_GIT_CHECKOUT=1
   else
+    INSTALL_COMMIT=""
     GIT_VALIDATION_ERROR="this looks like a git checkout of the Skill (a .git entry is present at $SCRIPT_DIR), but its git metadata could not be validated (it may not be the repository root, or skills/dev may not be tracked at HEAD). Refusing to guess; install from a clean checkout or a release tarball instead."
   fi
 fi
-INSTALL_COMMIT=""
 
 LANGUAGE="en"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${HOME:?HOME is required}/.claude}"
@@ -142,7 +153,25 @@ if ((IS_GIT_CHECKOUT)) && ! command -v tar >/dev/null 2>&1; then
   printf 'ERROR: this is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead.\n' >&2
   exit 1
 fi
-python3 "$VALIDATOR" --skill-dir "$SOURCE_DIR"
+# Preflight validates the tree that will actually be installed. In git
+# mode that is the committed content at INSTALL_COMMIT, not SOURCE_DIR: an
+# uncommitted local edit or deletion under SOURCE_DIR must not block
+# installing a perfectly valid committed tree, and conversely, a genuinely
+# broken committed tree must still be caught here, before any mutation.
+# This costs a second archive/extract beyond the one staging does later
+# (cheap for a skill-sized tree) rather than skipping preflight validation
+# for git mode entirely.
+if ((IS_GIT_CHECKOUT)); then
+  PREFLIGHT_DIR="$(mktemp -d)"
+  # shellcheck disable=SC2064 # intentionally expand PREFLIGHT_DIR now
+  trap "rm -rf -- '$PREFLIGHT_DIR'" EXIT
+  git -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
+  python3 "$VALIDATOR" --skill-dir "$PREFLIGHT_DIR"
+  rm -rf -- "$PREFLIGHT_DIR"
+  trap - EXIT
+else
+  python3 "$VALIDATOR" --skill-dir "$SOURCE_DIR"
+fi
 
 LEGACY_FILE="$CONFIG_DIR/commands/dev.md"
 LEGACY_DIR="$CONFIG_DIR/commands/dev"
@@ -195,8 +224,10 @@ mkdir -p -- "$TARGET_PARENT"
 [[ -w "$TARGET_PARENT" ]] || { printf 'ERROR: target parent is not writable: %s\n' "$TARGET_PARENT" >&2; exit 1; }
 mkdir -- "$STAGE_DIR"
 if ((IS_GIT_CHECKOUT)); then
-  INSTALL_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
-  git -C "$SCRIPT_DIR" archive HEAD -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+  # Archive the exact commit already captured and validated above, not
+  # HEAD again: re-resolving HEAD here would reopen the race the earlier
+  # capture exists to close (see INSTALL_COMMIT's capture site).
+  git -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
 else
   cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
 fi
