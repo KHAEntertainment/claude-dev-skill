@@ -318,6 +318,40 @@ try {
     }
     Pass "install.ps1 archives the captured commit, not HEAD, at staging time"
 
+    # GIT_DIR/GIT_WORK_TREE inherited from the caller's environment override
+    # git's repository discovery entirely, so without neutralizing them a
+    # perfectly valid own-.git checkout could silently validate, archive,
+    # and install a completely different repository's committed tree while
+    # reporting *its* commit (Issue #44 follow-up). Point both at a
+    # disposable repo carrying a planted marker file and confirm the real
+    # source's own tree and commit are what actually gets installed.
+    $envHijackAlt = Join-Path $testRoot "env-hijack-alt"
+    New-Item -ItemType Directory -Force -Path $envHijackAlt | Out-Null
+    Copy-Item (Join-Path $repo "skills") $envHijackAlt -Recurse -Force
+    & git init --quiet -- $envHijackAlt
+    Set-Content -Path (Join-Path $envHijackAlt "skills\dev\ENV_HIJACK_MARKER.txt") -Value "planted by an unrelated repo; must never ship"
+    & git -C $envHijackAlt add -A
+    & git -c user.name=test -c user.email=test@example.com `
+        -C $envHijackAlt commit --quiet -m "alt repo commit carrying a planted marker"
+    $envHijackTarget = Join-Path $testRoot "env-hijack target"
+    $expectedRealCommit = (& git -C $repo rev-parse HEAD).Trim()
+    $originalGitDir = $env:GIT_DIR
+    $originalGitWorkTree = $env:GIT_WORK_TREE
+    try {
+        $env:GIT_DIR = Join-Path $envHijackAlt ".git"
+        $env:GIT_WORK_TREE = $envHijackAlt
+        $envHijackOutput = & $installer -ConfigDir $envHijackTarget -Lang en 6>&1
+    }
+    finally {
+        if ($null -ne $originalGitDir) { $env:GIT_DIR = $originalGitDir } else { Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue }
+        if ($null -ne $originalGitWorkTree) { $env:GIT_WORK_TREE = $originalGitWorkTree } else { Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue }
+    }
+    Assert-Absent (Join-Path $envHijackTarget "skills\dev\ENV_HIJACK_MARKER.txt")
+    if (-not ($envHijackOutput -match "Installed from commit $expectedRealCommit")) {
+        throw "Install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE"
+    }
+    Pass "inherited GIT_DIR/GIT_WORK_TREE cannot redirect install to another repository"
+
     Write-Host "All $passCount PowerShell installer tests passed."
 }
 finally {
