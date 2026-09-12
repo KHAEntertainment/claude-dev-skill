@@ -123,6 +123,23 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   breakage as the guard under test. The test now self-checks that the
   shimmed `git` actually runs before asserting anything, and skips with a
   stated reason rather than asserting the wrong error if it can't.
+  Finally, every git invocation in both installers now runs with
+  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, and `GIT_OBJECT_DIRECTORY`
+  removed from its environment (`install.sh` via a shared
+  `env -u ... git` argv array; `install.ps1` by removing them from the
+  process environment once, before any git call). Left inherited, any one
+  of these overrides `-C`'s repository discovery entirely, so a caller
+  with e.g. `GIT_DIR` pointed at an unrelated repository could make the
+  installer silently validate, archive, and install *that* repository's
+  committed `skills/dev` tree while reporting its commit — reproduced and
+  confirmed before the fix (a planted marker file from a disposable
+  second repository shipped in the install, with that repository's commit
+  reported as provenance) — even though the own-`.git` checkout on the
+  real source directory validated correctly throughout. Both suites gained
+  a regression test: point `GIT_DIR`/`GIT_WORK_TREE` at a disposable repo
+  carrying a planted marker file, install from the real source, and
+  confirm the real source's tree and commit — never the marker or the
+  other repository's commit — are what's actually installed.
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
