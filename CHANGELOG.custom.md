@@ -124,33 +124,37 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   shimmed `git` actually runs before asserting anything, and skips with a
   stated reason rather than asserting the wrong error if it can't.
   Finally, every git invocation in both installers now runs with
-  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, and `GIT_OBJECT_DIRECTORY`
-  removed from its environment. Left inherited, any one of these overrides
-  `-C`'s repository discovery entirely, so a caller with e.g. `GIT_DIR`
-  pointed at an unrelated repository could make the installer silently
-  validate, archive, and install *that* repository's committed
-  `skills/dev` tree while reporting its commit — reproduced and confirmed
-  before the fix on both installers (a planted marker file from a
-  disposable second repository shipped in the install, with that
-  repository's commit reported as provenance) — even though the own-`.git`
-  checkout on the real source directory validated correctly throughout.
-  `install.sh` cleans this via a shared `env -u ... git` argv array at
-  every call site. `install.ps1` went through two iterations: the first
-  removed the four variables from `$env:` once, near the top of the
-  script — which fixed the hijack, but a follow-up probe proved it
-  corrupted the *caller's* session too (via a sentinel-variable check that
-  survived even a `-DryRun`), because `$env:` is process-wide and this
-  script commonly runs via `&` in the caller's own runspace (as this
-  repo's own test harness does) rather than as its own process. The
-  installer now builds each child git process's environment directly
-  (`Invoke-GitClean`, backed by `System.Diagnostics.ProcessStartInfo`)
-  instead of ever touching this process's own `$env:` table, so only git
-  itself sees the cleaned environment. Both suites gained a regression
-  test pointing `GIT_DIR`/`GIT_WORK_TREE` at a disposable repo carrying a
-  planted marker file, installing from the real source, and confirming
+  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, and
+  `GIT_COMMON_DIR` removed from its environment. Left inherited, any one
+  of the first four overrides `-C`'s repository discovery entirely, so a
+  caller with e.g. `GIT_DIR` pointed at an unrelated repository could make
+  the installer silently validate, archive, and install *that*
+  repository's committed `skills/dev` tree while reporting its commit —
+  reproduced and confirmed before the fix on both installers (a planted
+  marker file from a disposable second repository shipped in the install,
+  with that repository's commit reported as provenance) — even though the
+  own-`.git` checkout on the real source directory validated correctly
+  throughout. `GIT_COMMON_DIR` (the linked-worktree analog of `GIT_DIR`)
+  is cleaned alongside the other four as defense in depth, added after
+  external review flagged the omission, even though it did not
+  independently redirect a worktree-less checkout in testing. `install.sh`
+  cleans this via a shared `env -u ... git` argv array at every call site.
+  `install.ps1` went through two iterations: the first removed the risky
+  variables from `$env:` once, near the top of the script — which fixed
+  the hijack, but a follow-up probe proved it corrupted the *caller's*
+  session too (via a sentinel-variable check that survived even a
+  `-DryRun`), because `$env:` is process-wide and this script commonly
+  runs via `&` in the caller's own runspace (as this repo's own test
+  harness does) rather than as its own process. The installer now builds
+  each child git process's environment directly (`Invoke-GitClean`,
+  backed by `System.Diagnostics.ProcessStartInfo`) instead of ever
+  touching this process's own `$env:` table, so only git itself sees the
+  cleaned environment. Both suites gained a regression test pointing
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR` at a disposable repo carrying
+  a planted marker file, installing from the real source, and confirming
   the real source's tree and commit — never the marker or the other
   repository's commit — are what's actually installed;
-  `tests/test-install.ps1` additionally sets sentinel values for all four
+  `tests/test-install.ps1` additionally sets sentinel values for all five
   variables, runs a `-DryRun` install, and confirms every sentinel is
   unchanged afterward.
 - External-review bypass no longer excuses a review invalidated by the
