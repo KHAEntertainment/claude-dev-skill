@@ -12,6 +12,26 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ### Added
 
+- Lead-to-user end-of-turn reply contract (#54): `skills/dev/reply-contract.md`
+  governs only the Tech Lead's own replies to the user, never the
+  agent-to-lead report-back contract, Issue/PR bodies, or project docs.
+  Routine replies aim under 100 words, skip restating an approved plan or
+  pasting a lane's seven-section report, and ask at most one next-action
+  question when a decision is genuinely needed. Material failures, gate
+  verdicts, user decisions, irreversible-action confirmations, and
+  security/data-loss findings are always surfaced first, uncompressed. The
+  cap counts prose, not required structured artifacts — Phase 1's breadcrumb
+  and one-question block, Phase 3's Backend-Neutral Task Board, Phase 4's
+  review rating, and Phase 5's retro/sweep templates are exempt and still
+  emitted in full. The pull principle already stated for prototype readouts
+  in `phase1-prototyping.md` is generalized to every delegated lane's output,
+  and `/dev` never claims a task-requirements override to justify verbosity —
+  third-party brevity skills compose with it rather than being overridden by
+  it. `SKILL.md` gains one hook bullet each in the Session State Anchor and
+  Global Rules; `validate_skill.py` and the doc-assertion test suite pin the
+  new file, its three load-bearing sentences, and a negative assertion that
+  nothing under `skills/dev/agents/` references it — worker/QA/reviewer
+  surfaces are untouched.
 - Unconditional post-merge verification step (#26), owned by the lead and run
   after every merge regardless of how clean pre-merge review looked. It never
   blocks the merge; its outputs are a ledger entry or a reopened Issue. When

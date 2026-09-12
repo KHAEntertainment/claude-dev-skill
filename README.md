@@ -195,6 +195,7 @@ Use `-Target C:\path\to\skills\dev` for an isolated target.
 ```text
 skills/dev/
 ├── SKILL.md
+├── reply-contract.md
 ├── backends/
 │   ├── contract.md
 │   ├── claude-native.md
@@ -207,7 +208,8 @@ skills/dev/
 │   ├── phase3.5.md
 │   ├── external-review.md
 │   ├── phase4.md
-│   └── phase5.md
+│   ├── phase5.md
+│   └── repository-context.md
 ├── agents/
 │   ├── report-back.md
 │   ├── worker-new.md
@@ -221,7 +223,9 @@ skills/dev/
 │   └── DEV_STATE_TEMPLATE.md
 └── scripts/
     ├── detect_execution_backend.py
-    └── inspect_external_reviews.py
+    ├── inspect_external_reviews.py
+    ├── dev_config.py
+    └── resolve_repository.py
 ```
 
 ## License
