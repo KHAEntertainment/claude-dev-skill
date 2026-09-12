@@ -33,23 +33,29 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 - `install.sh` and `install.ps1` no longer ship whatever is sitting on disk
   under `skills/dev` (#44). Whether the installer's own directory *looks
-  like* a git checkout (a `.git` entry — directory, or for a linked
-  worktree the `gitdir: ...` file — is present) and whether it can
-  actually be *validated* as one are checked separately, and a directory
-  that looks like a checkout but can't be validated always aborts rather
-  than silently copying: doing otherwise would ship possibly-dirty
-  working-tree content while looking, from the outside, exactly like the
-  safe case. The full matrix, implemented identically in both installers:
+  like* a git checkout (a `.git` entry — directory, symlink (dangling or
+  not), or for a linked worktree the `gitdir: ...` file — is present) and
+  whether it can actually be *validated* as one are checked separately,
+  and a directory that looks like a checkout but can't be validated always
+  aborts rather than silently copying: doing otherwise would ship
+  possibly-dirty working-tree content while looking, from the outside,
+  exactly like the safe case. The full matrix, implemented identically in
+  both installers:
   - own `.git` + validates (git present; `git rev-parse --show-prefix` is
     empty, meaning the installer's own directory *is* the repo root and
     not merely inside one; `git ls-tree -d HEAD -- skills/dev` is
-    non-empty) + `tar` available → stage via `git archive HEAD --
+    non-empty) + `tar` available → stage via `git archive <commit> --
     skills/dev` (piped through `tar` for `install.sh`; written to a temp
     file and extracted for `install.ps1`, avoiding PowerShell's
     native-to-native pipe binary corruption risk). Untracked/ignored files
     (`scripts/__pycache__/*.pyc` and similar) and uncommitted edits to
     tracked files never reach the installed Skill this way; the exec bit
-    is preserved via git's stored file mode.
+    is preserved via git's stored file mode. The commit is captured once,
+    as part of the same validation chain, and every archive of it — the
+    preflight check below and the real staging step — reuses that exact
+    value rather than re-resolving `HEAD`, which would otherwise leave a
+    window where a concurrent commit on the checkout could make the
+    archived content disagree with the commit the install reports.
   - own `.git` + validates + `tar` missing → abort with an actionable
     error, never fall back to the copy path while still claiming git
     provenance.
@@ -69,23 +75,46 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
     `rev-parse --git-dir` walk-up would otherwise misclassify as that
     ancestor's repo).
 
+  Preflight validation — the check that runs before any mutation, so
+  `--dry-run` can report pass/fail without touching disk — validates the
+  tree that will actually be installed, not always the raw working
+  directory: in git mode that means archiving and validating the captured
+  commit (the same commit staging will use), so an uncommitted local edit
+  or deletion under the working tree never blocks installing a perfectly
+  valid committed tree, while a file genuinely missing from the committed
+  tree is still caught before any mutation. `install.sh`'s `.git`
+  detection also recognizes a dangling `.git` symlink — a plain `-e` check
+  follows the link and reports false when its target is missing, which
+  would otherwise read as "no git metadata at all" and silently take the
+  copy path (`install.ps1`'s `Test-Path` already reported a dangling
+  symlink as present, so it needed no equivalent fix).
+
   Both installers print the commit staged from (`Installed from commit
   <sha>`) or, for the no-git case, `Installed from: no git metadata
   (tarball install)`. `tests/test-install.sh` gained cases for: a dirty
-  checkout (uncommitted edit plus an ignored file both excluded), a
-  no-`.git` source (copy path, tarball provenance), a source with no
-  `.git` of its own nested underneath an unrelated ancestor checkout (copy
-  path, not misclassified as the ancestor's repo), a git checkout with the
-  `git` binary unavailable (aborts, installs nothing), a git checkout with
-  `tar` unavailable (aborts, installs nothing), and a clean checkout
-  (installed tree diffed byte-for-byte against `git archive HEAD --
-  skills/dev`, commit provenance reported); `tests/test-install.ps1`
-  mirrors all of these except the tree-diff comparison, which has no
-  direct PowerShell equivalent in this suite — a recorded sh/ps1
-  asymmetry. Fixture commits in both suites (the unrelated-ancestor-repo
-  case) pass an explicit `-c user.name=test -c user.email=test@example.com`
-  so they stay hermetic on a CI runner with no git identity configured,
-  rather than failing with "Please tell me who you are."
+  checkout (uncommitted edit plus an ignored file both excluded), the
+  converse — an uncommitted deletion of a required file not blocking
+  install of the valid committed tree — and its own converse — a file
+  actually missing from the committed tree still being rejected — a
+  dangling `.git` symlink (aborts, installs nothing), a no-`.git` source
+  (copy path, tarball provenance), a source with no `.git` of its own
+  nested underneath an unrelated ancestor checkout (copy path, not
+  misclassified as the ancestor's repo), a git checkout with the `git`
+  binary unavailable (aborts, installs nothing), a git checkout with `tar`
+  unavailable (aborts, installs nothing), a clean checkout (installed tree
+  diffed byte-for-byte against `git archive HEAD -- skills/dev`, commit
+  provenance reported), and a static guard that the archive call in
+  `install.sh` pins the captured commit rather than `HEAD`.
+  `tests/test-install.ps1` mirrors all of these except the tree-diff
+  comparison, which has no direct PowerShell equivalent in this suite — a
+  recorded sh/ps1 asymmetry (the dangling-symlink case is bash-only, since
+  `install.ps1` never had that gap) — and additionally asserts the exact
+  error text for both the missing-git and missing-tar aborts. Fixture
+  commits in both suites (the unrelated-ancestor-repo and
+  committed-missing-file cases) pass an explicit
+  `-c user.name=test -c user.email=test@example.com` so they stay hermetic
+  on a CI runner with no git identity configured, rather than failing with
+  "Please tell me who you are."
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
