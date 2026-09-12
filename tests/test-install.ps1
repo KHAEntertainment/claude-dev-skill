@@ -15,21 +15,69 @@ function Pass([string]$Name) {
     $script:passCount++
     Write-Host "PASS: $Name"
 }
-# Builds a scratch PATH carrying copies of the named tools (skipping any
-# not found), so a test can prove "X is unavailable" without touching the
-# host's real PATH. Copies are used rather than symlinks so this also
-# works without elevated/Developer Mode permissions on Windows.
+function Skip([string]$Name, [string]$Reason) {
+    Write-Host "SKIP: $Name ($Reason)"
+}
+# Builds a scratch PATH carrying delegating shims for the named tools
+# (skipping any not found), so a test can prove "X is unavailable" while
+# every other tool stays fully functional. Shims - not copies of the
+# resolved executable - are used deliberately: Git for Windows' git.exe
+# depends on sibling directories at its real install location (its own
+# usr/bin, mingw64/bin, libexec/git-core), so relocating just the .exe
+# breaks it outright rather than merely hiding it, which would make a
+# test relying on git actually working misreport that breakage as
+# whatever guard it meant to exercise.
 function New-ScratchPathWithout([string]$Destination, [string[]]$ToolNames) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     foreach ($toolName in $ToolNames) {
         $toolCmd = Get-Command $toolName -ErrorAction SilentlyContinue
-        if ($toolCmd -and $toolCmd.Source -and (Test-Path $toolCmd.Source -PathType Leaf)) {
-            $destPath = Join-Path $Destination (Split-Path $toolCmd.Source -Leaf)
-            if (-not (Test-Path $destPath)) {
-                Copy-Item -LiteralPath $toolCmd.Source -Destination $destPath
-                if (-not $IsWindows) { & chmod +x $destPath }
+        if (-not ($toolCmd -and $toolCmd.Source -and (Test-Path $toolCmd.Source -PathType Leaf))) {
+            continue
+        }
+        $realPath = $toolCmd.Source
+        if ($IsWindows) {
+            $shimPath = Join-Path $Destination "$toolName.cmd"
+            if (-not (Test-Path $shimPath)) {
+                Set-Content -LiteralPath $shimPath -Encoding ASCII -Value @(
+                    "@echo off"
+                    "`"$realPath`" %*"
+                    "exit /b %errorlevel%"
+                )
             }
         }
+        else {
+            $shimPath = Join-Path $Destination $toolName
+            if (-not (Test-Path $shimPath)) {
+                Set-Content -LiteralPath $shimPath -Encoding ASCII -Value @(
+                    "#!/bin/sh"
+                    "exec `"$realPath`" `"`$@`""
+                )
+                & chmod +x $shimPath
+            }
+        }
+    }
+}
+# Proves the scratch PATH's git shim actually runs a real git command
+# against $RepoPath, not just that Get-Command finds it. Gates any test
+# that genuinely invokes git during the install (as opposed to tests
+# where git's absence is itself the point, which never reach a real git
+# invocation): if construction is broken on some platform, the test must
+# skip with a stated reason rather than misreport the breakage as the
+# guard under test.
+function Test-ScratchGitWorks([string]$ScratchPath, [string]$RepoPath) {
+    $originalPath = $env:PATH
+    try {
+        $env:PATH = $ScratchPath
+        $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+        if (-not $gitCmd) { return $false }
+        & $gitCmd.Source -C $RepoPath rev-parse --show-prefix *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+    finally {
+        $env:PATH = $originalPath
     }
 }
 
@@ -178,29 +226,41 @@ try {
     # actionable error and install nothing, rather than silently falling
     # back to the working-tree copy while still claiming git provenance
     # (Issue #44 follow-up). Only git/python3/rtk are carried into the
-    # scratch PATH; tar is deliberately left out.
+    # scratch PATH; tar is deliberately left out. Unlike the git-missing
+    # test above, this one genuinely invokes git during the install (the
+    # tar guard is only reached once git-checkout validation succeeds), so
+    # it self-checks the shimmed git actually works before asserting
+    # anything - a platform where shimming can't preserve a working git
+    # (observed on windows-latest when the shim relocated the executable
+    # instead of delegating to it) skips with a stated reason rather than
+    # asserting the wrong error.
     $noTarBin = Join-Path $testRoot "fakebin-no-tar"
     New-ScratchPathWithout -Destination $noTarBin -ToolNames @("git", "python3", "python", "rtk")
-    $noTarTarget = Join-Path $testRoot "no-tar target"
-    $originalPath = $env:PATH
-    $noTarError = $null
-    try {
-        $env:PATH = $noTarBin
-        & $installer -ConfigDir $noTarTarget -Lang en 2>$null | Out-Null
+    if (-not (Test-ScratchGitWorks -ScratchPath $noTarBin -RepoPath $repo)) {
+        Skip "git checkout with tar unavailable aborts and installs nothing" "could not construct a working git shim on this platform"
     }
-    catch {
-        $noTarError = $_.Exception.Message
+    else {
+        $noTarTarget = Join-Path $testRoot "no-tar target"
+        $originalPath = $env:PATH
+        $noTarError = $null
+        try {
+            $env:PATH = $noTarBin
+            & $installer -ConfigDir $noTarTarget -Lang en 2>$null | Out-Null
+        }
+        catch {
+            $noTarError = $_.Exception.Message
+        }
+        finally {
+            $env:PATH = $originalPath
+        }
+        if (-not $noTarError) { throw "Install unexpectedly succeeded with tar unavailable in a git checkout" }
+        $expectedNoTarError = "This is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead."
+        if ($noTarError -ne $expectedNoTarError) {
+            throw "Unexpected error text for tar-unavailable abort: $noTarError"
+        }
+        Assert-Absent $noTarTarget
+        Pass "git checkout with tar unavailable aborts and installs nothing"
     }
-    finally {
-        $env:PATH = $originalPath
-    }
-    if (-not $noTarError) { throw "Install unexpectedly succeeded with tar unavailable in a git checkout" }
-    $expectedNoTarError = "This is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead."
-    if ($noTarError -ne $expectedNoTarError) {
-        throw "Unexpected error text for tar-unavailable abort: $noTarError"
-    }
-    Assert-Absent $noTarTarget
-    Pass "git checkout with tar unavailable aborts and installs nothing"
 
     # The converse of the exclusion case above: an uncommitted *deletion* of
     # a required tracked file must not block installing the perfectly valid
