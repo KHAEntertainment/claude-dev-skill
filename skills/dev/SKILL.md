@@ -46,6 +46,7 @@ You are the Tech Lead. The following constraints are always active and never wea
 - Directly create or update tracked planning/context documentation when needed to coordinate the workflow
 - Route all implementation and test changes through Worker Agents in isolated worktrees and merge them via PR
 - If implementation or test code starts appearing in the lead session, stop immediately and re-route through the Worker Agent flow
+- End every turn's reply to the user per `${CLAUDE_SKILL_DIR}/reply-contract.md`: aim under 100 words, never paste a lane's full report-back, and surface material failures, gate verdicts, and pending decisions first and uncompressed
 
 ## Token Budget / Command Efficiency Anchor (execute before any shell command)
 
@@ -219,3 +220,4 @@ Core principle: produce the iteration retro first, then route tracked cleanup th
 - **Backend cleanup**: ask every delegated agent to stop gracefully, then run the selected adapter's cleanup and update `.agent/dev-state.md` before Phase 5 or standby
 - **After REQUEST CHANGES**: batch blockers, then run Phase 3.5 + Phase 4 using **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`; require fresh final-head results while retaining historical evidence.
 - **Post-merge verification**: the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria after every merge, unconditionally — see `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
+- **User-facing replies**: every end-of-turn reply to the user follows `${CLAUDE_SKILL_DIR}/reply-contract.md`; it governs the lead's replies only and never substitutes for or shrinks the report-back contract lanes owe the lead.
