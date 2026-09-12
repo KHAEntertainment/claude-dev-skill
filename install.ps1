@@ -51,22 +51,26 @@ $isGitCheckout = $false
 $gitValidationError = $null
 $installCommit = ""
 
-# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and GIT_OBJECT_DIRECTORY, if
-# inherited from the caller's environment, override `-C`'s repository
-# discovery entirely — every git call below goes through this helper
-# rather than a bare `& $gitCommand.Source ...` so an inherited GIT_DIR
-# pointed at some other repository can't make the installer validate,
-# archive, and install that other repository's committed skills/dev tree
-# while still reporting *its* commit, even though the own-.git check
-# above passed on PSScriptRoot. This builds the CHILD process's
-# environment block directly instead of removing the variables from
-# $env: for this process: $env: is process-wide, not scoped to a script
-# or function, so a blanket `Remove-Item Env:GIT_DIR` here would corrupt
-# the CALLER's session too whenever this script runs via `&` in the same
-# runspace (as this repo's own test harness does) rather than as its own
-# process — proven by a sentinel-variable probe that survived a -DryRun
-# run. Only git ever sees the cleaned environment; this process's own
-# $env: table is never touched.
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, and
+# GIT_COMMON_DIR, if inherited from the caller's environment, override
+# `-C`'s repository discovery entirely — every git call below goes
+# through this helper rather than a bare `& $gitCommand.Source ...` so an
+# inherited GIT_DIR pointed at some other repository can't make the
+# installer validate, archive, and install that other repository's
+# committed skills/dev tree while still reporting *its* commit, even
+# though the own-.git check above passed on PSScriptRoot. GIT_COMMON_DIR
+# (the linked-worktree analog of GIT_DIR) is included for the same
+# reason, as defense in depth alongside the other four, even though it
+# did not independently redirect a worktree-less checkout in testing.
+# This builds the CHILD process's environment block directly instead of
+# removing the variables from $env: for this process: $env: is
+# process-wide, not scoped to a script or function, so a blanket
+# `Remove-Item Env:GIT_DIR` here would corrupt the CALLER's session too
+# whenever this script runs via `&` in the same runspace (as this repo's
+# own test harness does) rather than as its own process — proven by a
+# sentinel-variable probe that survived a -DryRun run. Only git ever sees
+# the cleaned environment; this process's own $env: table is never
+# touched.
 function Invoke-GitClean {
     param(
         [Parameter(Mandatory)][string[]]$ArgumentList
@@ -79,7 +83,7 @@ function Invoke-GitClean {
     # Accessing EnvironmentVariables populates it from this process's own
     # environment; removing keys here only affects the dictionary handed
     # to the child process about to be started.
-    foreach ($riskyGitVar in @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")) {
+    foreach ($riskyGitVar in @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR")) {
         if ($startInfo.EnvironmentVariables.ContainsKey($riskyGitVar)) {
             $startInfo.EnvironmentVariables.Remove($riskyGitVar)
         }
