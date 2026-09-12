@@ -23,6 +23,7 @@ REQUIRED = {
     "phases/phase4.md",
     "phases/phase5.md",
     "phases/repository-context.md",
+    "reply-contract.md",
     "agents/report-back.md",
     "agents/worker-new.md",
     "agents/worker-fix.md",
@@ -365,6 +366,12 @@ def main() -> int:
         # cover. Absence is a result of reading, and a cut read establishes none.
         "Absence is established by reading, not instead of reading",
         "has not established absence",
+        # Issue #54: the lead-to-user reply contract. Pinned verbatim so the
+        # cap, its scope over prose only, and the third-party-agnostic
+        # composition note cannot be paraphrased away from the approved plan.
+        "aim under 100 words",
+        "The cap counts prose, not required structured artifacts.",
+        "never claims a task-requirements override",
     )
     for token in required_policy:
         if token not in combined:
@@ -474,6 +481,20 @@ def main() -> int:
         ),
         "SKILL.md": (
             "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
+            "${CLAUDE_SKILL_DIR}/reply-contract.md",
+        ),
+        # Issue #54: the reply contract's own pinned sentences, held in the one
+        # file that defines them rather than only in the combined-text check
+        # above, so deleting this file's content and leaving the tokens
+        # elsewhere cannot pass silently.
+        "reply-contract.md": (
+            "aim under 100 words",
+            "The cap counts prose, not required structured artifacts.",
+            "never claims a task-requirements override",
+            "Phase 1's progress breadcrumb",
+            "Phase 3's Backend-Neutral Task Board",
+            "Phase 4's review rating",
+            "Phase 5's retro and technical-debt-sweep templates",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it

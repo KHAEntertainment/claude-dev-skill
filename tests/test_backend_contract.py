@@ -1370,6 +1370,100 @@ class BackendContractTests(unittest.TestCase):
                 )
         self.assertIn("seven required sections", self.read("agents/qa-agent.md"))
 
+    def test_reply_contract_has_the_six_required_sections(self) -> None:
+        """Issue #54: the lead-to-user reply contract's own required shape."""
+        contract = self.read("reply-contract.md")
+        for heading in (
+            "## 1. Scope",
+            "## 2. Cap",
+            "## 3. Exceptions — never compressed away",
+            "## 4. Carve-out — the cap counts prose, not required structured artifacts",
+            "## 5. Pull principle",
+            "## 6. Composition note",
+        ):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, contract)
+
+    def test_reply_contract_pins_the_three_approved_sentences(self) -> None:
+        # Verbatim per the approved plan (Issue #54) so a paraphrase cannot
+        # drift the cap, its scope, or the composition note unnoticed.
+        contract = self.read("reply-contract.md")
+        for sentence in (
+            "aim under 100 words",
+            "The cap counts prose, not required structured artifacts.",
+            "never claims a task-requirements override",
+        ):
+            with self.subTest(sentence=sentence):
+                self.assertIn(sentence, contract)
+
+    def test_reply_contract_names_every_artifact_exemption(self) -> None:
+        # Scoped to the Carve-out section, not file-wide: an exemption named
+        # anywhere else in the file is not the same guarantee as it being
+        # part of the list the cap actually defers to.
+        contract = self.read("reply-contract.md")
+        carveout = _markdown_section(
+            contract,
+            "## 4. Carve-out — the cap counts prose, not required structured artifacts",
+        )
+        self.assertIsNotNone(carveout, "reply-contract.md has no Carve-out section")
+        for exemption in (
+            "Phase 1's progress breadcrumb and its one-question block",
+            "Phase 3's Backend-Neutral Task Board",
+            "Phase 4's review rating",
+            "Phase 5's retro and technical-debt-sweep templates",
+        ):
+            with self.subTest(exemption=exemption):
+                self.assertIn(exemption, carveout)
+
+    def test_reply_contract_scope_excludes_report_back_and_docs(self) -> None:
+        contract = self.read("reply-contract.md")
+        scope = _markdown_section(contract, "## 1. Scope")
+        self.assertIsNotNone(scope, "reply-contract.md has no Scope section")
+        self.assertIn("agents/report-back.md", scope)
+        self.assertIn("Issue or PR bodies", scope)
+
+    def test_skill_hooks_reference_the_reply_contract_in_both_locations(self) -> None:
+        # Issue #54 requires one hook bullet in each of two named sections;
+        # scoped per section so a reference living in only one still fails.
+        skill = self.read("SKILL.md")
+        anchor = _markdown_section(
+            skill, "## ⚓ Session State Anchor (execute on every user message)"
+        )
+        global_rules = _markdown_section(skill, "## Global Rules")
+        self.assertIsNotNone(anchor, "SKILL.md has no Session State Anchor section")
+        self.assertIsNotNone(global_rules, "SKILL.md has no Global Rules section")
+        self.assertIn("${CLAUDE_SKILL_DIR}/reply-contract.md", anchor)
+        self.assertIn("${CLAUDE_SKILL_DIR}/reply-contract.md", global_rules)
+
+    def test_phase1_prototyping_cross_references_the_pull_principle(self) -> None:
+        prototyping = self.read("phases/phase1-prototyping.md")
+        bullet = _bullet(
+            prototyping, "Do not relay the prototype agent's full readout"
+        )
+        self.assertIsNotNone(bullet, "phase1-prototyping.md has no don't-relay bullet")
+        self.assertIn("pull principle", bullet)
+        self.assertIn("${CLAUDE_SKILL_DIR}/reply-contract.md", bullet)
+
+    def test_agents_directory_never_references_the_reply_contract(self) -> None:
+        """Issue #54: worker/QA/reviewer surfaces are untouched — pinned invariant.
+
+        Negative and unbounded by nature: no token list can enumerate every
+        way a reference could sneak in, so this walks every file actually
+        shipped under `agents/` rather than a named subset.
+        """
+        agents_dir = SKILL / "agents"
+        offenders = [
+            str(path.relative_to(SKILL))
+            for path in sorted(agents_dir.glob("*.md"))
+            if "reply-contract.md" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "reply-contract.md must govern only the lead's own replies to the "
+            f"user, never a delegated lane's prompt; found references in: {offenders}",
+        )
+
     def test_no_baseline_policy_token_is_ever_removed(self) -> None:
         """Every token pinned at base 66ecfa3 must still be pinned.
 
