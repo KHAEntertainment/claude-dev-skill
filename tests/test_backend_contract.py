@@ -1421,6 +1421,11 @@ class BackendContractTests(unittest.TestCase):
         self.assertIsNotNone(scope, "reply-contract.md has no Scope section")
         self.assertIn("agents/report-back.md", scope)
         self.assertIn("Issue or PR bodies", scope)
+        # Explicit documentation-exclusion assertion: the cap governs only
+        # end-of-turn lead replies, never tracked project docs. Scoped here
+        # (not file-wide) so a docs/ reference landing outside the Scope
+        # section cannot satisfy this guard by accident.
+        self.assertIn("docs/*.md", scope)
 
     def test_skill_hooks_reference_the_reply_contract_in_both_locations(self) -> None:
         # Issue #54 requires one hook bullet in each of two named sections;
@@ -1449,12 +1454,13 @@ class BackendContractTests(unittest.TestCase):
 
         Negative and unbounded by nature: no token list can enumerate every
         way a reference could sneak in, so this walks every file actually
-        shipped under `agents/` rather than a named subset.
+        shipped under `agents/` (recursive, so any future subdirectory is
+        covered) rather than a named subset.
         """
         agents_dir = SKILL / "agents"
         offenders = [
             str(path.relative_to(SKILL))
-            for path in sorted(agents_dir.glob("*.md"))
+            for path in sorted(agents_dir.rglob("*.md"))
             if "reply-contract.md" in path.read_text(encoding="utf-8")
         ]
         self.assertEqual(

@@ -113,6 +113,20 @@ def routing_section(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+def markdown_section(text: str, heading: str) -> str | None:
+    """Return a top-level (`## …`) section body by exact heading, or None if absent.
+
+    Used by per-section policy checks where a token must appear in a named
+    structural location (Session State Anchor, Global Rules), not merely
+    somewhere in the file. `routing_section` is the original use; this helper
+    generalises the same regex for any heading.
+    """
+    match = re.search(
+        rf"^{re.escape(heading)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -520,6 +534,34 @@ def main() -> int:
             for token in tokens:
                 if token not in target_text:
                     fail(errors, f"{relative} missing required policy: {token}")
+
+    # Issue #54: SKILL.md must hook the reply contract in BOTH required
+    # sections (Session State Anchor + Global Rules), not merely anywhere in
+    # the file. per_file_policy above is unscoped substring matching, so a
+    # reference living in only one location still passes it. This check is
+    # scoped per section so the validator itself fails when either hook is
+    # missing, including when tests/ is absent (the export-ignored half of
+    # the test-driven guarantee).
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.is_file():
+        skill_text = skill_md.read_text(encoding="utf-8")
+        anchor = markdown_section(
+            skill_text, "## ⚓ Session State Anchor (execute on every user message)"
+        )
+        global_rules = markdown_section(skill_text, "## Global Rules")
+        reply_token = "${CLAUDE_SKILL_DIR}/reply-contract.md"
+        if anchor is None:
+            fail(errors,
+                "SKILL.md missing required section: Session State Anchor")
+        elif reply_token not in anchor:
+            fail(errors,
+                 f"SKILL.md Session State Anchor missing required hook: {reply_token}")
+        if global_rules is None:
+            fail(errors,
+                "SKILL.md missing required section: Global Rules")
+        elif reply_token not in global_rules:
+            fail(errors,
+                 f"SKILL.md Global Rules missing required hook: {reply_token}")
 
     detector = skill_dir / "scripts" / "detect_execution_backend.py"
     if detector.is_file():
