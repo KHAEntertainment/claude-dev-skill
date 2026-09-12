@@ -45,9 +45,10 @@ class HomePathScopeTests(unittest.TestCase):
         self.validator = self.root / "scripts" / "validate_skill.py"
         self.skill_dir = self.root / "skills" / "dev"
 
-    def run_validator(self) -> subprocess.CompletedProcess[str]:
+    def run_validator(self, skill_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
+        target = skill_dir if skill_dir is not None else self.skill_dir
         return subprocess.run(
-            [sys.executable, str(self.validator), "--skill-dir", str(self.skill_dir)],
+            [sys.executable, str(self.validator), "--skill-dir", str(target)],
             check=False,
             capture_output=True,
             text=True,
@@ -124,6 +125,65 @@ class HomePathScopeTests(unittest.TestCase):
         completed = self.run_validator()
         self.assertEqual(1, completed.returncode)
         self.assertIn("phase1.md", completed.stderr)
+
+    def test_staged_tree_outside_repo_root_skips_the_extra_scan(self) -> None:
+        """`install.sh`'s git-staging mode runs the SOURCE checkout's validator
+        against a STAGED copy of the payload elsewhere -- a preflight checkout,
+        a git-archive extraction, or the final stage directory -- none of
+        which is `repo_root` or under it. Scanning the source's own `en/` in
+        that case would fail an install over content that was never staged
+        and never ships as part of it, so the extra scan must be skipped for
+        any `--skill-dir` outside `repo_root`, while an in-tree validation
+        (`--skill-dir` under `repo_root`, as every other test in this suite
+        uses) keeps failing on the same leak.
+        """
+        self.plant(
+            "en/commands/dev.md",
+            "Rollback snapshot: `/Users/alice/Documents/backups`.\n",
+        )
+
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        staged_skill_dir = Path(outside.name) / "skills" / "dev"
+        shutil.copytree(SKILL, staged_skill_dir)
+        self.assertNotIn(
+            self.root, staged_skill_dir.parents, "fixture bug: staged copy must be outside repo_root"
+        )
+
+        staged = self.run_validator(skill_dir=staged_skill_dir)
+        self.assertEqual(0, staged.returncode, staged.stderr)
+
+        in_tree = self.run_validator()
+        self.assertEqual(1, in_tree.returncode)
+        self.assertIn("en/commands/dev.md", in_tree.stderr)
+
+    def test_home_path_with_spaces_and_apostrophe_in_the_name_fails(self) -> None:
+        self.plant("en/commands/dev.md", "Backup: `/Users/Jane Doe/Documents/backups`.\n")
+        completed = self.run_validator()
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("en/commands/dev.md", completed.stderr)
+
+    def test_home_path_with_apostrophe_in_the_name_fails(self) -> None:
+        self.plant("en/commands/dev.md", "Backup: `/home/O'Connor/notes`.\n")
+        completed = self.run_validator()
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("en/commands/dev.md", completed.stderr)
+
+    def test_windows_home_path_with_spaces_in_the_name_fails(self) -> None:
+        self.plant("en/commands/dev.md", "Backup: `C:\\Users\\Mary Jane\\Desktop`.\n")
+        completed = self.run_validator()
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("en/commands/dev.md", completed.stderr)
+
+    def test_template_placeholders_still_do_not_false_positive_under_the_wider_class(self) -> None:
+        """The widened segment class (spaces, apostrophes) must not swallow
+        the `<name>` placeholder boundary it was already excluding."""
+        self.plant(
+            "en/commands/dev.md",
+            "Use `/Users/<name>/project`, `C:\\path\\to\\skills\\dev`, or `$HOME/project`.\n",
+        )
+        completed = self.run_validator()
+        self.assertEqual(0, completed.returncode, completed.stderr)
 
 
 if __name__ == "__main__":

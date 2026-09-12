@@ -74,14 +74,16 @@ ROUTING_SECTION_BODY = (
 # Machine-specific absolute home-directory paths, matched by pattern rather
 # than a literal username. A literal (the maintainer's own name) is itself a
 # machine-specific leak once stored in this file, so the guard must not carry
-# one. Each pattern requires a real path segment after the home marker, which
-# excludes template placeholders on its own: `<name>` cannot match `[\w.-]+`
-# because `<`/`>` are not in the class, `C:\path\to\...` never reaches the
-# `C:\Users\` pattern at all, and `$HOME` is not a literal path.
+# one. The segment class includes spaces and apostrophes because real account
+# names do ("Jane Doe", "O'Connor"), on top of the usual word characters,
+# dots, and hyphens. Each pattern still requires a real path segment after
+# the home marker, which excludes template placeholders on its own: `<name>`
+# cannot match the class because `<`/`>` aren't in it, `C:\path\to\...` never
+# reaches the `C:\Users\` pattern at all, and `$HOME` is not a literal path.
 HOME_PATH_PATTERNS = (
-    (re.compile(r"/Users/[\w.-]+/"), "macOS home directory"),
-    (re.compile(r"/home/[\w.-]+/"), "Linux home directory"),
-    (re.compile(r"C:\\Users\\[\w.-]+\\"), "Windows home directory"),
+    (re.compile(r"/Users/[\w.' -]+/"), "macOS home directory"),
+    (re.compile(r"/home/[\w.' -]+/"), "Linux home directory"),
+    (re.compile(r"C:\\Users\\[\w.' -]+\\"), "Windows home directory"),
 )
 
 # Directories outside the Skill payload that still ship in the repository and
@@ -208,14 +210,34 @@ def main() -> int:
     # above legitimately appear in these mirrors (e.g. documenting the legacy
     # `~/.claude/commands/dev` path itself), so only the home-path check
     # widens; the rest of `forbidden` stays scoped to the payload.
-    for extra_name in EXTRA_MARKDOWN_DIRS:
-        extra_dir = repo_root / extra_name
-        if not extra_dir.is_dir():
-            continue
-        for markdown in sorted(extra_dir.rglob("*.md")):
+    #
+    # Only when `--skill-dir` resolves inside `repo_root`, though: that is
+    # what tells apart validating this source tree from validating a staged,
+    # archived, or otherwise external tree. `install.sh`'s git-staging mode
+    # runs the SOURCE checkout's validator (so `repo_root` is the source
+    # repository) against a STAGED copy of the payload elsewhere (a preflight
+    # checkout, a git-archive extraction, or the final stage directory) --
+    # none of which is `repo_root` or under it. Scanning the source's own
+    # `en/`, `zh/`, or root markdown in that case would fail an install over
+    # content that was never staged and never ships as part of it. The
+    # release-archive CI run stays covered: it runs the ARCHIVE's own
+    # validator against the ARCHIVE's own `skills/dev`, so `--skill-dir` is
+    # under that same `repo_root`.
+    try:
+        skill_dir.relative_to(repo_root)
+        validating_source_tree = True
+    except ValueError:
+        validating_source_tree = False
+
+    if validating_source_tree:
+        for extra_name in EXTRA_MARKDOWN_DIRS:
+            extra_dir = repo_root / extra_name
+            if not extra_dir.is_dir():
+                continue
+            for markdown in sorted(extra_dir.rglob("*.md")):
+                scan_home_paths(markdown, str(markdown.relative_to(repo_root)))
+        for markdown in sorted(repo_root.glob("*.md")):
             scan_home_paths(markdown, str(markdown.relative_to(repo_root)))
-    for markdown in sorted(repo_root.glob("*.md")):
-        scan_home_paths(markdown, str(markdown.relative_to(repo_root)))
 
     required_policy = (
         "Never write or modify implementation or test code directly",
