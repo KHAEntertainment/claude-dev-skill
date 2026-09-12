@@ -21,6 +21,20 @@ if ($MigrateLegacy -and $KeepLegacy) {
 $source = Join-Path $PSScriptRoot "skills\dev"
 $validator = Join-Path $PSScriptRoot "scripts\validate_skill.py"
 
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and GIT_OBJECT_DIRECTORY, if
+# inherited from the caller's environment, override `-C`'s repository
+# discovery entirely for every git invocation below — an inherited GIT_DIR
+# pointed at some other repository could otherwise make the installer
+# validate, archive, and install that other repository's committed
+# skills/dev tree while still reporting *its* commit, even though the
+# own-.git check further down passed on PSScriptRoot. Removed once, here,
+# before any git call in this process.
+foreach ($riskyGitVar in @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")) {
+    if (Test-Path "Env:$riskyGitVar") {
+        Remove-Item "Env:$riskyGitVar"
+    }
+}
+
 # When PSScriptRoot is itself the root of a git checkout that tracks
 # skills/dev, stage from committed content instead of the working tree so
 # untracked/ignored files and uncommitted edits never ship. A release

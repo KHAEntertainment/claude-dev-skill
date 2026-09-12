@@ -39,6 +39,15 @@ if [[ -e "$SCRIPT_DIR/.git" || -L "$SCRIPT_DIR/.git" ]]; then
   HAS_OWN_GIT=1
 fi
 
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and GIT_OBJECT_DIRECTORY, if
+# inherited from the caller's environment, override `-C`'s repository
+# discovery entirely — every git call below uses this array instead of a
+# bare `git` so an inherited GIT_DIR pointed at some other repository
+# can't make the installer validate, archive, and install that other
+# repository's committed skills/dev tree while still reporting *its*
+# commit, even though the own-.git check above passed on SCRIPT_DIR.
+GIT_ENV_CLEAN=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY git)
+
 IS_GIT_CHECKOUT=0
 GIT_VALIDATION_ERROR=""
 INSTALL_COMMIT=""
@@ -57,10 +66,10 @@ if ((HAS_OWN_GIT)); then
   # archive: resolving HEAD again at staging time would leave a window
   # where a concurrent commit on this checkout could make the archived
   # content disagree with the commit the install reports.
-  elif GIT_PREFIX="$(git -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)" \
+  elif GIT_PREFIX="$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)" \
     && [[ -z "$GIT_PREFIX" ]] \
-    && [[ -n "$(git -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]] \
-    && INSTALL_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" \
+    && [[ -n "$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]] \
+    && INSTALL_COMMIT="$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" \
     && [[ -n "$INSTALL_COMMIT" ]]; then
     IS_GIT_CHECKOUT=1
   else
@@ -165,7 +174,7 @@ if ((IS_GIT_CHECKOUT)); then
   PREFLIGHT_DIR="$(mktemp -d)"
   # shellcheck disable=SC2064 # intentionally expand PREFLIGHT_DIR now
   trap "rm -rf -- '$PREFLIGHT_DIR'" EXIT
-  git -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
   python3 "$VALIDATOR" --skill-dir "$PREFLIGHT_DIR"
   rm -rf -- "$PREFLIGHT_DIR"
   trap - EXIT
@@ -227,7 +236,7 @@ if ((IS_GIT_CHECKOUT)); then
   # Archive the exact commit already captured and validated above, not
   # HEAD again: re-resolving HEAD here would reopen the race the earlier
   # capture exists to close (see INSTALL_COMMIT's capture site).
-  git -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
 else
   cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
 fi
