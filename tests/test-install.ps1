@@ -318,13 +318,16 @@ try {
     }
     Pass "install.ps1 archives the captured commit, not HEAD, at staging time"
 
-    # GIT_DIR/GIT_WORK_TREE inherited from the caller's environment override
-    # git's repository discovery entirely, so without neutralizing them a
-    # perfectly valid own-.git checkout could silently validate, archive,
-    # and install a completely different repository's committed tree while
-    # reporting *its* commit (Issue #44 follow-up). Point both at a
-    # disposable repo carrying a planted marker file and confirm the real
-    # source's own tree and commit are what actually gets installed.
+    # GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR inherited from the caller's
+    # environment override git's repository discovery entirely, so without
+    # neutralizing them a perfectly valid own-.git checkout could silently
+    # validate, archive, and install a completely different repository's
+    # committed tree while reporting *its* commit (Issue #44 follow-up).
+    # GIT_COMMON_DIR is the linked-worktree analog of GIT_DIR; poisoning it
+    # alongside the other two is defense in depth even though it did not
+    # independently redirect this worktree-less checkout. Point all three
+    # at a disposable repo carrying a planted marker file and confirm the
+    # real source's own tree and commit are what actually gets installed.
     $envHijackAlt = Join-Path $testRoot "env-hijack-alt"
     New-Item -ItemType Directory -Force -Path $envHijackAlt | Out-Null
     Copy-Item (Join-Path $repo "skills") $envHijackAlt -Recurse -Force
@@ -337,20 +340,24 @@ try {
     $expectedRealCommit = (& git -C $repo rev-parse HEAD).Trim()
     $originalGitDir = $env:GIT_DIR
     $originalGitWorkTree = $env:GIT_WORK_TREE
+    $originalGitCommonDir = $env:GIT_COMMON_DIR
     try {
         $env:GIT_DIR = Join-Path $envHijackAlt ".git"
         $env:GIT_WORK_TREE = $envHijackAlt
+        $env:GIT_COMMON_DIR = Join-Path $envHijackAlt ".git"
         $envHijackOutput = & $installer -ConfigDir $envHijackTarget -Lang en 6>&1
     }
     finally {
         if ($null -ne $originalGitDir) { $env:GIT_DIR = $originalGitDir } else { Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue }
         if ($null -ne $originalGitWorkTree) { $env:GIT_WORK_TREE = $originalGitWorkTree } else { Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue }
+        if ($null -ne $originalGitCommonDir) { $env:GIT_COMMON_DIR = $originalGitCommonDir } else { Remove-Item Env:GIT_COMMON_DIR -ErrorAction SilentlyContinue }
     }
+    Assert-Path (Join-Path $envHijackTarget "skills\dev\SKILL.md")
     Assert-Absent (Join-Path $envHijackTarget "skills\dev\ENV_HIJACK_MARKER.txt")
     if (-not ($envHijackOutput -match "Installed from commit $expectedRealCommit")) {
-        throw "Install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE"
+        throw "Install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR"
     }
-    Pass "inherited GIT_DIR/GIT_WORK_TREE cannot redirect install to another repository"
+    Pass "inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR cannot redirect install to another repository"
 
     # The fix for the hijack above must clean only the CHILD git process's
     # environment, never this process's own: install.ps1 runs via `&` in
@@ -358,12 +365,13 @@ try {
     # that removed these variables from $env: for "this process" mutated
     # the CALLER's session too, permanently - proven by this exact probe,
     # which survived even a -DryRun (Issue #44 follow-up). Set sentinel
-    # values, run a dry run, and confirm all four are unchanged afterward.
+    # values, run a dry run, and confirm all five are unchanged afterward.
     $sentinelVars = [ordered]@{
         GIT_DIR              = "sentinel-gitdir"
         GIT_WORK_TREE        = "sentinel-worktree"
         GIT_INDEX_FILE       = "sentinel-indexfile"
         GIT_OBJECT_DIRECTORY = "sentinel-objdir"
+        GIT_COMMON_DIR       = "sentinel-commondir"
     }
     $originalSentinelValues = @{}
     foreach ($varName in $sentinelVars.Keys) {

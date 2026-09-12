@@ -292,13 +292,16 @@ if ! grep -Fq 'archive "$INSTALL_COMMIT"' "$INSTALLER"; then
 fi
 pass "install.sh archives the captured commit, not HEAD, at staging time"
 
-# GIT_DIR/GIT_WORK_TREE inherited from the caller's environment override
-# `-C`'s repository discovery entirely, so without neutralizing them a
-# perfectly valid own-.git checkout could silently validate, archive, and
-# install a completely different repository's committed tree while
-# reporting *its* commit (Issue #44 follow-up). Point both at a disposable
-# repo carrying a planted marker file and confirm the real source's own
-# tree and commit are what actually gets installed.
+# GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR inherited from the caller's
+# environment override `-C`'s repository discovery entirely, so without
+# neutralizing them a perfectly valid own-.git checkout could silently
+# validate, archive, and install a completely different repository's
+# committed tree while reporting *its* commit (Issue #44 follow-up).
+# GIT_COMMON_DIR is the linked-worktree analog of GIT_DIR; poisoning it
+# alongside the other two is defense in depth even though it did not
+# independently redirect this worktree-less checkout. Point all three at
+# a disposable repo carrying a planted marker file and confirm the real
+# source's own tree and commit are what actually gets installed.
 env_hijack_alt="$TEST_ROOT/env-hijack-alt"
 mkdir -p "$env_hijack_alt"
 cp -R -- "$REPO_DIR/skills" "$env_hijack_alt/skills"
@@ -310,12 +313,13 @@ git -c user.name=test -c user.email=test@example.com \
   -C "$env_hijack_alt" commit --quiet -m "alt repo commit carrying a planted marker"
 env_hijack_target="$TEST_ROOT/env-hijack target"
 expected_real_commit="$(git -C "$REPO_DIR" rev-parse HEAD)"
-env_hijack_output="$(GIT_DIR="$env_hijack_alt/.git" GIT_WORK_TREE="$env_hijack_alt" \
+env_hijack_output="$(GIT_DIR="$env_hijack_alt/.git" GIT_WORK_TREE="$env_hijack_alt" GIT_COMMON_DIR="$env_hijack_alt/.git" \
   bash "$INSTALLER" --config-dir "$env_hijack_target" --lang en)"
+expect_file "$env_hijack_target/skills/dev/SKILL.md"
 expect_absent "$env_hijack_target/skills/dev/ENV_HIJACK_MARKER.txt"
 if ! grep -q "Installed from commit $expected_real_commit" <<<"$env_hijack_output"; then
-  fail "install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE"
+  fail "install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR"
 fi
-pass "inherited GIT_DIR/GIT_WORK_TREE cannot redirect install to another repository"
+pass "inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR cannot redirect install to another repository"
 
 printf 'All %d installer tests passed.\n' "$pass_count"
