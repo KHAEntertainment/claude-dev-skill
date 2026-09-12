@@ -123,9 +123,14 @@ expect_file "$symlink_case/real-dev/sentinel.txt"
 pass "symlink target refusal"
 
 # Missing distribution files fail preflight without creating a target.
+# No .git here: this simulates a broken release-tarball-style copy, where
+# whatever is on disk is what would ship, so a genuinely missing file must
+# be caught (contrast with the git-mode "committed tree is still rejected"
+# case further down, which covers the analogous git-mode failure).
 broken="$TEST_ROOT/broken distribution"
 mkdir -p "$broken"
 cp -R "$REPO_DIR/." "$broken/repo"
+rm -rf -- "$broken/repo/.git"
 rm -- "$broken/repo/skills/dev/phases/phase5.md"
 if bash "$broken/repo/install.sh" --config-dir "$broken/config" >/dev/null 2>&1; then fail "broken distribution unexpectedly installed"; fi
 expect_absent "$broken/config"
@@ -147,6 +152,55 @@ if grep -q 'local edit: must not ship' "$dirty_target/skills/dev/SKILL.md"; then
 fi
 expect_absent "$dirty_target/skills/dev/scripts/__pycache__"
 pass "dirty checkout excludes uncommitted edits and ignored files"
+
+# The converse of the exclusion case above: an uncommitted *deletion* of a
+# required tracked file must not block installing the perfectly valid
+# committed tree. Preflight has to validate what will actually be
+# installed (the committed content at HEAD), not the mutable working tree
+# (Issue #44 follow-up).
+dirty_deletion_source="$TEST_ROOT/dirty-deletion-source"
+mkdir -p "$dirty_deletion_source"
+cp -R -- "$REPO_DIR/." "$dirty_deletion_source/repo"
+rm -- "$dirty_deletion_source/repo/skills/dev/phases/phase5.md"
+dirty_deletion_target="$TEST_ROOT/dirty-deletion target"
+bash "$dirty_deletion_source/repo/install.sh" --config-dir "$dirty_deletion_target" --lang en >/dev/null
+expect_file "$dirty_deletion_target/skills/dev/phases/phase5.md"
+pass "uncommitted deletion of a tracked file does not block installing the committed tree"
+
+# The other side of that fix: a file *actually* missing from the committed
+# tree (removed and committed, not just deleted on disk) must still be
+# caught by preflight in git mode, before any mutation — the fix above
+# must not have quietly turned preflight validation off for git checkouts.
+committed_broken_source="$TEST_ROOT/committed-broken-source"
+git clone --quiet -- "$REPO_DIR" "$committed_broken_source"
+git -c user.name=test -c user.email=test@example.com \
+  -C "$committed_broken_source" rm --quiet -- skills/dev/phases/phase5.md
+git -c user.name=test -c user.email=test@example.com \
+  -C "$committed_broken_source" commit --quiet -m "remove a required file"
+committed_broken_target="$TEST_ROOT/committed-broken target"
+if bash "$committed_broken_source/install.sh" --config-dir "$committed_broken_target" --lang en >/dev/null 2>&1; then
+  fail "install with a required file missing from the committed tree unexpectedly succeeded"
+fi
+expect_absent "$committed_broken_target"
+pass "a required file missing from the committed tree is still rejected before mutation"
+
+# A dangling .git symlink is still a .git entry: -e alone follows the link
+# and reports false when its target doesn't exist, which would otherwise
+# read as "no git metadata" and take the copy path, shipping whatever is
+# on disk (Issue #44 follow-up).
+dangling_source="$TEST_ROOT/dangling-git-source"
+mkdir -p "$dangling_source"
+cp -R -- "$REPO_DIR/." "$dangling_source/repo"
+rm -rf -- "$dangling_source/repo/.git"
+ln -s -- "/nonexistent/path/to/a/gitdir" "$dangling_source/repo/.git"
+mkdir -p "$dangling_source/repo/skills/dev/scripts/__pycache__"
+printf 'compiled\n' >"$dangling_source/repo/skills/dev/scripts/__pycache__/x.pyc"
+dangling_target="$TEST_ROOT/dangling-git target"
+if bash "$dangling_source/repo/install.sh" --config-dir "$dangling_target" --lang en >/dev/null 2>&1; then
+  fail "install with a dangling .git symlink unexpectedly succeeded"
+fi
+expect_absent "$dangling_target"
+pass "dangling .git symlink aborts instead of falling back to the copy path"
 
 # No .git source: falls back to the working-tree copy and reports tarball
 # provenance instead of a commit (Issue #44, ADR-007 tarball/libexec case).
@@ -222,5 +276,20 @@ mkdir -p "$archive_check"
 git -C "$REPO_DIR" archive HEAD -- skills/dev | tar -x -C "$archive_check" --strip-components=2
 diff -r "$archive_check" "$clean_target/skills/dev" >/dev/null || fail "installed tree differs from git archive of HEAD"
 pass "clean checkout install matches git archive and reports commit provenance"
+
+# Static guard against the provenance race regressing: both archive calls
+# must pin the commit already captured and validated (INSTALL_COMMIT), not
+# re-resolve HEAD at staging time, which would reopen a window where a
+# concurrent commit could make the archived content disagree with the
+# commit the install reports (Issue #44 follow-up).
+# shellcheck disable=SC2016 # literal source text to grep for, not expansion
+if grep -Eq 'git -C "\$SCRIPT_DIR" archive HEAD\b' "$INSTALLER"; then
+  fail "install.sh archives HEAD directly instead of the captured INSTALL_COMMIT"
+fi
+# shellcheck disable=SC2016 # literal source text to grep for, not expansion
+if ! grep -Fq 'archive "$INSTALL_COMMIT"' "$INSTALLER"; then
+  fail "install.sh does not archive the captured INSTALL_COMMIT"
+fi
+pass "install.sh archives the captured commit, not HEAD, at staging time"
 
 printf 'All %d installer tests passed.\n' "$pass_count"

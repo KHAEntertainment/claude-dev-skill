@@ -156,18 +156,21 @@ try {
     New-ScratchPathWithout -Destination $noGitBin -ToolNames @("python3", "python", "rtk", "tar")
     $noGitTarget = Join-Path $testRoot "no-git-bin target"
     $originalPath = $env:PATH
-    $noGitThrew = $false
+    $noGitError = $null
     try {
         $env:PATH = $noGitBin
         & $installer -ConfigDir $noGitTarget -Lang en 2>$null | Out-Null
     }
     catch {
-        $noGitThrew = $true
+        $noGitError = $_.Exception.Message
     }
     finally {
         $env:PATH = $originalPath
     }
-    if (-not $noGitThrew) { throw "Install unexpectedly succeeded with git unavailable in a git checkout" }
+    if (-not $noGitError) { throw "Install unexpectedly succeeded with git unavailable in a git checkout" }
+    if ($noGitError -notmatch "git is required to stage it safely from git content") {
+        throw "Unexpected error text for git-unavailable abort: $noGitError"
+    }
     Assert-Absent $noGitTarget
     Pass "git checkout with git binary unavailable aborts and installs nothing"
 
@@ -180,20 +183,57 @@ try {
     New-ScratchPathWithout -Destination $noTarBin -ToolNames @("git", "python3", "python", "rtk")
     $noTarTarget = Join-Path $testRoot "no-tar target"
     $originalPath = $env:PATH
-    $noTarThrew = $false
+    $noTarError = $null
     try {
         $env:PATH = $noTarBin
         & $installer -ConfigDir $noTarTarget -Lang en 2>$null | Out-Null
     }
     catch {
-        $noTarThrew = $true
+        $noTarError = $_.Exception.Message
     }
     finally {
         $env:PATH = $originalPath
     }
-    if (-not $noTarThrew) { throw "Install unexpectedly succeeded with tar unavailable in a git checkout" }
+    if (-not $noTarError) { throw "Install unexpectedly succeeded with tar unavailable in a git checkout" }
+    $expectedNoTarError = "This is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead."
+    if ($noTarError -ne $expectedNoTarError) {
+        throw "Unexpected error text for tar-unavailable abort: $noTarError"
+    }
     Assert-Absent $noTarTarget
     Pass "git checkout with tar unavailable aborts and installs nothing"
+
+    # The converse of the exclusion case above: an uncommitted *deletion* of
+    # a required tracked file must not block installing the perfectly valid
+    # committed tree. Preflight has to validate what will actually be
+    # installed (the committed content at HEAD), not the mutable working
+    # tree (Issue #44 follow-up).
+    $dirtyDeletionSource = Join-Path $testRoot "dirty-deletion-source"
+    New-Item -ItemType Directory -Force -Path $dirtyDeletionSource | Out-Null
+    Copy-Item (Join-Path $repo "*") $dirtyDeletionSource -Recurse -Force
+    Remove-Item (Join-Path $dirtyDeletionSource "skills\dev\phases\phase5.md")
+    $dirtyDeletionTarget = Join-Path $testRoot "dirty-deletion target"
+    & (Join-Path $dirtyDeletionSource "install.ps1") -ConfigDir $dirtyDeletionTarget -Lang en | Out-Null
+    Assert-Path (Join-Path $dirtyDeletionTarget "skills\dev\phases\phase5.md")
+    Pass "uncommitted deletion of a tracked file does not block installing the committed tree"
+
+    # The other side of that fix: a file *actually* missing from the
+    # committed tree (removed and committed, not just deleted on disk) must
+    # still be caught by preflight in git mode, before any mutation - the
+    # fix above must not have quietly turned preflight validation off for
+    # git checkouts.
+    $committedBrokenSource = Join-Path $testRoot "committed-broken-source"
+    & git clone --quiet -- $repo $committedBrokenSource
+    & git -c user.name=test -c user.email=test@example.com `
+        -C $committedBrokenSource rm --quiet -- skills/dev/phases/phase5.md
+    & git -c user.name=test -c user.email=test@example.com `
+        -C $committedBrokenSource commit --quiet -m "remove a required file"
+    $committedBrokenTarget = Join-Path $testRoot "committed-broken target"
+    $committedBrokenFailed = $false
+    try { & (Join-Path $committedBrokenSource "install.ps1") -ConfigDir $committedBrokenTarget -Lang en | Out-Null }
+    catch { $committedBrokenFailed = $true }
+    if (-not $committedBrokenFailed) { throw "Install with a required file missing from the committed tree unexpectedly succeeded" }
+    Assert-Absent $committedBrokenTarget
+    Pass "a required file missing from the committed tree is still rejected before mutation"
 
     # Clean checkout: the install reports the staged commit (Issue #44).
     $cleanTarget = Join-Path $testRoot "clean target"
@@ -203,6 +243,20 @@ try {
         throw "Clean checkout install did not report the staged commit"
     }
     Pass "clean checkout install reports commit provenance"
+
+    # Static guard against the provenance race regressing: the archive call
+    # must pin the commit already captured and validated (installCommit),
+    # not re-resolve HEAD at staging time, which would reopen a window
+    # where a concurrent commit could make the archived content disagree
+    # with the commit the install reports (Issue #44 follow-up).
+    $installerSource = Get-Content -Raw -LiteralPath $installer
+    if ($installerSource -match 'archive\s+-o\s+\$archiveFile\s+HEAD\b') {
+        throw "install.ps1 archives HEAD directly instead of the captured installCommit"
+    }
+    if ($installerSource -notmatch [regex]::Escape('archive -o $archiveFile $installCommit')) {
+        throw "install.ps1 does not archive the captured installCommit"
+    }
+    Pass "install.ps1 archives the captured commit, not HEAD, at staging time"
 
     Write-Host "All $passCount PowerShell installer tests passed."
 }
