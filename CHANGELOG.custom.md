@@ -114,7 +114,15 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   committed-missing-file cases) pass an explicit
   `-c user.name=test -c user.email=test@example.com` so they stay hermetic
   on a CI runner with no git identity configured, rather than failing with
-  "Please tell me who you are."
+  "Please tell me who you are." The missing-tar test's scratch `PATH`
+  gives `git` (and the other carried-through tools) a delegating shim
+  rather than a relocated copy of the resolved executable: Git for
+  Windows' `git.exe` depends on sibling directories at its real install
+  location, so a copy alone broke it outright on `windows-latest` instead
+  of merely hiding `tar` from it, which made that CI job misreport the
+  breakage as the guard under test. The test now self-checks that the
+  shimmed `git` actually runs before asserting anything, and skips with a
+  stated reason rather than asserting the wrong error if it can't.
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
