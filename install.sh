@@ -7,6 +7,81 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SOURCE_DIR="$SCRIPT_DIR/skills/dev"
 VALIDATOR="$SCRIPT_DIR/scripts/validate_skill.py"
 
+# When SCRIPT_DIR is itself the root of a git checkout that tracks
+# skills/dev, stage from committed content instead of the working tree so
+# untracked/ignored files and uncommitted edits never ship. A release
+# tarball (or the Homebrew libexec copy, ADR-007) has no .git, so it falls
+# back to the working-tree copy unchanged. This is decided by a filesystem
+# check, not by whether the git binary happens to be usable: whether
+# SCRIPT_DIR *looks like* a git checkout (a .git entry — directory or, for
+# a linked worktree, the "gitdir: ..." file — is present) and whether it
+# can actually be *validated* as one are kept separate on purpose. A
+# directory that looks like a checkout but can't be validated (git is
+# missing, or validation fails for any other reason) must never silently
+# fall back to the copy path — that would ship possibly-dirty working-tree
+# content while looking, from the outside, exactly like the safe case.
+# Resulting matrix:
+#   own .git + validates + tar available  -> git-archive path
+#   own .git + validates + tar missing    -> abort (checked further down,
+#                                             once tar's availability is known)
+#   own .git + does not validate          -> abort (git missing, or the
+#                                             directory isn't actually a
+#                                             valid checkout tracking
+#                                             skills/dev at HEAD)
+#   no own .git                           -> copy path, tarball provenance
+#                                             (git/tar not required here)
+# -L (not just -e) catches a dangling .git symlink too: -e alone follows
+# the link and reports false when its target is missing, which would
+# otherwise read as "no git metadata at all" and fall through to the copy
+# path even though a .git entry — just a broken one — is genuinely present.
+HAS_OWN_GIT=0
+if [[ -e "$SCRIPT_DIR/.git" || -L "$SCRIPT_DIR/.git" ]]; then
+  HAS_OWN_GIT=1
+fi
+
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, and
+# GIT_COMMON_DIR, if inherited from the caller's environment, override
+# `-C`'s repository discovery entirely — every git call below uses this
+# array instead of a bare `git` so an inherited GIT_DIR pointed at some
+# other repository can't make the installer validate, archive, and
+# install that other repository's committed skills/dev tree while still
+# reporting *its* commit, even though the own-.git check above passed on
+# SCRIPT_DIR. GIT_COMMON_DIR (the linked-worktree analog of GIT_DIR) is
+# included for the same reason, as defense in depth alongside the other
+# four, even though it did not independently redirect a worktree-less
+# checkout in testing.
+GIT_ENV_CLEAN=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR git)
+
+IS_GIT_CHECKOUT=0
+GIT_VALIDATION_ERROR=""
+INSTALL_COMMIT=""
+if ((HAS_OWN_GIT)); then
+  if ! command -v git >/dev/null 2>&1; then
+    GIT_VALIDATION_ERROR="this looks like a git checkout of the Skill (a .git entry is present at $SCRIPT_DIR), but git is required to stage it safely from git content. Install git, or install from a release tarball instead."
+  # The `if VAR=$(cmd) && ...` form (rather than capturing output
+  # unconditionally) is what lets an empty result be told apart from a
+  # failed lookup: git exits non-zero with no output at all when SCRIPT_DIR
+  # isn't a valid repository, so a bare `-z "$GIT_PREFIX"` check alone
+  # would wrongly treat that failure the same as "cwd is the repo root."
+  # `--show-prefix` answers "is cwd the repo root" directly (empty output
+  # means yes), avoiding a path-string comparison that symlink resolution
+  # could otherwise throw off. INSTALL_COMMIT is captured here, once, as
+  # part of the same validation chain, and reused verbatim for every later
+  # archive: resolving HEAD again at staging time would leave a window
+  # where a concurrent commit on this checkout could make the archived
+  # content disagree with the commit the install reports.
+  elif GIT_PREFIX="$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null)" \
+    && [[ -z "$GIT_PREFIX" ]] \
+    && [[ -n "$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" ls-tree -d HEAD -- skills/dev 2>/dev/null)" ]] \
+    && INSTALL_COMMIT="$("${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" \
+    && [[ -n "$INSTALL_COMMIT" ]]; then
+    IS_GIT_CHECKOUT=1
+  else
+    INSTALL_COMMIT=""
+    GIT_VALIDATION_ERROR="this looks like a git checkout of the Skill (a .git entry is present at $SCRIPT_DIR), but its git metadata could not be validated (it may not be the repository root, or skills/dev may not be tracked at HEAD). Refusing to guess; install from a clean checkout or a release tarball instead."
+  fi
+fi
+
 LANGUAGE="en"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-${HOME:?HOME is required}/.claude}"
 TARGET=""
@@ -83,7 +158,33 @@ fi
 
 command -v python3 >/dev/null || { printf 'ERROR: python3 is required for preflight validation.\n' >&2; exit 1; }
 command -v rtk >/dev/null || { printf 'ERROR: RTK is required by this customized /dev workflow.\n' >&2; exit 1; }
-python3 "$VALIDATOR" --skill-dir "$SOURCE_DIR"
+if [[ -n "$GIT_VALIDATION_ERROR" ]]; then
+  printf 'ERROR: %s\n' "$GIT_VALIDATION_ERROR" >&2
+  exit 1
+fi
+if ((IS_GIT_CHECKOUT)) && ! command -v tar >/dev/null 2>&1; then
+  printf 'ERROR: this is a git checkout of the Skill, but tar is required to stage it safely from git content. Install tar, or install from a release tarball instead.\n' >&2
+  exit 1
+fi
+# Preflight validates the tree that will actually be installed. In git
+# mode that is the committed content at INSTALL_COMMIT, not SOURCE_DIR: an
+# uncommitted local edit or deletion under SOURCE_DIR must not block
+# installing a perfectly valid committed tree, and conversely, a genuinely
+# broken committed tree must still be caught here, before any mutation.
+# This costs a second archive/extract beyond the one staging does later
+# (cheap for a skill-sized tree) rather than skipping preflight validation
+# for git mode entirely.
+if ((IS_GIT_CHECKOUT)); then
+  PREFLIGHT_DIR="$(mktemp -d)"
+  # shellcheck disable=SC2064 # intentionally expand PREFLIGHT_DIR now
+  trap "rm -rf -- '$PREFLIGHT_DIR'" EXIT
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
+  python3 "$VALIDATOR" --skill-dir "$PREFLIGHT_DIR"
+  rm -rf -- "$PREFLIGHT_DIR"
+  trap - EXIT
+else
+  python3 "$VALIDATOR" --skill-dir "$SOURCE_DIR"
+fi
 
 LEGACY_FILE="$CONFIG_DIR/commands/dev.md"
 LEGACY_DIR="$CONFIG_DIR/commands/dev"
@@ -135,7 +236,14 @@ trap rollback EXIT
 mkdir -p -- "$TARGET_PARENT"
 [[ -w "$TARGET_PARENT" ]] || { printf 'ERROR: target parent is not writable: %s\n' "$TARGET_PARENT" >&2; exit 1; }
 mkdir -- "$STAGE_DIR"
-cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
+if ((IS_GIT_CHECKOUT)); then
+  # Archive the exact commit already captured and validated above, not
+  # HEAD again: re-resolving HEAD here would reopen the race the earlier
+  # capture exists to close (see INSTALL_COMMIT's capture site).
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+else
+  cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
+fi
 python3 "$VALIDATOR" --skill-dir "$STAGE_DIR"
 
 if [[ "${DEV_INSTALL_FAIL_AT:-}" == "after-stage" ]]; then
@@ -172,5 +280,10 @@ fi
 SUCCESS=1
 trap - EXIT
 printf 'Installed /dev Skill at %s\n' "$TARGET"
+if ((IS_GIT_CHECKOUT)); then
+  printf 'Installed from commit %s\n' "$INSTALL_COMMIT"
+else
+  printf 'Installed from: no git metadata (tarball install)\n'
+fi
 if [[ -d "$BACKUP_DIR" ]]; then printf 'Previous files backed up at %s\n' "$BACKUP_DIR"; fi
 printf 'Restart Claude Code, then invoke /dev.\n'

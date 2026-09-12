@@ -31,6 +31,132 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ### Fixed
 
+- `install.sh` and `install.ps1` no longer ship whatever is sitting on disk
+  under `skills/dev` (#44). Whether the installer's own directory *looks
+  like* a git checkout (a `.git` entry — directory, symlink (dangling or
+  not), or for a linked worktree the `gitdir: ...` file — is present) and
+  whether it can actually be *validated* as one are checked separately,
+  and a directory that looks like a checkout but can't be validated always
+  aborts rather than silently copying: doing otherwise would ship
+  possibly-dirty working-tree content while looking, from the outside,
+  exactly like the safe case. The full matrix, implemented identically in
+  both installers:
+  - own `.git` + validates (git present; `git rev-parse --show-prefix` is
+    empty, meaning the installer's own directory *is* the repo root and
+    not merely inside one; `git ls-tree -d HEAD -- skills/dev` is
+    non-empty) + `tar` available → stage via `git archive <commit> --
+    skills/dev` (piped through `tar` for `install.sh`; written to a temp
+    file and extracted for `install.ps1`, avoiding PowerShell's
+    native-to-native pipe binary corruption risk). Untracked/ignored files
+    (`scripts/__pycache__/*.pyc` and similar) and uncommitted edits to
+    tracked files never reach the installed Skill this way; the exec bit
+    is preserved via git's stored file mode. The commit is captured once,
+    as part of the same validation chain, and every archive of it — the
+    preflight check below and the real staging step — reuses that exact
+    value rather than re-resolving `HEAD`, which would otherwise leave a
+    window where a concurrent commit on the checkout could make the
+    archived content disagree with the commit the install reports.
+  - own `.git` + validates + `tar` missing → abort with an actionable
+    error, never fall back to the copy path while still claiming git
+    provenance.
+  - own `.git` + does not validate (git binary missing, or `SCRIPT_DIR`
+    isn't actually the repo root, or `skills/dev` isn't tracked at HEAD)
+    → abort with an actionable error. (Checking `--show-prefix` for
+    emptiness, rather than comparing `--show-toplevel`'s output against
+    `SCRIPT_DIR`/`PSScriptRoot` as a string, sidesteps a real symlink
+    resolution mismatch hit during development — PowerShell's
+    `Resolve-Path` doesn't resolve macOS's `/var` → `/private/var` the way
+    git's internal realpath handling does, which produced a false
+    negative for a legitimate self-checkout under a symlinked temp path.)
+  - no own `.git` → copy path, unchanged from before this fix (the release
+    tarball or the Homebrew `libexec` copy, ADR-007 case; also covers a
+    bare copy of this distribution — no `.git` of its own — dropped
+    underneath an unrelated ancestor checkout, which a plain
+    `rev-parse --git-dir` walk-up would otherwise misclassify as that
+    ancestor's repo).
+
+  Preflight validation — the check that runs before any mutation, so
+  `--dry-run` can report pass/fail without touching disk — validates the
+  tree that will actually be installed, not always the raw working
+  directory: in git mode that means archiving and validating the captured
+  commit (the same commit staging will use), so an uncommitted local edit
+  or deletion under the working tree never blocks installing a perfectly
+  valid committed tree, while a file genuinely missing from the committed
+  tree is still caught before any mutation. `install.sh`'s `.git`
+  detection also recognizes a dangling `.git` symlink — a plain `-e` check
+  follows the link and reports false when its target is missing, which
+  would otherwise read as "no git metadata at all" and silently take the
+  copy path (`install.ps1`'s `Test-Path` already reported a dangling
+  symlink as present, so it needed no equivalent fix).
+
+  Both installers print the commit staged from (`Installed from commit
+  <sha>`) or, for the no-git case, `Installed from: no git metadata
+  (tarball install)`. `tests/test-install.sh` gained cases for: a dirty
+  checkout (uncommitted edit plus an ignored file both excluded), the
+  converse — an uncommitted deletion of a required file not blocking
+  install of the valid committed tree — and its own converse — a file
+  actually missing from the committed tree still being rejected — a
+  dangling `.git` symlink (aborts, installs nothing), a no-`.git` source
+  (copy path, tarball provenance), a source with no `.git` of its own
+  nested underneath an unrelated ancestor checkout (copy path, not
+  misclassified as the ancestor's repo), a git checkout with the `git`
+  binary unavailable (aborts, installs nothing), a git checkout with `tar`
+  unavailable (aborts, installs nothing), a clean checkout (installed tree
+  diffed byte-for-byte against `git archive HEAD -- skills/dev`, commit
+  provenance reported), and a static guard that the archive call in
+  `install.sh` pins the captured commit rather than `HEAD`.
+  `tests/test-install.ps1` mirrors all of these except the tree-diff
+  comparison, which has no direct PowerShell equivalent in this suite — a
+  recorded sh/ps1 asymmetry (the dangling-symlink case is bash-only, since
+  `install.ps1` never had that gap) — and additionally asserts the exact
+  error text for both the missing-git and missing-tar aborts. Fixture
+  commits in both suites (the unrelated-ancestor-repo and
+  committed-missing-file cases) pass an explicit
+  `-c user.name=test -c user.email=test@example.com` so they stay hermetic
+  on a CI runner with no git identity configured, rather than failing with
+  "Please tell me who you are." The missing-tar test's scratch `PATH`
+  gives `git` (and the other carried-through tools) a delegating shim
+  rather than a relocated copy of the resolved executable: Git for
+  Windows' `git.exe` depends on sibling directories at its real install
+  location, so a copy alone broke it outright on `windows-latest` instead
+  of merely hiding `tar` from it, which made that CI job misreport the
+  breakage as the guard under test. The test now self-checks that the
+  shimmed `git` actually runs before asserting anything, and skips with a
+  stated reason rather than asserting the wrong error if it can't.
+  Finally, every git invocation in both installers now runs with
+  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, and
+  `GIT_COMMON_DIR` removed from its environment. Left inherited, any one
+  of the first four overrides `-C`'s repository discovery entirely, so a
+  caller with e.g. `GIT_DIR` pointed at an unrelated repository could make
+  the installer silently validate, archive, and install *that*
+  repository's committed `skills/dev` tree while reporting its commit —
+  reproduced and confirmed before the fix on both installers (a planted
+  marker file from a disposable second repository shipped in the install,
+  with that repository's commit reported as provenance) — even though the
+  own-`.git` checkout on the real source directory validated correctly
+  throughout. `GIT_COMMON_DIR` (the linked-worktree analog of `GIT_DIR`)
+  is cleaned alongside the other four as defense in depth, added after
+  external review flagged the omission, even though it did not
+  independently redirect a worktree-less checkout in testing. `install.sh`
+  cleans this via a shared `env -u ... git` argv array at every call site.
+  `install.ps1` went through two iterations: the first removed the risky
+  variables from `$env:` once, near the top of the script — which fixed
+  the hijack, but a follow-up probe proved it corrupted the *caller's*
+  session too (via a sentinel-variable check that survived even a
+  `-DryRun`), because `$env:` is process-wide and this script commonly
+  runs via `&` in the caller's own runspace (as this repo's own test
+  harness does) rather than as its own process. The installer now builds
+  each child git process's environment directly (`Invoke-GitClean`,
+  backed by `System.Diagnostics.ProcessStartInfo`) instead of ever
+  touching this process's own `$env:` table, so only git itself sees the
+  cleaned environment. Both suites gained a regression test pointing
+  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR` at a disposable repo carrying
+  a planted marker file, installing from the real source, and confirming
+  the real source's tree and commit — never the marker or the other
+  repository's commit — are what's actually installed;
+  `tests/test-install.ps1` additionally sets sentinel values for all five
+  variables, runs a `-DryRun` install, and confirms every sentinel is
+  unchanged afterward.
 - External-review bypass no longer excuses a review invalidated by the
   author's own response to it (#33). The bypass path had become the routine
   path (4 of 4 PRs in one round) because fixing findings and pushing moves
