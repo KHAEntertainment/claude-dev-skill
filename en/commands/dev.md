@@ -47,7 +47,7 @@ Agent Teams are an optional Phase 3 / Phase 3.5 execution mode, not a replacemen
 
 Recovery state: `.agent/dev-state.md` must include active team name, teammate names, Issue/PR mapping, branch/worktree names, file ownership, blockers, and next action when Agent Teams are active.
 
-Rollback snapshot for these command prompts: `/Users/bbrenner/Documents/Codex/2026-05-02/can-this-be-installed-globally-or/dev-command-backups`.
+A rollback snapshot of prior versions of these command prompts is kept locally by the maintainer.
 
 ---
 
@@ -175,5 +175,5 @@ New requirements from user → back to Phase 0.
 - **PROJECT_CONTEXT.md**: **update immediately** when architecture decisions change, do not wait for Phase 5; also do a full update at the end of each development round (completed features list, current status)
 - **Hotfix post-merge**: scan all open PRs, list PRs with file overlap with the hotfix changes, notify corresponding Worker Agents to rebase
 - **Agent Teams cleanup**: after team-based work completes, shut down teammates, clean up the team, and update `.agent/dev-state.md` before Phase 5 or standby
-- **Rollback reference**: the RTK-modified pre-Agent-Teams prompt backup is stored in `/Users/bbrenner/Documents/Codex/2026-05-02/can-this-be-installed-globally-or/dev-command-backups`
+- **Rollback reference**: the RTK-modified pre-Agent-Teams prompt backup is kept locally by the maintainer
 - **After REQUEST CHANGES**: once Worker Agent finishes fixes, must re-run Phase 3.5 + Phase 4
