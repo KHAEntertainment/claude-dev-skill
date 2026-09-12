@@ -186,6 +186,19 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   submitted-state gate. Previously every test reached `inspect()` only
   through a loaded fixture, so `fetch_threads` returning `[]` left all 40
   tests green.
+- `en/commands/dev.md` no longer leaks the maintainer's home directory: two
+  rollback-snapshot references to a local backup path are replaced with a
+  generic sentence (#42). `validate_skill.py`'s forbidden-path guard
+  previously scanned only the Skill payload (`skills/dev/**/*.md`), so
+  `en/commands/` was invisible to it and the leak stayed green. The guard now
+  also reads `en/`, `zh/`, and root-level `*.md`, anchored on its own
+  `__file__` location — the same anchor the `PROJECT_CONTEXT.md` routing
+  check already used — and tolerates `en/`/`zh/` being absent, since both are
+  `.gitattributes export-ignore`d and never reach the release-archive CI run.
+  The guard also stopped storing the maintainer's username as a literal
+  forbidden token, replacing it with patterns for any absolute home
+  directory (`/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\`) so the
+  guard itself no longer republishes the token it exists to keep out.
 
 ## v2.1.0 — 2026-09-11
 

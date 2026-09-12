@@ -59,7 +59,7 @@ Python 3, optionally Traycer CLI/Host.
 - Everything in `skills/dev/` refers to siblings as `${CLAUDE_SKILL_DIR}/<relpath>` — never a hardcoded path.
 - `scripts/validate_skill.py` is the gatekeeper: a 23-path required manifest, frontmatter keys, a forbidden-token list, and a required-policy token allowlist. Adding prose is safe; removing policy tokens fails the build.
 - No CJK characters anywhere in the payload (enforced by the validator).
-- No absolute machine paths in the payload (enforced by the validator).
+- No absolute home-directory paths anywhere in shipped Markdown — the payload, `en/`, `zh/`, and root-level docs alike (enforced by the validator, which tolerates `en/`/`zh/` being absent from a release archive).
 - `bin/` must never exist at repo root — Claude Code plugin auto-discovery would add it to the Bash tool PATH.
 
 ---
