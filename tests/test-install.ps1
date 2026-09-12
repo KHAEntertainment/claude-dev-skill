@@ -310,10 +310,10 @@ try {
     # where a concurrent commit could make the archived content disagree
     # with the commit the install reports (Issue #44 follow-up).
     $installerSource = Get-Content -Raw -LiteralPath $installer
-    if ($installerSource -match 'archive\s+-o\s+\$archiveFile\s+HEAD\b') {
+    if ($installerSource -match [regex]::Escape('"archive", "-o", $archiveFile, "HEAD"')) {
         throw "install.ps1 archives HEAD directly instead of the captured installCommit"
     }
-    if ($installerSource -notmatch [regex]::Escape('archive -o $archiveFile $installCommit')) {
+    if ($installerSource -notmatch [regex]::Escape('"archive", "-o", $archiveFile, $installCommit')) {
         throw "install.ps1 does not archive the captured installCommit"
     }
     Pass "install.ps1 archives the captured commit, not HEAD, at staging time"
@@ -351,6 +351,46 @@ try {
         throw "Install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE"
     }
     Pass "inherited GIT_DIR/GIT_WORK_TREE cannot redirect install to another repository"
+
+    # The fix for the hijack above must clean only the CHILD git process's
+    # environment, never this process's own: install.ps1 runs via `&` in
+    # this same runspace (not as its own process), so an earlier version
+    # that removed these variables from $env: for "this process" mutated
+    # the CALLER's session too, permanently - proven by this exact probe,
+    # which survived even a -DryRun (Issue #44 follow-up). Set sentinel
+    # values, run a dry run, and confirm all four are unchanged afterward.
+    $sentinelVars = [ordered]@{
+        GIT_DIR              = "sentinel-gitdir"
+        GIT_WORK_TREE        = "sentinel-worktree"
+        GIT_INDEX_FILE       = "sentinel-indexfile"
+        GIT_OBJECT_DIRECTORY = "sentinel-objdir"
+    }
+    $originalSentinelValues = @{}
+    foreach ($varName in $sentinelVars.Keys) {
+        $originalSentinelValues[$varName] = [Environment]::GetEnvironmentVariable($varName, "Process")
+        Set-Item "Env:$varName" $sentinelVars[$varName]
+    }
+    try {
+        $sentinelDryTarget = Join-Path $testRoot "sentinel-dry-run"
+        & $installer -ConfigDir $sentinelDryTarget -Lang en -DryRun | Out-Null
+        foreach ($varName in $sentinelVars.Keys) {
+            $currentValue = [Environment]::GetEnvironmentVariable($varName, "Process")
+            if ($currentValue -ne $sentinelVars[$varName]) {
+                throw "install.ps1 mutated the caller's `$varName during -DryRun (expected '$($sentinelVars[$varName])', got '$currentValue')"
+            }
+        }
+    }
+    finally {
+        foreach ($varName in $sentinelVars.Keys) {
+            if ($null -ne $originalSentinelValues[$varName]) {
+                Set-Item "Env:$varName" $originalSentinelValues[$varName]
+            }
+            else {
+                Remove-Item "Env:$varName" -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    Pass "sentinel GIT_* env vars survive a -DryRun install unchanged in the caller's session"
 
     Write-Host "All $passCount PowerShell installer tests passed."
 }
