@@ -21,20 +21,6 @@ if ($MigrateLegacy -and $KeepLegacy) {
 $source = Join-Path $PSScriptRoot "skills\dev"
 $validator = Join-Path $PSScriptRoot "scripts\validate_skill.py"
 
-# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and GIT_OBJECT_DIRECTORY, if
-# inherited from the caller's environment, override `-C`'s repository
-# discovery entirely for every git invocation below — an inherited GIT_DIR
-# pointed at some other repository could otherwise make the installer
-# validate, archive, and install that other repository's committed
-# skills/dev tree while still reporting *its* commit, even though the
-# own-.git check further down passed on PSScriptRoot. Removed once, here,
-# before any git call in this process.
-foreach ($riskyGitVar in @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")) {
-    if (Test-Path "Env:$riskyGitVar") {
-        Remove-Item "Env:$riskyGitVar"
-    }
-}
-
 # When PSScriptRoot is itself the root of a git checkout that tracks
 # skills/dev, stage from committed content instead of the working tree so
 # untracked/ignored files and uncommitted edits never ship. A release
@@ -64,6 +50,56 @@ $tarCommand = Get-Command tar -ErrorAction SilentlyContinue
 $isGitCheckout = $false
 $gitValidationError = $null
 $installCommit = ""
+
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and GIT_OBJECT_DIRECTORY, if
+# inherited from the caller's environment, override `-C`'s repository
+# discovery entirely — every git call below goes through this helper
+# rather than a bare `& $gitCommand.Source ...` so an inherited GIT_DIR
+# pointed at some other repository can't make the installer validate,
+# archive, and install that other repository's committed skills/dev tree
+# while still reporting *its* commit, even though the own-.git check
+# above passed on PSScriptRoot. This builds the CHILD process's
+# environment block directly instead of removing the variables from
+# $env: for this process: $env: is process-wide, not scoped to a script
+# or function, so a blanket `Remove-Item Env:GIT_DIR` here would corrupt
+# the CALLER's session too whenever this script runs via `&` in the same
+# runspace (as this repo's own test harness does) rather than as its own
+# process — proven by a sentinel-variable probe that survived a -DryRun
+# run. Only git ever sees the cleaned environment; this process's own
+# $env: table is never touched.
+function Invoke-GitClean {
+    param(
+        [Parameter(Mandatory)][string[]]$ArgumentList
+    )
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new($gitCommand.Source)
+    foreach ($argItem in $ArgumentList) { $startInfo.ArgumentList.Add($argItem) }
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    # Accessing EnvironmentVariables populates it from this process's own
+    # environment; removing keys here only affects the dictionary handed
+    # to the child process about to be started.
+    foreach ($riskyGitVar in @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")) {
+        if ($startInfo.EnvironmentVariables.ContainsKey($riskyGitVar)) {
+            $startInfo.EnvironmentVariables.Remove($riskyGitVar)
+        }
+    }
+    $proc = [System.Diagnostics.Process]::new()
+    $proc.StartInfo = $startInfo
+    $proc.Start() | Out-Null
+    # Every call site here produces at most a few lines of text (or none,
+    # when output goes to a file via -o), so reading stdout then stderr
+    # sequentially - rather than asynchronously - cannot deadlock in
+    # practice: neither stream ever approaches the OS pipe buffer size.
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $null = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+    [PSCustomObject]@{
+        StdOut   = $stdout
+        ExitCode = $proc.ExitCode
+    }
+}
+
 if ($hasOwnGit) {
     if (-not $gitCommand) {
         $gitValidationError = "This looks like a git checkout of the Skill (a .git entry is present at $PSScriptRoot), but git is required to stage it safely from git content. Install git, or install from a release tarball instead."
@@ -78,16 +114,18 @@ if ($hasOwnGit) {
         # later archive: resolving HEAD again at staging time would leave a
         # window where a concurrent commit on this checkout could make the
         # archived content disagree with the commit the install reports.
-        $gitPrefix = (& $gitCommand.Source -C $PSScriptRoot rev-parse --show-prefix) 2>$null
-        $prefixOk = ($LASTEXITCODE -eq 0 -and [string]::IsNullOrEmpty($gitPrefix))
+        $prefixResult = Invoke-GitClean -ArgumentList @("-C", $PSScriptRoot, "rev-parse", "--show-prefix")
+        $gitPrefix = $prefixResult.StdOut.Trim()
+        $prefixOk = ($prefixResult.ExitCode -eq 0 -and [string]::IsNullOrEmpty($gitPrefix))
         $trackedSkillsDev = $null
         if ($prefixOk) {
-            $trackedSkillsDev = (& $gitCommand.Source -C $PSScriptRoot ls-tree -d HEAD -- skills/dev) 2>$null
+            $trackedResult = Invoke-GitClean -ArgumentList @("-C", $PSScriptRoot, "ls-tree", "-d", "HEAD", "--", "skills/dev")
+            $trackedSkillsDev = $trackedResult.StdOut.Trim()
         }
-        if ($prefixOk -and $LASTEXITCODE -eq 0 -and $trackedSkillsDev) {
-            $installCommit = (& $gitCommand.Source -C $PSScriptRoot rev-parse HEAD) 2>$null
-            if ($LASTEXITCODE -eq 0 -and $installCommit) {
-                $installCommit = $installCommit.Trim()
+        if ($prefixOk -and $trackedResult.ExitCode -eq 0 -and $trackedSkillsDev) {
+            $commitResult = Invoke-GitClean -ArgumentList @("-C", $PSScriptRoot, "rev-parse", "HEAD")
+            $installCommit = $commitResult.StdOut.Trim()
+            if ($commitResult.ExitCode -eq 0 -and $installCommit) {
                 $isGitCheckout = $true
             }
         }
@@ -109,8 +147,8 @@ function Export-CommittedSkillsDev([string]$Destination) {
         # through the PowerShell pipeline: native-to-native pipes in
         # PowerShell can reinterpret/corrupt binary streams (encoding and
         # newline translation), which a file handoff avoids entirely.
-        & $gitCommand.Source -C $PSScriptRoot archive -o $archiveFile $installCommit -- skills/dev
-        if ($LASTEXITCODE -ne 0) { throw "git archive failed with exit code $LASTEXITCODE" }
+        $archiveResult = Invoke-GitClean -ArgumentList @("-C", $PSScriptRoot, "archive", "-o", $archiveFile, $installCommit, "--", "skills/dev")
+        if ($archiveResult.ExitCode -ne 0) { throw "git archive failed with exit code $($archiveResult.ExitCode)" }
         & $tarCommand.Source -xf $archiveFile -C $Destination --strip-components=2
         if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit code $LASTEXITCODE" }
     }
