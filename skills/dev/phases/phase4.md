@@ -131,7 +131,7 @@ changed: src/auth.py
 
 - Missing Critical-path tests block when a test framework exists.
 - Missing non-critical paths are Pass 2 findings unless they reveal an acceptance-criteria gap.
-- **When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `graft callers <symbol> -d N --json` + freshness to augment static evidence; else record `graph_evidence: unavailable` + cause and trace dependents manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
+- **When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `rtk proxy graft callers <symbol> -d N --json` + freshness to augment static evidence; else record `graph_evidence: unavailable` + cause and trace dependents manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
 
 ## Adversarial Second Opinion
 

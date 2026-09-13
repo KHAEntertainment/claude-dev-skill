@@ -41,7 +41,7 @@ completion claim maps to an executed command's actual output; a claim you cannot
 attach a command and its output to is not a confirmation, it is a limitation, and
 it belongs in the Limitations section of your report.
 
-**When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `graft callers <symbol> -d N --json` + freshness for blast-radius analysis; else record `graph_evidence: unavailable` + cause and trace manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
+**When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `rtk proxy graft callers <symbol> -d N --json` + freshness for blast-radius analysis; else record `graph_evidence: unavailable` + cause and trace manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
 
 After any fix, re-run the full Verification Gate rather than only the check that
 failed. A targeted re-run shows the one symptom went away; it does not show the

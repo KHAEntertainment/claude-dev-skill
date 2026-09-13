@@ -9,14 +9,14 @@ Pinned optional code-graph evidence source via `rtk proxy graft`. Never an execu
 
 ## Scope & Non-Goals
 
-- **Scope**: Availability/version/capability check via `rtk proxy graft --version` vs pinned line; worktree verify + graph build + freshness (record graph OID vs head); approved queries (callers-of, dependents/impact, symbol search; structured output); evidence & degraded path with `graph_evidence: present | unavailable` and cause `not_installed | version_mismatch | build_failed | unparseable_output` + manual fallback actually performed (silence never passes); ledger fields (additive to DEV_STATE_TEMPLATE: `graft_version`, `graph_evidence`, cause).
+- **Scope**: Availability/version/capability check via `rtk proxy graft --version` vs pinned line; worktree verify + graph build + freshness (record graph OID vs head); approved queries (callers-of, dependents/impact, symbol search; structured output); evidence & degraded path with `graph_evidence: present | unavailable` and cause `not_installed | version_mismatch | build_failed | unparseable_output | query_failure` + manual fallback actually performed (silence never passes); ledger fields (additive to DEV_STATE_TEMPLATE: `graft_version`, `graph_evidence`, cause).
 - **Non-goals**: Not a backend; never `graft init` in managed projects; internals never reproduced; no installer change, no CI stub (optional dep; no executable surface).
 
 ## Pinned Version
 
 Pinned Graft version: 0.18.0
 
-Update procedure: when a new version passes the four compatibility checks (version check passes, `graft check` exits 0, approved queries return structured output, `graph_evidence: present` at a gate), open a PR updating this line and the `required_policy` token in `scripts/validate_skill.py`.
+Update procedure: when a new version passes the four compatibility checks (version check passes, `rtk proxy graft check` exits 0, approved queries return structured output, `graph_evidence: present` at a gate), open a PR updating this line and the `required_policy` token in `scripts/validate_skill.py`.
 
 ## Availability & Capability Check
 
@@ -30,13 +30,12 @@ rtk proxy graft --version
 rtk proxy graft check --json
 ```
 
-Record `graft_version` from the version check. If the version output does not contain the pinned line exactly, record cause `version_mismatch` and take the degraded path.
+Evaluation order (stops at first match):
 
-If `graft check` exits non-zero, record cause `build_failed` and take the degraded path.
-
-If the JSON output cannot be parsed, record cause `unparseable_output` and take the degraded path.
-
-If the `graft` binary is not found, record cause `not_installed` and take the degraded path.
+1. **Binary missing**: If the `graft` binary is not found, record cause `not_installed` and take the degraded path.
+2. **Version mismatch**: Record `graft_version` from the version check. If the version output does not contain the pinned line exactly, record cause `version_mismatch` and take the degraded path.
+3. **Invalid JSON from `graft check`**: If the JSON output cannot be parsed, record cause `unparseable_output` and take the degraded path.
+4. **Build failed**: If `graft check` exits non-zero with valid JSON, record cause `build_failed` and take the degraded path.
 
 ## Approved Queries
 
@@ -56,12 +55,21 @@ At every gate that requests graph evidence, the lane must produce:
 
 ```
 graph_evidence: present | unavailable
-graph_evidence_cause: null | not_installed | version_mismatch | build_failed | unparseable_output
+graph_evidence_cause: null | not_installed | version_mismatch | build_failed | unparseable_output | query_failure
 ```
 
 When `graph_evidence: present`, include the relevant query output (trimmed to the gate's token budget) and the `graft check` freshness result.
 
 When `graph_evidence: unavailable`, the lane **must actually perform the manual fallback** (e.g., `rg`, `git grep`, manual call-tree trace) and record what was done. Silence never passes — a lane that records `unavailable` without a manual fallback is incomplete.
+
+### Query Failure Classification
+
+When an approved query (`rtk proxy graft callers`, `rtk proxy graft grep`, `rtk proxy graft map`) exits non-zero or produces invalid JSON:
+
+- Record cause `query_failure`
+- Set `graph_evidence: unavailable`
+- Perform and record the manual fallback (`rg`, `git grep`, manual call-tree trace)
+- Preserve the existing output and freshness requirements when evidence is present
 
 ## Ledger Fields (Additive to DEV_STATE_TEMPLATE)
 
@@ -69,7 +77,7 @@ Add to each `workers` entry:
 
 - `graft_version`: string — the version string from `graft --version`, or `null` if not installed
 - `graph_evidence`: `present` | `unavailable` — whether graph evidence was produced at the gate
-- `graph_evidence_cause`: `null` | `not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` — cause when unavailable
+- `graph_evidence_cause`: `null` | `not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` | `query_failure` — cause when unavailable
 
 ## Gate Integration
 

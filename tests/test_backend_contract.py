@@ -1522,11 +1522,11 @@ class BackendContractTests(unittest.TestCase):
         graft = self.read("graft.md")
         # The three approved queries
         self.assertIn("Callers-of / Dependents (impact)", graft)
-        self.assertIn("graft callers <symbol> -d N --json", graft)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", graft)
         self.assertIn("Symbol search", graft)
-        self.assertIn("graft grep \"<regex>\" --json", graft)
+        self.assertIn("rtk proxy graft grep \"<regex>\" --json", graft)
         self.assertIn("Repo orientation", graft)
-        self.assertIn("graft map --json", graft)
+        self.assertIn("rtk proxy graft map --json", graft)
         # The approved queries table should only have 3 rows (3 data rows + header)
         approved_section = graft.split("## Approved Queries")[1].split("## Evidence")[0]
         table_rows = [line for line in approved_section.splitlines() if line.strip().startswith("|") and not line.strip().startswith("|---")]
@@ -1561,8 +1561,8 @@ class BackendContractTests(unittest.TestCase):
         # 1. worker-new.md Step-1 layer-4 callers + reuse ladder rung 2
         worker_new = self.read("agents/worker-new.md")
         self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", worker_new)
-        self.assertIn("graft callers <symbol> -d 2 --json", worker_new)
-        self.assertIn("graft grep \"<pattern>\" --json", worker_new)
+        self.assertIn("rtk proxy graft callers <symbol> -d 2 --json", worker_new)
+        self.assertIn("rtk proxy graft grep \"<pattern>\" --json", worker_new)
         self.assertIn("graph_evidence: unavailable", worker_new)
         self.assertIn("trace callers manually", worker_new)
         self.assertIn("search manually with `rg`", worker_new)
@@ -1570,14 +1570,14 @@ class BackendContractTests(unittest.TestCase):
         # 2. worker-fix.md rung 2
         worker_fix = self.read("agents/worker-fix.md")
         self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", worker_fix)
-        self.assertIn("graft grep \"<pattern>\" --json", worker_fix)
+        self.assertIn("rtk proxy graft grep \"<pattern>\" --json", worker_fix)
         self.assertIn("graph_evidence: unavailable", worker_fix)
         self.assertIn("search manually with `rg`", worker_fix)
 
         # 3. qa-agent.md Tool Capability Boundary
         qa = self.read("agents/qa-agent.md")
         self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", qa)
-        self.assertIn("graft callers <symbol> -d N --json", qa)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", qa)
         self.assertIn("graph_evidence: unavailable", qa)
         self.assertIn("trace manually with `rg`", qa)
         self.assertIn("Graph output = static evidence, never execution confirmation", qa)
@@ -1585,7 +1585,7 @@ class BackendContractTests(unittest.TestCase):
         # 4. phase4.md Coverage-Path Audit
         phase4 = self.read("phases/phase4.md")
         self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", phase4)
-        self.assertIn("graft callers <symbol> -d N --json", phase4)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", phase4)
         self.assertIn("graph_evidence: unavailable", phase4)
         self.assertIn("trace dependents manually", phase4)
         self.assertIn("Graph output = static evidence, never execution confirmation", phase4)
@@ -1593,7 +1593,7 @@ class BackendContractTests(unittest.TestCase):
         # 5. phase2.md change-impact assessment
         phase2 = self.read("phases/phase2.md")
         self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", phase2)
-        self.assertIn("graft callers <symbol> -d all --json", phase2)
+        self.assertIn("rtk proxy graft callers <symbol> -d all --json", phase2)
         self.assertIn("graph_evidence: unavailable", phase2)
         self.assertIn("trace dependents manually", phase2)
 
