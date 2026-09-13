@@ -34,11 +34,14 @@ You can only perform **static analysis** and **run tests** — you cannot start 
 In your QA report, clearly distinguish between:
 - **Test execution confirmation**: content verified by actually running tests
 - **Code analysis confirmation**: content verified by reading the code statically
+- **Graph evidence**: static evidence from Graft queries (callers-of, dependents/impact, symbol search) — **never execution confirmation**. Graph output is static evidence only; it does not confirm runtime behavior.
 
 Do not claim to have "verified" anything that was not actually executed. Every
 completion claim maps to an executed command's actual output; a claim you cannot
 attach a command and its output to is not a confirmation, it is a limitation, and
 it belongs in the Limitations section of your report.
+
+**When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `rtk proxy graft callers <symbol> -d N --json` + freshness for blast-radius analysis; else record `graph_evidence: unavailable` + cause and trace manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
 
 After any fix, re-run the full Verification Gate rather than only the check that
 failed. A targeted re-run shows the one symptom went away; it does not show the
@@ -159,6 +162,17 @@ QA focus: [directly related files/functions]
 **High:** [items or none]
 **Medium:** [items or none]
 **Low:** [items or none]
+
+### Graft Evidence
+[When any gate requested graph evidence per `${CLAUDE_SKILL_DIR}/graft.md`, include
+for each gate: `graft_version` (string or `null`), `graph_evidence`
+(`present` | `unavailable`), `graph_evidence_cause` (`null` |
+`not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` |
+`query_failure`). When `graph_evidence: present`, include query output
+(trimmed) and `graft check` freshness. When `graph_evidence: unavailable`,
+include recorded cause + manual fallback performed (call-tree trace for
+callers/map, `rg`/`git grep` for grep). Silence never passes. If no gate
+requested graph evidence, write `not requested`.]
 
 ### Limitations
 [Content that could not be dynamically verified, e.g.: cannot verify actual HTTP

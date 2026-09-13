@@ -37,6 +37,7 @@ REQUIRED = {
     "scripts/inspect_external_reviews.py",
     "scripts/dev_config.py",
     "scripts/resolve_repository.py",
+    "graft.md",
 }
 
 
@@ -386,6 +387,13 @@ def main() -> int:
         "aim under 100 words",
         "The cap counts prose, not required structured artifacts.",
         "never claims a task-requirements override",
+        # Issue #57: Graft adapter pinned optional evidence. Pinned verbatim so the
+        # evidence-or-recorded-unavailability gate, the graft init ban, the approved
+        # queries list, the degraded-path requirement, and the ledger fields cannot
+        # be paraphrased away from the approved plan.
+        "Never an execution backend.",
+        "never `graft init` in managed projects",
+        "graph_evidence: unavailable",
     )
     for token in required_policy:
         if token not in combined:
@@ -402,10 +410,20 @@ def main() -> int:
         "agents/worker-new.md": (
             "Reuse-first ladder",
             "Minimizing scope must never mean removing a guard.",
+            "${CLAUDE_SKILL_DIR}/graft.md",
+            "rtk proxy graft callers",
+            "rtk proxy graft grep",
+            "graph_evidence: unavailable",
+            "trace callers manually",
+            "search manually with `rg`",
         ),
         "agents/worker-fix.md": (
             "Reuse-first ladder",
             "Minimizing scope must never mean removing a guard.",
+            "${CLAUDE_SKILL_DIR}/graft.md",
+            "rtk proxy graft grep",
+            "graph_evidence: unavailable",
+            "search manually with `rg`",
         ),
         "agents/worker-prototype-frontend.md": (
             "Exploration favors breadth over minimality.",
@@ -492,6 +510,17 @@ def main() -> int:
             "merge_sha",
             "gate_result",
             "criteria_verdict",
+            "${CLAUDE_SKILL_DIR}/graft.md",
+            "rtk proxy graft callers",
+            "graph_evidence: unavailable",
+            "trace dependents manually",
+            "Graph output = static evidence, never execution confirmation",
+        ),
+        "phases/phase2.md": (
+            "${CLAUDE_SKILL_DIR}/graft.md",
+            "rtk proxy graft callers",
+            "graph_evidence: unavailable",
+            "trace dependents manually",
         ),
         "SKILL.md": (
             "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
@@ -525,7 +554,19 @@ def main() -> int:
             "Classify `absent` before anything else",
         ),
         "agents/report-back.md": ("never substitute for the seven required sections",),
-        "agents/qa-agent.md": ("seven required sections",),
+        "agents/qa-agent.md": (
+            "seven required sections",
+            "${CLAUDE_SKILL_DIR}/graft.md",
+            "rtk proxy graft callers",
+            "graph_evidence: unavailable",
+            "trace manually with `rg`",
+            "Graph output = static evidence, never execution confirmation",
+        ),
+        "graft.md": (
+            "Never an execution backend.",
+            "never `graft init` in managed projects",
+            "graph_evidence: unavailable",
+        ),
     }
     for relative, tokens in sorted(per_file_policy.items()):
         target = skill_dir / relative

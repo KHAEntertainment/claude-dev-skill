@@ -1495,6 +1495,115 @@ class BackendContractTests(unittest.TestCase):
             f"prose they protect: {missing}",
         )
 
+    def test_graft_md_exists_and_has_required_sections(self) -> None:
+        """Issue #57: graft.md must exist with all required sections."""
+        graft = self.read("graft.md")
+        for heading in (
+            "## Scope & Non-Goals",
+            "## Pinned Version",
+            "## Availability & Capability Check",
+            "## Approved Queries",
+            "## Evidence & Degraded Path",
+            "## Ledger Fields (Additive to DEV_STATE_TEMPLATE)",
+            "## Gate Integration",
+        ):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, graft)
+
+    def test_graft_md_pins_version_and_update_procedure(self) -> None:
+        """Issue #57: graft.md must pin a real version and update procedure."""
+        graft = self.read("graft.md")
+        self.assertIn("Pinned Graft version: 0.18.0", graft)
+        self.assertIn("Update procedure:", graft)
+        self.assertIn("four compatibility checks", graft)
+
+    def test_graft_md_lists_approved_queries_only(self) -> None:
+        """Issue #57: graft.md must list only the three approved queries."""
+        graft = self.read("graft.md")
+        # The three approved queries
+        self.assertIn("Callers-of / Dependents (impact)", graft)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", graft)
+        self.assertIn("Symbol search", graft)
+        self.assertIn("rtk proxy graft grep \"<regex>\" --json", graft)
+        self.assertIn("Repo orientation", graft)
+        self.assertIn("rtk proxy graft map --json", graft)
+        # The approved queries table should only have 3 rows (3 data rows + header)
+        approved_section = graft.split("## Approved Queries")[1].split("## Evidence")[0]
+        table_rows = [line for line in approved_section.splitlines() if line.strip().startswith("|") and not line.strip().startswith("|---")]
+        # Header row + 3 data rows = 4 rows with pipes
+        self.assertEqual(len(table_rows), 4, "Approved queries table should have exactly 3 data rows")
+        # Unapproved queries appear only in the exclusion note, not in the table
+        self.assertIn("No other queries (e.g., `graft ask`, `graft skeleton`, `graft blast`, `graft viz`) are approved for gate evidence.", graft)
+
+    def test_graft_md_requires_evidence_or_recorded_unavailability(self) -> None:
+        """Issue #57: graft.md must require graph_evidence with cause and manual fallback."""
+        graft = self.read("graft.md")
+        self.assertIn("graph_evidence: present | unavailable", graft)
+        self.assertIn("not_installed | version_mismatch | build_failed | unparseable_output | query_failure", graft)
+        self.assertIn("manual fallback", graft)
+        self.assertIn("Silence never passes", graft)
+        # query_failure degraded path: approved query failures / invalid JSON
+        self.assertIn("query_failure", graft)
+        self.assertIn("Query Failure Classification", graft)
+        self.assertIn("rtk proxy graft callers", graft)
+        self.assertIn("rtk proxy graft grep", graft)
+        self.assertIn("rtk proxy graft map", graft)
+        self.assertIn("invalid JSON", graft)
+
+    def test_graft_md_adds_ledger_fields(self) -> None:
+        """Issue #57: graft.md must add ledger fields to DEV_STATE_TEMPLATE."""
+        graft = self.read("graft.md")
+        self.assertIn("graft_version", graft)
+        self.assertIn("graph_evidence", graft)
+        self.assertIn("graph_evidence_cause", graft)
+
+    def test_graft_md_bans_graft_init(self) -> None:
+        """Issue #57: graft.md must ban graft init in managed projects."""
+        graft = self.read("graft.md")
+        self.assertIn("never `graft init` in managed projects", graft)
+        self.assertIn("Never an execution backend.", graft)
+
+    def test_five_prompt_sites_reference_graft_md(self) -> None:
+        """Issue #57: the five prompt sites must reference graft.md with the required pattern."""
+        # 1. worker-new.md Step-1 layer-4 callers + reuse ladder rung 2
+        worker_new = self.read("agents/worker-new.md")
+        self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", worker_new)
+        self.assertIn("rtk proxy graft callers <symbol> -d 2 --json", worker_new)
+        self.assertIn("rtk proxy graft grep \"<pattern>\" --json", worker_new)
+        self.assertIn("graph_evidence: unavailable", worker_new)
+        self.assertIn("trace callers manually", worker_new)
+        self.assertIn("search manually with `rg`", worker_new)
+
+        # 2. worker-fix.md rung 2
+        worker_fix = self.read("agents/worker-fix.md")
+        self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", worker_fix)
+        self.assertIn("rtk proxy graft grep \"<pattern>\" --json", worker_fix)
+        self.assertIn("graph_evidence: unavailable", worker_fix)
+        self.assertIn("search manually with `rg`", worker_fix)
+
+        # 3. qa-agent.md Tool Capability Boundary
+        qa = self.read("agents/qa-agent.md")
+        self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", qa)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", qa)
+        self.assertIn("graph_evidence: unavailable", qa)
+        self.assertIn("trace manually with `rg`", qa)
+        self.assertIn("Graph output = static evidence, never execution confirmation", qa)
+
+        # 4. phase4.md Coverage-Path Audit
+        phase4 = self.read("phases/phase4.md")
+        self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", phase4)
+        self.assertIn("rtk proxy graft callers <symbol> -d N --json", phase4)
+        self.assertIn("graph_evidence: unavailable", phase4)
+        self.assertIn("trace dependents manually", phase4)
+        self.assertIn("Graph output = static evidence, never execution confirmation", phase4)
+
+        # 5. phase2.md change-impact assessment
+        phase2 = self.read("phases/phase2.md")
+        self.assertIn("${CLAUDE_SKILL_DIR}/graft.md", phase2)
+        self.assertIn("rtk proxy graft callers <symbol> -d all --json", phase2)
+        self.assertIn("graph_evidence: unavailable", phase2)
+        self.assertIn("trace dependents manually", phase2)
+
 
 if __name__ == "__main__":
     unittest.main()

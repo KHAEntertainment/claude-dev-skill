@@ -54,7 +54,7 @@ Whether launched through Claude-native or Traycer execution:
 6. Work only on the pre-created branch/worktree verified in Step 1. Do not create or switch branches. Hotfix worktrees must be based on `origin/main`.
 7. **Only modify code directly related to the Issue and within assigned ownership** — no out-of-scope changes
 
-8. **Reuse-first ladder.** Take the lowest rung that actually satisfies the acceptance criteria, in this order: does the change need to exist at all → is the behavior already in the codebase → does the standard library or the native platform cover it → is it in an already-installed dependency → is it one line → only then the minimum new code. Record the rung you took and why the rungs above it were rejected; "I did not look" is not a rejection.
+8. **Reuse-first ladder.** Take the lowest rung that actually satisfies the acceptance criteria, in this order: does the change need to exist at all → is the behavior already in the codebase → does the standard library or the native platform cover it → is it in an already-installed dependency → is it one line → only then the minimum new code. Record the rung you took and why the rungs above it were rejected; "I did not look" is not a rejection. **When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, use `rtk proxy graft grep "<pattern>" --json` + freshness for exhaustive symbol search at rung 2; else record `graph_evidence: unavailable` + cause and search manually with `rg`.**
 
    **Safety carve-out — non-negotiable.** Validation, error handling, security, and accessibility are never cut for minimality. Minimizing scope must never mean removing a guard. A fix that gets smaller by deleting a check is not a smaller fix; it is a second defect.
 

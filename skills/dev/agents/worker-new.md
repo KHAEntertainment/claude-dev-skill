@@ -37,11 +37,12 @@ Whether launched through Claude-native or Traycer execution:
    - If ownership overlaps another active worker, report the conflict and stop until the Tech Lead resolves it
 
 4. Read the relevant existing code. Must cover the following layers:
-   - Files explicitly mentioned in the Issue
-   - Callers of the files you will modify (who calls them)
-   - Public utility functions/modules you will call
-   - The project's error handling conventions (find one representative existing example)
-   - If `PROJECT_CONTEXT.md` / `API_CONTRACT.md` exist, you **must** read them
+     - Files explicitly mentioned in the Issue
+     - Callers of the files you will modify (who calls them)
+     - Public utility functions/modules you will call
+     - The project's error handling conventions (find one representative existing example)
+     - If `PROJECT_CONTEXT.md` / `API_CONTRACT.md` exist, you **must** read them
+     - **When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of evidence from `rtk proxy graft callers <symbol> -d 2 --json` + freshness; else record `graph_evidence: unavailable` + cause and trace callers manually with `rg`/`git grep`.**
 
 5. Immediately before posting, re-run `rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir "<assigned-worktree>" --operation issue --target <assigned issue repository>` (with the confirmed per-task override when applicable) and require exit 0. Post an **understanding confirmation** comment on the Issue (`rtk gh issue comment #[N] --repo github.com/<confirmed from step 1>`), containing:
    - Describe the task in your own words (1–2 sentences)
@@ -67,17 +68,17 @@ Whether launched through Claude-native or Traycer execution:
 
 7. **Reuse-first ladder.** Before writing any code, walk these rungs in order and stop at the first one that satisfies the acceptance criteria:
 
-   ```text
-   □ 1 Does this need to exist at all? Can the criteria be met by deleting or configuring something rather than adding?
-   □ 2 Is it already in the codebase? Search before you build.
-   □ 3 Does the standard library cover it?
-   □ 4 Is it a native platform feature (runtime, shell, OS, browser)?
-   □ 5 Is it in an already-installed dependency, reachable without adding a new one?
-   □ 6 Is it one line?
-   □ 7 Only then: the minimum new code that satisfies the acceptance criteria.
-   ```
+     ```text
+     □ 1 Does this need to exist at all? Can the criteria be met by deleting or configuring something rather than adding?
+     □ 2 Is it already in the codebase? Search before you build. **When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, use `rtk proxy graft grep "<pattern>" --json` + freshness for exhaustive symbol search; else record `graph_evidence: unavailable` + cause and search manually with `rg`.**
+     □ 3 Does the standard library cover it?
+     □ 4 Is it a native platform feature (runtime, shell, OS, browser)?
+     □ 5 Is it in an already-installed dependency, reachable without adding a new one?
+     □ 6 Is it one line?
+     □ 7 Only then: the minimum new code that satisfies the acceptance criteria.
+     ```
 
-   Name the rung you landed on in the implementation plan and say why each rung above it was rejected. "I did not look" is not a rejection.
+    Name the rung you landed on in the implementation plan and say why each rung above it was rejected. "I did not look" is not a rejection.
 
    **Safety carve-out — non-negotiable.** Validation, error handling, security, and accessibility are never cut for minimality. Minimizing scope must never mean removing a guard. A rung reached by dropping one of these is not a lower rung; it is a defect.
 
