@@ -61,19 +61,21 @@ nothing has not reported.
 - **Worker** (`worker-new` / `worker-fix`): report the created PR URL and the
   exact head commit, then stop and wait for review or shutdown.
 - **Graft Evidence** (when any gate in the lane requested graph evidence per
-     `${CLAUDE_SKILL_DIR}/graft.md`): include in the report-back the three ledger
-     fields for each gate: `graft_version` (string or `null`), `graph_evidence`
-     (`present` | `unavailable`), and `graph_evidence_cause` (`null` |
-     `not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` |
-     `query_failure`). When `graph_evidence: present`, include the query output
-     (trimmed) and the `graft check` freshness result. When `graph_evidence:
-     unavailable`, include the recorded cause and a description of the manual
-     fallback actually performed for the failed query type:
-       - `graft callers` failure → call-tree trace (manual or via `rg`/`git grep`)
-       - `graft grep` failure → `rg` or `git grep` against the symbol/regex
-       - `graft map` failure → call-tree trace (manual or via existing call-graph analysis path)
-       - invalid JSON from any query → classified as `query_failure` with `graph_evidence: unavailable` and the manual fallback recorded
-     Silence never passes — a lane that records `unavailable` without documenting the manual fallback is incomplete.
+   `${CLAUDE_SKILL_DIR}/graft.md`): this contract applies uniformly to every lane
+   that requests graph evidence (worker-new, worker-fix, qa-agent, phase2,
+   phase4 — the five prompt sites). Include in the report-back the three ledger
+   fields for each gate: `graft_version` (string or `null`), `graph_evidence`
+   (`present` | `unavailable`), and `graph_evidence_cause` (`null` |
+   `not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` |
+   `query_failure`). When `graph_evidence: present`, include the query output
+   (trimmed) and the `graft check` freshness result. When `graph_evidence:
+   unavailable`, include the recorded cause and a description of the manual
+   fallback actually performed for the failed query type:
+     - `graft callers` failure → call-tree trace (manual or via `rg`/`git grep`)
+     - `graft grep` failure → `rg` or `git grep` against the symbol/regex
+     - `graft map` failure → call-tree trace (manual or via existing call-graph analysis path)
+     - invalid JSON from any query → classified as `query_failure` with `graph_evidence: unavailable` and the manual fallback recorded
+   Silence never passes — a lane that records `unavailable` without documenting the manual fallback is incomplete.
 - **QA** (`qa-agent`): use the QA report template as the role-specific form of
   the contract and finish with `QA ✓ Health: [N]/100`; a failing lane still
   reports its evidence and stops.

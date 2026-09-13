@@ -163,6 +163,17 @@ QA focus: [directly related files/functions]
 **Medium:** [items or none]
 **Low:** [items or none]
 
+### Graft Evidence
+[When any gate requested graph evidence per `${CLAUDE_SKILL_DIR}/graft.md`, include
+for each gate: `graft_version` (string or `null`), `graph_evidence`
+(`present` | `unavailable`), `graph_evidence_cause` (`null` |
+`not_installed` | `version_mismatch` | `build_failed` | `unparseable_output` |
+`query_failure`). When `graph_evidence: present`, include query output
+(trimmed) and `graft check` freshness. When `graph_evidence: unavailable`,
+include recorded cause + manual fallback performed (call-tree trace for
+callers/map, `rg`/`git grep` for grep). Silence never passes. If no gate
+requested graph evidence, write `not requested`.]
+
 ### Limitations
 [Content that could not be dynamically verified, e.g.: cannot verify actual HTTP
 responses, cannot verify concurrent behavior. Each entry carries its resolution:
