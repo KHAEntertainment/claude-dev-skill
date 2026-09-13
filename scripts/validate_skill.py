@@ -37,6 +37,7 @@ REQUIRED = {
     "scripts/inspect_external_reviews.py",
     "scripts/dev_config.py",
     "scripts/resolve_repository.py",
+    "graft.md",
 }
 
 
@@ -386,6 +387,13 @@ def main() -> int:
         "aim under 100 words",
         "The cap counts prose, not required structured artifacts.",
         "never claims a task-requirements override",
+        # Issue #57: Graft adapter pinned optional evidence. Pinned verbatim so the
+        # evidence-or-recorded-unavailability gate, the graft init ban, the approved
+        # queries list, the degraded-path requirement, and the ledger fields cannot
+        # be paraphrased away from the approved plan.
+        "Never an execution backend.",
+        "never `graft init` in managed projects",
+        "graph_evidence: unavailable",
     )
     for token in required_policy:
         if token not in combined:
@@ -526,6 +534,11 @@ def main() -> int:
         ),
         "agents/report-back.md": ("never substitute for the seven required sections",),
         "agents/qa-agent.md": ("seven required sections",),
+        "graft.md": (
+            "Never an execution backend.",
+            "never `graft init` in managed projects",
+            "graph_evidence: unavailable",
+        ),
     }
     for relative, tokens in sorted(per_file_policy.items()):
         target = skill_dir / relative
