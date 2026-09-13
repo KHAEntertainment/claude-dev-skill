@@ -13,7 +13,7 @@ for the v2.1.0 round (kept outside this repo). No re-audit.
 
 ### 1. A quiet result is not a passing result
 No review, no reply, an empty query, and a command that never ran all read as success unless the boundary distinguishes "no evidence" from "evidence of pass".
-*Evidence*: recovery entry 2026-09-11T22:49:02Z — three consecutive CodeRabbit rate limits on PR #46 looked like "no review yet" rather than "review couldn't run," requiring an explicit breakpoint rule (#48) to substitute a different reviewer instead of letting the gate sit indefinitely.
+*Evidence*: recovery entry 2026-09-11T22:49:02Z — four consecutive CodeRabbit rate-limits on PR #46 looked like "no review yet" rather than "review couldn't run," requiring an explicit breakpoint rule (#48) to substitute a different reviewer instead of letting the gate sit indefinitely.
 
 ### 2. A mutation set that never edits the data an artifact carries cannot detect a wrong artifact
 Mutate the rows, delete them, and permute them, not only the surrounding text.
@@ -37,4 +37,4 @@ An assertion about a document's content is unverified until the document has bee
 
 ### 7. A green status check or an acknowledgement is not a review
 A passing status field or an "acknowledged" event is evidence of no findings so far, not evidence that a reviewer actually inspected the work.
-*Evidence*: recovery entry 2026-09-12T06:29:38Z — PR #52 reached merge only by enforcing substitute review (kimi k3, APPROVE) after 4 CodeRabbit rate-limits; the "0 external-review bypasses" record required an actual reviewer verdict, not just a clear status field — a green status with no reviewer would have satisfied the gate's text but not its intent.
+*Evidence*: recovery entry 2026-09-12T06:29:38Z — PR #46 reached merge only by enforcing substitute review (kimi k3,thinking, APPROVE) after 4 CodeRabbit rate-limits; the "0 external-review bypasses" record required an actual reviewer verdict, not just a clear status field — a green status with no reviewer would have satisfied the gate's text but not its intent.
