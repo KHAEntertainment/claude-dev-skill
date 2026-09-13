@@ -33,6 +33,7 @@ See [UPSTREAM.md](UPSTREAM.md) for the fork/merge procedure and
 |------|---------|---------------|
 | `docs/architecture.md` | Architecture Decision Records for packaging and distribution | Immediately when a decision is made |
 | `docs/feature-log.md` | Completed features (PR number, merge date) and known tech debt | Every Phase 5 round |
+| `docs/dogfooding.md` | Evidence-anchored operational lessons from running `/dev` on this repo | After each `/dev` round that surfaces a new durable lesson |
 | `docs/RELEASING.md` | Version sites, tag scheme, and the release procedure | When the release process changes |
 | `docs/AUDIT.md` | Upstream-vs-fork feature matrix and risk register | On each upstream merge |
 | `docs/glossary.md` | — not used; this project has no domain terminology layer | n/a |
