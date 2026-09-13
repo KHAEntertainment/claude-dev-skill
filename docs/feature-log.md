@@ -6,6 +6,13 @@
   (PR #35), and `.dev.json` repository/account verification (PR #36), merged 2026-09-11.
 - Committed verification gate and current-head external-review enforcement (PR #23/#28),
   plus role-prompt discipline (PR #30), included in v2.1.0.
+- v2.1.1 WS4: ADR-012 records that child harnesses (Codex CLI, OpenCode,
+  Cursor-class, and any receive-capable Claude-class-or-similar) execute
+  Traycer-managed lanes via the provider-neutral assignment envelope — no
+  `/dev` variants, no forked SOPs — with a four-item capability checklist
+  in `skills/dev/backends/contract.md` (#58). Coupled: ADR-009's lint
+  reclassification is now recorded in `backends/contract.md` so the
+  delegated lanes read it (#38).
 
 - CI Verification Gate: 6 jobs across ubuntu/macos/windows, archive validation,
   and packaging guards (PR #11, merged 2026-08-31)
