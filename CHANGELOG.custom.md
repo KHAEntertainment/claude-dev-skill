@@ -12,6 +12,21 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 ### Added
 
+- ADR-012 + child-harness capability checklist (#58) and ADR-009 guard
+  reclassification recorded in `skills/dev/backends/contract.md` (#38).
+  ADR-012 records that child harnesses (Codex CLI, OpenCode, Cursor-class,
+  and any receive-capable Claude-class-or-similar) execute Traycer-managed
+  lanes via the provider-neutral assignment envelope — no `/dev` variants,
+  no forked SOPs — with a four-item capability checklist in
+  `skills/dev/backends/contract.md` gating first dispatch (GUI receive
+  surface; `rtk`/`gh`/`python3` on PATH; shared-filesystem read of
+  resolved Skill files + ability to run `resolve_repository.py`;
+  seven-section reply shape on arrival surface). Unmet item → lane
+  `incomplete`; remedy is always a different route — never a trimmed
+  prompt, never a relaxed checklist. ADR-009's authorship-lint
+  reclassification now sits at the point of use so a future round does
+  not re-litigate the AST guard; `validate_skill.py` and the doc-assertion
+  test suite pin the new load-bearing sentences.
 - Lead-to-user end-of-turn reply contract (#54): `skills/dev/reply-contract.md`
   governs only the Tech Lead's own replies to the user, never the
   agent-to-lead report-back contract, Issue/PR bodies, or project docs.

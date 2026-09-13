@@ -446,6 +446,21 @@ def main() -> int:
             "A verified report is recorded too, not only a failed one.",
             "Record the terminating condition, and derive the verdict and cause from the full mapping.",
             "still ran a bounded read",
+            # Issue #58: Child-harness capability checklist. Pinned per file so
+            # deleting any of these from `contract.md` fails the validator
+            # rather than the doc-assertion tests alone (`tests/` is
+            # export-ignored; archive extractions have no test layer).
+            "## Child-harness capability checklist",
+            "receive-capable GUI surface",
+            "Tooling on PATH",
+            "Shared-filesystem read of resolved Skill files",
+            "Replies in seven-section shape on arrival surface",
+            "remedy is a different route, never a trimmed prompt",
+            # Issue #38: ADR-009 lint reclassification recorded here so the
+            # delegated lanes read it at the point of use. Must not name the
+            # rejected credential layer from ADR-008 as a control.
+            "an authorship lint, not a security control",
+            "behavioural tests and the supported pre-write verification are the real controls",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
