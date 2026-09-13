@@ -123,5 +123,5 @@ After the prototype agent returns, the main conversation does:
 - Do not dispatch a prototype on your own without a low-fidelity signal (don't dispatch to "look thorough")
 - Do not ask the user for permission before dispatching (the user has already expressed ambiguity; asking for permission only slows things down — but **you must inform while dispatching**)
 - Do not let the prototype agent directly modify the PRD or glossary (that's the main conversation's job; agents can only "suggest additions")
-- Do not relay the prototype agent's full readout to the user (let the user and the main conversation pull info from the readout independently)
+- Do not relay the prototype agent's full readout to the user (let the user and the main conversation pull info from the readout independently) — this is one instance of the pull principle in `${CLAUDE_SKILL_DIR}/reply-contract.md`, which generalizes it to every delegated lane's output
 - Do not dispatch multiple prototype agents in the same turn (one prototype at a time; wait for it to come back before deciding whether to upgrade or switch type)

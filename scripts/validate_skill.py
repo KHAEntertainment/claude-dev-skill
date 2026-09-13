@@ -23,6 +23,7 @@ REQUIRED = {
     "phases/phase4.md",
     "phases/phase5.md",
     "phases/repository-context.md",
+    "reply-contract.md",
     "agents/report-back.md",
     "agents/worker-new.md",
     "agents/worker-fix.md",
@@ -108,6 +109,20 @@ def routing_section(text: str) -> str | None:
     """Return the Execution Routing Policy section body, or None if absent."""
     match = re.search(
         rf"^{re.escape(ROUTING_HEADING)}$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
+    return match.group(1) if match else None
+
+
+def markdown_section(text: str, heading: str) -> str | None:
+    """Return a top-level (`## …`) section body by exact heading, or None if absent.
+
+    Used by per-section policy checks where a token must appear in a named
+    structural location (Session State Anchor, Global Rules), not merely
+    somewhere in the file. `routing_section` is the original use; this helper
+    generalises the same regex for any heading.
+    """
+    match = re.search(
+        rf"^{re.escape(heading)}$(.*?)(?=^## |\Z)", text, re.M | re.S
     )
     return match.group(1) if match else None
 
@@ -365,6 +380,12 @@ def main() -> int:
         # cover. Absence is a result of reading, and a cut read establishes none.
         "Absence is established by reading, not instead of reading",
         "has not established absence",
+        # Issue #54: the lead-to-user reply contract. Pinned verbatim so the
+        # cap, its scope over prose only, and the third-party-agnostic
+        # composition note cannot be paraphrased away from the approved plan.
+        "aim under 100 words",
+        "The cap counts prose, not required structured artifacts.",
+        "never claims a task-requirements override",
     )
     for token in required_policy:
         if token not in combined:
@@ -474,6 +495,20 @@ def main() -> int:
         ),
         "SKILL.md": (
             "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
+            "${CLAUDE_SKILL_DIR}/reply-contract.md",
+        ),
+        # Issue #54: the reply contract's own pinned sentences, held in the one
+        # file that defines them rather than only in the combined-text check
+        # above, so deleting this file's content and leaving the tokens
+        # elsewhere cannot pass silently.
+        "reply-contract.md": (
+            "aim under 100 words",
+            "The cap counts prose, not required structured artifacts.",
+            "never claims a task-requirements override",
+            "Phase 1's progress breadcrumb",
+            "Phase 3's Backend-Neutral Task Board",
+            "Phase 4's review rating",
+            "Phase 5's retro and technical-debt-sweep templates",
         ),
         # Each adapter must state its own bound; `contract.md` requires one to
         # exist but cannot supply a page size or a timeout for a transport it
@@ -499,6 +534,64 @@ def main() -> int:
             for token in tokens:
                 if token not in target_text:
                     fail(errors, f"{relative} missing required policy: {token}")
+
+    # Issue #54: SKILL.md must hook the reply contract in BOTH required
+    # sections (Session State Anchor + Global Rules), not merely anywhere in
+    # the file. per_file_policy above is unscoped substring matching, so a
+    # reference living in only one location still passes it. This check is
+    # scoped per section so the validator itself fails when either hook is
+    # missing, including when tests/ is absent (the export-ignored half of
+    # the test-driven guarantee).
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.is_file():
+        skill_text = skill_md.read_text(encoding="utf-8")
+        anchor = markdown_section(
+            skill_text, "## ⚓ Session State Anchor (execute on every user message)"
+        )
+        global_rules = markdown_section(skill_text, "## Global Rules")
+        reply_token = "${CLAUDE_SKILL_DIR}/reply-contract.md"
+        if anchor is None:
+            fail(errors,
+                "SKILL.md missing required section: Session State Anchor")
+        elif reply_token not in anchor:
+            fail(errors,
+                 f"SKILL.md Session State Anchor missing required hook: {reply_token}")
+        if global_rules is None:
+            fail(errors,
+                "SKILL.md missing required section: Global Rules")
+        elif reply_token not in global_rules:
+            fail(errors,
+                 f"SKILL.md Global Rules missing required hook: {reply_token}")
+
+    # Issue #54: the reply contract governs only the Tech Lead's own replies
+    # to the user — never a delegated lane's prompt. The test suite enforces
+    # this on a flat `agents/` glob, but `tests/` is export-ignored (see
+    # `.gitattributes`) so archive extractions carry no test, and the gate
+    # was only structurally guaranteed in-repo. Mirror the invariant at the
+    # validator level so the archive's check is the same as the in-repo one.
+    # Recursive so a future nested layout cannot smuggle a reference past
+    # either layer. Each offending file is named in its own error so the
+    # author does not have to grep to find the offender.
+    # Matches the bare `reply-contract.md` token (same as the test) — both
+    # the variable form `${CLAUDE_SKILL_DIR}/reply-contract.md` and a bare
+    # filename reference are equivalent expressions of the same forbidden
+    # cross-reference.
+    agents_dir = skill_dir / "agents"
+    if agents_dir.is_dir():
+        for path in sorted(agents_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if "reply-contract.md" in text:
+                fail(
+                    errors,
+                    f"agents/{path.relative_to(agents_dir)} references "
+                    f"reply-contract.md; the contract governs only the lead's "
+                    "replies, never a delegated lane's prompt",
+                )
 
     detector = skill_dir / "scripts" / "detect_execution_backend.py"
     if detector.is_file():
