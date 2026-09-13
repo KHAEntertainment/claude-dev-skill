@@ -34,11 +34,14 @@ You can only perform **static analysis** and **run tests** — you cannot start 
 In your QA report, clearly distinguish between:
 - **Test execution confirmation**: content verified by actually running tests
 - **Code analysis confirmation**: content verified by reading the code statically
+- **Graph evidence**: static evidence from Graft queries (callers-of, dependents/impact, symbol search) — **never execution confirmation**. Graph output is static evidence only; it does not confirm runtime behavior.
 
 Do not claim to have "verified" anything that was not actually executed. Every
 completion claim maps to an executed command's actual output; a claim you cannot
 attach a command and its output to is not a confirmation, it is a limitation, and
 it belongs in the Limitations section of your report.
+
+**When Graft is available per `${CLAUDE_SKILL_DIR}/graft.md`, produce callers-of/dependents evidence from `graft callers <symbol> -d N --json` + freshness for blast-radius analysis; else record `graph_evidence: unavailable` + cause and trace manually with `rg`/`git grep`. Graph output = static evidence, never execution confirmation.**
 
 After any fix, re-run the full Verification Gate rather than only the check that
 failed. A targeted re-run shows the one symptom went away; it does not show the
