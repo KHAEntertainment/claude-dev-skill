@@ -1605,5 +1605,74 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("trace dependents manually", phase2)
 
 
+class MultiHarnessContractTests(unittest.TestCase):
+    """Issue #58 + #38: ADR-012 / capability checklist / ADR-009 lint pins.
+
+    Doc-assertion layer for the lane-policy pins the validator's
+    `per_file_policy` enforces at archive validation time. Together the two
+    layers cover both the extracted archive (validator) and the in-repo
+    checkout (this file); deleting either pin must fail both layers.
+    """
+
+    def read(self, relative: str) -> str:
+        return (ROOT / relative).read_text(encoding="utf-8")
+
+    def test_adr_012_pinned_sentence_in_architecture(self) -> None:
+        """Issue #58: ADR-012 must record the verbatim decision sentence."""
+        architecture = self.read("docs/architecture.md")
+        self.assertIn("## ADR-012 — Child harnesses receive handoff context, never /dev variants", architecture)
+        self.assertIn(
+            "Child harnesses receive handoff context, never /dev variants",
+            architecture,
+        )
+
+    def test_capability_checklist_subsection_in_contract(self) -> None:
+        """Issue #58: all four checklist items and the pinned remedy sentence
+        must appear verbatim in `backends/contract.md`."""
+        contract = self.read("skills/dev/backends/contract.md")
+        self.assertIn("## Child-harness capability checklist", contract)
+        for token in (
+            "receive-capable GUI surface",
+            "Tooling on PATH",
+            "Shared-filesystem read of resolved Skill files",
+            "Replies in seven-section shape on arrival surface",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, contract)
+        # The pinned remedy sentence — the gate that closes the loophole the
+        # capability checklist is designed to plug.
+        self.assertIn(
+            "remedy is a different route, never a trimmed prompt",
+            contract,
+        )
+
+    def test_adr_009_lint_reclassification_in_contract(self) -> None:
+        """Issue #38: the lint-vs-control reclassification must be in the
+        file the delegated lanes read, and must not name the rejected ADR-008
+        credential layer as a control."""
+        contract = self.read("skills/dev/backends/contract.md")
+        self.assertIn(
+            "an authorship lint, not a security control",
+            contract,
+        )
+        self.assertIn(
+            "behavioural tests and the supported pre-write verification are the real controls",
+            contract,
+        )
+
+    def test_contract_does_not_name_rejected_credential_layer(self) -> None:
+        """Issue #38 explicit negative invariant: the rejected ADR-008
+        credential layer is not a control here, and naming it as one would
+        re-couple contract.md to a rejected design."""
+        contract = " ".join(
+            self.read("skills/dev/backends/contract.md").split()
+        )
+        # The scope here is bounded to phrases that would name the rejected
+        # layer as a control. Scoped per-issue (rather than file-wide) so an
+        # unrelated future mention does not fail this guard.
+        self.assertNotIn("credential layer", contract)
+        self.assertNotIn("scoped credential", contract)
+
+
 if __name__ == "__main__":
     unittest.main()
