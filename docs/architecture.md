@@ -38,12 +38,13 @@ here are packaging and release decisions, recorded below.
 - **Background**: Upstream tags `v1.0.0`–`v1.3.0` already exist in this repository's history (`v1.3.0` → `3e87db0`, an ancestor of `main`), and `master` continues to mirror upstream, so upstream publishing `v1.4.0` would be fetched straight into a collision. Plain `v1.x` is unusable.
 - **Consequence**: One version string flows to the git tag, both plugin manifests, and the Skill frontmatter. `2.x` is also honest about the divergence from upstream.
 
-## ADR-005 — No compiled language, and no third-party dependencies
+## ADR-005 — No compiled language, and no third-party dependencies (install-time/core-workflow)
 
 - **Decision**: The installer stays in shell and Python. A Go rewrite was considered and rejected.
 - **Decision time**: 2026-08-30
 - **Background**: Two reasons. First, upstream is Python and Markdown — a Go installer would mean translating upstream changes on every merge. Second, embedding the payload in a compiled binary welds the content version to the binary version, so a Markdown typo fix would require a five-platform cross-compile and release.
 - **Consequence**: Homebrew uses a pure-shell formula wrapping `install.sh` in `libexec`, which needs no code changes because `install.sh` derives all paths from `SCRIPT_DIR`. Revisit only if native support for non-Traycer harnesses becomes a real requirement.
+- **Scope clarification (2026-09-13, ADR-011)**: "No third-party dependencies" applies to install-time and the core workflow. Optional pinned evidence tools (currently Graft `@nanonets/graft@0.18.0`) are carved out: they are not installed by the Skill, not required for any gate to pass, and accessed only through `rtk proxy` at gate time. The Skill's validator enforces the policy tokens; the installer and CI are unchanged.
 
 ## ADR-006 — Dispatched agents receive resolved absolute paths
 
@@ -88,3 +89,13 @@ here are packaging and release decisions, recorded below.
 - **Verification**: Before supported writes, select the intended project/worktree, validate its canonical config, check the actual Git transport or CLI account through existing credential stores, and check the operation's explicit destination. Pushes additionally validate every effective push URL, assigned branch/refspec, and a dry run. Missing, conflicting, or unverifiable evidence stops the workflow.
 - **Scope**: No GitHub App, canary credential helper, replacement credential store, per-run SSH-to-HTTPS rewrite, or liveness preflight. SSH remains supported with fail-closed account verification. This is a workflow preflight, not a guarantee against arbitrary commands or concurrent hostile changes.
 - **Evidence and limits**: Local physical push fixtures and mocked account tests cover supported success and refusal paths. Live SSH verification remains [#37](https://github.com/KHAEntertainment/claude-dev-skill/issues/37). ADR-009's lint follow-ups remain #17 and #38. RTK is unchanged.
+
+## ADR-011 — Pinned optional code-graph evidence via Graft
+
+- **Decision time**: 2026-09-13; records the approved scope implemented in [PR #57](https://github.com/KHAEntertainment/claude-dev-skill/pull/57).
+- **Decision**: Adopt Graft (`@nanonets/graft`) as a pinned optional evidence source for code-graph queries at gates. Accessed exclusively through `rtk proxy graft`; never installed by the Skill's installer, never run as `graft init` in managed projects. The pinned version is recorded in `skills/dev/graft.md` (`Pinned Graft version: 0.18.0`).
+- **Evidence-or-recorded-unavailability**: At every gate that requests graph evidence, the lane must run the availability/capability check (`graft --version` vs pinned line, `graft check --json`) and produce `graph_evidence: present | unavailable` with cause `not_installed | version_mismatch | build_failed | unparseable_output`. When unavailable, the lane must actually perform the manual fallback (e.g., `rg`, `git grep`, manual call-tree trace) and record what was done. Silence never passes.
+- **Approved queries only**: Callers-of/dependents (`graft callers <symbol> -d N --json`), symbol search (`graft grep "<regex>" --json`), repo orientation (`graft map --json`). No other queries are approved for gate evidence.
+- **Graft init ban**: Never run `graft init` in managed projects. The Skill does not wire Graft into agents; each developer runs `graft init` locally if they choose. The graph (`graft/`) is a local regenerable cache (in `.gitignore`), not a committed artifact.
+- **Ledger fields**: Additive to `DEV_STATE_TEMPLATE` — `graft_version`, `graph_evidence`, `graph_evidence_cause` on each worker entry.
+- **No installer/CI change**: Optional dependency; no executable surface added to the Skill. The validator gates the policy tokens; CI runs the validator unchanged.
