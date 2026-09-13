@@ -50,7 +50,7 @@ See [UPSTREAM.md](UPSTREAM.md) for the fork/merge procedure and
 - **No third-party runtime or build dependencies.** This is a deliberate constraint — see ADR-005.
 
 Runtime prerequisites for the Skill (not for installing it): `rtk`, `gh`, `git`,
-Python 3, optionally Traycer CLI/Host.
+Python 3, optionally Traycer CLI/Host, optionally Graft (`@nanonets/graft@0.18.0`) for code-graph evidence at gates per `skills/dev/graft.md`.
 
 ---
 

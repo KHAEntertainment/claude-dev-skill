@@ -104,6 +104,7 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 - [RTK](https://github.com/rtk-ai/rtk) — `brew install rtk`, or see the RTK README for other platforms
 - Python 3 (used by the Skill at runtime, and by the manual installer's preflight validation)
 - **Optional** Traycer CLI/Host for managed multi-harness execution; Traycer children use the Chat/GUI surface in v1. Without it, the skill runs Claude-native with no loss of core workflow.
+- **Optional** [Graft](https://github.com/NanoNets/context-graph-engine) (`@nanonets/graft@0.18.0`) for pinned code-graph evidence at gates; accessed via `rtk proxy graft` per `skills/dev/graft.md`. Not installed by the Skill; each developer runs `graft init` locally if desired. Without it, gates record `graph_evidence: unavailable` and fall back to manual tracing — no loss of core workflow.
 - Agent Teams run in-process and do not require tmux or iTerm
 
 ## Manual installation
