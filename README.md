@@ -82,6 +82,18 @@ When both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, detection return
 
 ## Customized Guarantees
 
+### What's new in v2.1.1
+
+- **Lead → user end-of-turn reply contract** — the Tech Lead summarizes, never relays: routine replies aim under 100 words; material failures, gate verdicts, decisions, and irreversible actions are surfaced first and in full. See [`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) (WS1 / PR #55).
+- **Post-merge verification step** — every merge re-runs the gate at the merged commit so a tree that only matches by identity is independently re-verified. Issue #26 / PR #46.
+- **External-review rate-limit substitution breakpoint** — after consecutive rate-limits on one PR (#48), a substitute reviewer from a family distinct from worker, QA, *and* internal review takes the external seat, preserving two-family diversity. PR #46 applied the breakpoint with a substitute reviewer.
+- **Scoped external-review bypass with substitute review** — repo-policy bypasses carry a substitute-reviewer verdict, never an empty status. Mirroring pattern: PR #46 → PR #61.
+- **Graft code-graph evidence adapter** — pinned optional code-graph evidence via `rtk proxy graft` with a four-step availability check, three approved queries (`callers`, `grep`, `map`), and a recorded manual fallback whenever `graph_evidence: unavailable`. See [`skills/dev/graft.md`](skills/dev/graft.md) (WS2 / PR #60).
+- **Distribution: marketplace install plus forthcoming Homebrew tap** — Wave 4 ships the `dev-skill` formula alongside the existing marketplace path so the install stays one command on every supported platform.
+- **Child-harness capability checklist** — every Traycer Chat/GUI child harness declares its capability set against a pre-flight checklist before the lead dispatches a lane to it. ADR-012, `skills/dev/backends/contract.md` (WS4 / PR #61).
+
+### Standing guarantees
+
 - Never let the lead modify implementation or test code directly.
 - Allow the lead to maintain tracked PRDs/context documents, using docs-only or related PRs after repository initialization.
 - Use RTK wrappers and compact output for shell, Git, GitHub, tests, and linting.
@@ -228,6 +240,35 @@ skills/dev/
     ├── dev_config.py
     └── resolve_repository.py
 ```
+
+## Integrations
+
+These are the third-party systems `/dev` invokes or composes with at runtime. Every entry below is wired into the Skill payload (`skills/dev/`) and gated by the verification harness.
+
+- **[RTK](https://github.com/rtk-ai/rtk)** — command transport for every shell, Git, GitHub, test, and lint invocation the Skill runs. Hard prerequisite at install time ([`install.sh`](install.sh) line 160); ambient thereafter and never version-checked at runtime.
+- **[Traycer](https://github.com/traycerai/traycer)** — optional multi-harness execution backend. The lead loads the Traycer adapter at [`skills/dev/backends/traycer.md`](skills/dev/backends/traycer.md) only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present in the environment; otherwise it resolves `claude-native`. Capability-verified: any gap in a child harness surfaces as `incomplete`, not as a silent fallback.
+- **[i-have-adhd](https://github.com/ayghri/i-have-adhd)** — *composes with*, **not depends on**. A session brevity skill that `/dev` aligns with at the end-of-turn reply layer ([`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) §6): `/dev` never claims a task-requirements override to justify verbosity. Per-session activation is required to enable i-have-adhd; `/dev` does not install, invoke, or require it.
+- **[Graft](https://github.com/nanonets/graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
+- **[CodeRabbit](https://github.com/coderabbitai)** — trusted external reviewer for Phase 4 oversight ([`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md)). Substituted after the rate-limit breakpoint (#48) with a family-distinct reviewer from the selection-guide fallback chain; the substitute reviewer must post a real verdict — a clear status field is not a review.
+
+## Concepts we learned from
+
+These are systems `/dev` does *not* install. We borrow a discipline, cite the project that taught it to us, and stop there.
+
+- **[Ponytail](https://github.com/dietrichgebert/ponytail)** by Dietrich Gebert — the reuse-first ladder borrowed in PR #30 (Issue #20) and stress-tested in the calibration experiment Issue #43. Also cited in [`docs/architecture.md`](docs/architecture.md) as the source of the config-leak problem that bounds the native non-Claude lead escape hatch. Not installed; `/dev` adapts the ladder only.
+- The dogfooding distillation ([`docs/dogfooding.md`](docs/dogfooding.md), Issue #40 / PR #63) is `/dev`'s own codification, not a borrowed system — it captures seven lessons from this round's recovery log and is the method source for the rate-limit breakpoint (#48) and the post-merge verification step.
+
+## Thank you
+
+`/dev` is built on top of generous work by others. Thank you to:
+
+- **RTK** and the RTK maintainers for the proxy command-transport primitives that the verification gate is built around.
+- **Traycer** and the Traycer team for the multi-harness execution substrate that lets `/dev` coordinate Claude Code, Codex, OpenCode, Cursor, and other harnesses through one lead.
+- **ayghri** for [i-have-adhd](https://github.com/ayghri/i-have-adhd) — a brevity-skill discipline that `/dev` aligns with rather than competes against.
+- **NanoNets** for [Graft](https://github.com/nanonets/graft) — the code-graph evidence source whose pinned optional adapter gives `/dev` structured queries at every gate.
+- **CodeRabbit** for the trusted external reviewer seat at Phase 4, and for the rate-limit substitution breakpoint that preserves the seat's intent under quota pressure.
+- **Dietrich Gebert** for [Ponytail](https://github.com/dietrichgebert/ponytail) — the reuse-first ladder we adapted into the calibration workflow.
+- The agents, maintainers, and reviewers who contributed to the upstream [`hnaymyh123-henry/claude-dev-skill`](https://github.com/hnaymyh123-henry/claude-dev-skill) lineage that this fork extends.
 
 ## License
 
