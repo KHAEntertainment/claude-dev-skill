@@ -1539,9 +1539,16 @@ class BackendContractTests(unittest.TestCase):
         """Issue #57: graft.md must require graph_evidence with cause and manual fallback."""
         graft = self.read("graft.md")
         self.assertIn("graph_evidence: present | unavailable", graft)
-        self.assertIn("not_installed | version_mismatch | build_failed | unparseable_output", graft)
+        self.assertIn("not_installed | version_mismatch | build_failed | unparseable_output | query_failure", graft)
         self.assertIn("manual fallback", graft)
         self.assertIn("Silence never passes", graft)
+        # query_failure degraded path: approved query failures / invalid JSON
+        self.assertIn("query_failure", graft)
+        self.assertIn("Query Failure Classification", graft)
+        self.assertIn("rtk proxy graft callers", graft)
+        self.assertIn("rtk proxy graft grep", graft)
+        self.assertIn("rtk proxy graft map", graft)
+        self.assertIn("invalid JSON", graft)
 
     def test_graft_md_adds_ledger_fields(self) -> None:
         """Issue #57: graft.md must add ledger fields to DEV_STATE_TEMPLATE."""
