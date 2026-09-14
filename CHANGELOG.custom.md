@@ -63,26 +63,37 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   commit-range rule, cross-referenced rather than duplicated.
   `validate_skill.py` and the doc-assertion test suite pin the new
   load-bearing sentences.
-- External-review rate-limit breakpoint (#48). The rate-limited retry loop
-  in `skills/dev/phases/external-review.md` had no exit except the deadline
-  choices, so a rate-limited reviewer could hold a green PR open
-  indefinitely. After 3 consecutive rate-limited responses to review
-  requests on the same PR (counted per PR and reviewer; any
-  non-rate-limit response resets the count), the lead records
-  `external_reviewer_unavailable: rate_limited` and dispatches a substitute
-  reviewer from the agent selection guide's review fallback chain. The
-  substitute is a fresh identity whose model family differs from the
-  implementation worker, the QA lane, and the internal reviewer, so the
-  second review keeps its family diversity; if no qualifying family is
-  available the gate stays pending, never falling back to the bypass or to
-  a same-family reviewer. A completed substitute review satisfies the
-  external gate as a review, not a bypass, and creates no review debt; it
-  never satisfies a required reviewer or a required branch-protection
-  check. The substitution (rate-limit count, substitute identity, family)
-  is recorded in the new `external_review_substitutions` ledger field and
-  as one PR comment, and stands even if the trusted reviewer later reviews
-  the same head. `validate_skill.py` and the doc-assertion test suite pin
-  the new load-bearing sentences.
+- External-review rate-limit breakpoint (#48). When a trusted reviewer
+  stayed rate-limited, `skills/dev/phases/external-review.md` offered only
+  the deadline choices, so in practice a green PR waited or took the
+  user-approved bypass. After 3 consecutive rate-limited responses to
+  review requests on the same PR, the lead now leaves the retry loop, sends
+  that reviewer no further retries, and dispatches a substitute reviewer
+  from the review fallback chain: the reviewer routes the lead can actually
+  dispatch on the selected backend (the selection guide's review routes on
+  Traycer, any distinct-family reviewer on Claude-native;
+  `backends/traycer.md` carves the breakpoint out of its no-routing-
+  heuristics rule). The count is kept per PR per reviewer in the new
+  `consecutive_rate_limits` field and carries across heads; only a completed
+  review or an explicit non-rate-limit decline resets it, and
+  acknowledgements or in-progress replies neither reset nor increment it.
+  The substitute's model family must differ from the implementation worker,
+  the QA lane, and the internal reviewer. If none qualifies, the gate stays
+  pending and is recorded in the new `external_reviewer_unavailable` field;
+  the lead never bypasses unilaterally, and deadline choices 2 and 3 remain
+  available. A completed current-head substitute review routes a `pending`
+  gate as `clear` in Result Routing and in `phase4.md`'s rating, as a review
+  rather than a bypass, with no review debt. It fills only the rate-limited
+  reviewer's seat, never a required reviewer or a required branch-protection
+  check, so on a repository where that reviewer is a required check the
+  breakpoint does not unblock merge. At a new head the lead sends the one
+  obligated re-request, then dispatches a fresh substitute if that is
+  rate-limited too. The substitution is recorded in the new
+  `external_review_substitutions` field, along with the families of all
+  four lanes so distinctness can be re-checked, and as one PR comment. If
+  the trusted reviewer reviews later, its findings are reconciled normally
+  and the substitution stands. `validate_skill.py` and the doc-assertion
+  test suite pin the new load-bearing sentences.
 
 ### Fixed
 

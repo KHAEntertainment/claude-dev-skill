@@ -806,37 +806,106 @@ class BackendContractTests(unittest.TestCase):
         )[0]
         section = " ".join(retry.split("#### Rate-limit breakpoint\n", 1)[1].split())
         for requirement in (
+            # Trigger, loop stop, and what the count is and is not.
             "After 3 consecutive rate-limited responses to review requests on the same PR",
+            "send that reviewer no further retries",
             "`external_reviewer_unavailable: rate_limited`",
-            "Count per PR and reviewer, across heads and wait episodes, not per session",
-            "a non-rate-limit response resets the count",
+            "The count is kept per PR per reviewer, across heads and wait episodes, not per session",
+            "Only a completed review or an explicit non-rate-limit decline from that reviewer resets the count",
+            "an acknowledgement or a processing or in-progress reply neither resets nor increments it",
+            "a rate-limit message later edited in place counts once",
             "The breakpoint is an exit from the retry loop, not a bypass",
-            "the agent selection guide's review fallback chain",
+            # Where the substitute comes from, on either backend.
+            "The review fallback chain is the ordered set of available reviewer routes the lead can dispatch on the selected backend",
+            "on Traycer, the agent selection guide's review routes",
+            "on Claude-native, any distinct-family reviewer the lead can actually dispatch",
+            # Family distinctness and the no-qualifying-family case.
             "model family differs from the implementation worker, the QA lane, and the internal reviewer",
             "never reuses the internal reviewer's seat",
-            "the gate stays `pending` and the lead reports it",
+            "the gate stays `pending` and the lead reports it, with `external_reviewer_unavailable` on the PR record",
             "never falls back to the bypass or to a same-family reviewer",
+            "the lead never bypasses unilaterally",
+            "deadline choice 2 (an explicit re-request) and choice 3 (a user-approved bypass) remain available",
+            # What a completed substitute review is, and the seats it fills.
             "a clear status field or an acknowledgement is not a review",
+            "apply the Head-Commit Invariant to it as to any review",
             "satisfies the external gate as a review, not a bypass",
             "creates no review debt",
+            "It fills only the rate-limited reviewer's seat",
             "never satisfies a `Required reviewers` entry or a required branch-protection check",
+            "every other expected reviewer still gates",
+            "still dispatch the substitute as review evidence; it does not fill that seat",
+            "Where that reviewer is a required GitHub check, the breakpoint does not unblock merge",
+            "this SOP never overrides GitHub branch protection",
+            "the substitution record, not the inspector, fills its seat",
+            "naming the model families of the implementation worker, the QA lane, and the internal reviewer",
             "one PR comment naming the rate-limit count, the substitute identity, and its model family",
+            "reconcile its findings normally",
             "the substitution record stands",
+            # A new head after a substitution.
+            "The count carries across heads for the same PR and reviewer.",
+            "the one re-request the Head-Commit Invariant obligates to the trusted reviewer",
+            "that re-request is not a retry",
+            "dispatches a fresh substitute for the new head without a second retry cycle",
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, section)
         # The shipped payload stays provider-neutral: roles and families only.
-        for vendor in ("Codex", "Kimi", "GLM", "Minimax", "CodeRabbit"):
+        # Backend names (Traycer, Claude-native) are adapter identifiers used
+        # throughout `skills/dev/`, so they are not vendor names here.
+        for vendor in (
+            "Codex", "Kimi", "GLM", "Minimax", "CodeRabbit",
+            "Kilo", "Copilot", "GPT", "Gemini",
+        ):
             with self.subTest(vendor=vendor):
                 self.assertNotIn(vendor, section)
+        # B1: without a routing clause the inspector's `pending` never reaches
+        # APPROVE, so the bypass would stay the only way to merge.
         routing = " ".join(external.split("## Result Routing\n", 1)[1].split())
-        self.assertIn("take the rate-limit breakpoint when reached", routing)
-        state = " ".join(self.read("templates/DEV_STATE_TEMPLATE.md").split())
         for token in (
-            "`consecutive_rate_limits`, `external_review_substitutions`",
-            "a non-rate-limit response resets it to 0",
+            "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
+            "no finding, the substitute's included, is blocking or awaiting disposition",
+            "a substitute at an older head does not count",
+            "take the rate-limit breakpoint when reached",
+        ):
+            with self.subTest(routing=token):
+                self.assertIn(token, routing)
+        rating = " ".join(
+            self.read("phases/phase4.md")
+            .split("## Review Rating\n", 1)[1]
+            .split("## Review after fixes\n", 1)[0]
+            .split()
+        )
+        for token in (
+            "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
+            "per **Rate-limit breakpoint** in the external-review gate",
+            "a substitute at an older head does not count",
+            "a `pending` routed as `clear` by a completed, current-head substitution counts",
+        ):
+            with self.subTest(rating=token):
+                self.assertIn(token, rating)
+        traycer = " ".join(self.read("backends/traycer.md").split())
+        for token in (
+            "Do not add cost, rate-limit, or performance routing heuristics.",
+            "is a documented SOP exit, not a routing heuristic",
+        ):
+            with self.subTest(traycer=token):
+                self.assertIn(token, traycer)
+        state = " ".join(self.read("templates/DEV_STATE_TEMPLATE.md").split())
+        schema = state.split("Each `pull_requests` entry records:", 1)[1].split(".", 1)[0]
+        # Each field is pinned on its own so reordering the schema list is safe.
+        for field in (
+            "`consecutive_rate_limits`",
+            "`external_reviewer_unavailable`",
+            "`external_review_substitutions`",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, schema)
+        for token in (
+            "only a completed review or an explicit non-rate-limit decline from that reviewer resets it to 0",
             "`external_reviewer_unavailable: rate_limited`",
-            "the substitute identity and model family",
+            "it is the ledger record of the still-`pending` gate",
+            "the model families of the substitute, the implementation worker, the QA lane, and the internal reviewer",
             "A substitution is a completed review, not an `approved_bypasses` or `review_debt` entry.",
         ):
             with self.subTest(token=token):
