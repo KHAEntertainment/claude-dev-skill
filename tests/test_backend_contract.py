@@ -792,6 +792,56 @@ class BackendContractTests(unittest.TestCase):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, normalized)
 
+    def test_rate_limit_breakpoint_substitutes_a_family_distinct_reviewer(self) -> None:
+        """Issue #48: the retry loop needs an exit that is not the bypass.
+
+        After 3 consecutive rate-limits on one PR the SOP itself authorizes a
+        recorded substitution. The substitute must add family diversity, so it
+        never takes the internal reviewer's seat, and its completed review
+        satisfies the gate as a review rather than creating bypass debt.
+        """
+        external = self.read("phases/external-review.md")
+        retry = external.split("### Rate-limited review retries\n", 1)[1].split(
+            "### Deadline choices\n", 1
+        )[0]
+        section = " ".join(retry.split("#### Rate-limit breakpoint\n", 1)[1].split())
+        for requirement in (
+            "After 3 consecutive rate-limited responses to review requests on the same PR",
+            "`external_reviewer_unavailable: rate_limited`",
+            "Count per PR and reviewer, across heads and wait episodes, not per session",
+            "a non-rate-limit response resets the count",
+            "The breakpoint is an exit from the retry loop, not a bypass",
+            "the agent selection guide's review fallback chain",
+            "model family differs from the implementation worker, the QA lane, and the internal reviewer",
+            "never reuses the internal reviewer's seat",
+            "the gate stays `pending` and the lead reports it",
+            "never falls back to the bypass or to a same-family reviewer",
+            "a clear status field or an acknowledgement is not a review",
+            "satisfies the external gate as a review, not a bypass",
+            "creates no review debt",
+            "never satisfies a `Required reviewers` entry or a required branch-protection check",
+            "one PR comment naming the rate-limit count, the substitute identity, and its model family",
+            "the substitution record stands",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, section)
+        # The shipped payload stays provider-neutral: roles and families only.
+        for vendor in ("Codex", "Kimi", "GLM", "Minimax", "CodeRabbit"):
+            with self.subTest(vendor=vendor):
+                self.assertNotIn(vendor, section)
+        routing = " ".join(external.split("## Result Routing\n", 1)[1].split())
+        self.assertIn("take the rate-limit breakpoint when reached", routing)
+        state = " ".join(self.read("templates/DEV_STATE_TEMPLATE.md").split())
+        for token in (
+            "`consecutive_rate_limits`, `external_review_substitutions`",
+            "a non-rate-limit response resets it to 0",
+            "`external_reviewer_unavailable: rate_limited`",
+            "the substitute identity and model family",
+            "A substitution is a completed review, not an `approved_bypasses` or `review_debt` entry.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, state)
+
     def test_correction_review_keeps_current_evidence_and_full_review_triggers(self) -> None:
         phase4 = self.read("phases/phase4.md")
         correction = phase4.split("## Review after fixes\n", 1)[1].split(

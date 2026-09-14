@@ -490,6 +490,12 @@ def main() -> int:
             "gate_result",
             "criteria_verdict",
             "Auto-closure by a merge keyword is never evidence of completion",
+            # Issue #48: the ledger half of the rate-limit breakpoint — the
+            # count, the substitution record, and that it is not bypass debt.
+            "consecutive_rate_limits",
+            "external_review_substitutions",
+            "external_reviewer_unavailable: rate_limited",
+            "A substitution is a completed review, not an `approved_bypasses` or `review_debt` entry.",
         ),
         # Issue #33: the gate's own bypass path had become the routine path
         # because a review invalidated by the author's own fix-commit push
@@ -500,6 +506,19 @@ def main() -> int:
             "obligates a re-request at the new head, not a bypass",
             "the exact unreviewed commit range",
             "<base-head>..<merged-head>",
+            # Issue #48: the rate-limited retry loop had no exit but the
+            # deadline choices. These pin the threshold, the reset, the
+            # family-distinct substitute (never the internal reviewer's seat),
+            # and that a substitute review is a review, not a bypass.
+            "After 3 consecutive rate-limited responses to review requests on the same PR",
+            "external_reviewer_unavailable: rate_limited",
+            "a non-rate-limit response resets the count",
+            "The breakpoint is an exit from the retry loop, not a bypass",
+            "differs from the implementation worker, the QA lane, and the internal reviewer",
+            "never reuses the internal reviewer's seat",
+            "never falls back to the bypass or to a same-family reviewer",
+            "satisfies the external gate as a review, not a bypass",
+            "the substitution record stands",
         ),
         # Issue #33: without a named retro line, repeated bypass across
         # rounds was only ever visible per-PR, never as a pattern.

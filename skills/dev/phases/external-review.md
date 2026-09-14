@@ -142,6 +142,14 @@ forward. After a substantive response and a later fix batch, a new episode may
 start with the prior history retained. Only an explicit extension renews an
 exhausted episode.
 
+#### Rate-limit breakpoint
+
+After 3 consecutive rate-limited responses to review requests on the same PR, leave this retry loop: send that reviewer no further retries and record `external_reviewer_unavailable: rate_limited` with the count. Count per PR and reviewer, across heads and wait episodes, not per session; a non-rate-limit response resets the count. The breakpoint is an exit from the retry loop, not a bypass, and needs no bypass approval: this section authorizes the lead to dispatch a substitute reviewer from the agent selection guide's review fallback chain.
+
+The substitute is a fresh identity whose model family differs from the implementation worker, the QA lane, and the internal reviewer. The second review exists for family diversity, so the substitute never reuses the internal reviewer's seat. If no qualifying family is available, the gate stays `pending` and the lead reports it; the breakpoint never falls back to the bypass or to a same-family reviewer.
+
+The substitute reviews the recorded `headRefOid` and returns a real verdict with its findings; a clear status field or an acknowledgement is not a review. Triage its findings like any current-head finding, and apply the Head-Commit Invariant to it as to any review. A completed substitute review satisfies the external gate as a review, not a bypass, and creates no review debt. It fills only the rate-limited reviewer's seat: it never satisfies a `Required reviewers` entry or a required branch-protection check, and every other expected reviewer still gates. The inspector keeps reporting that reviewer `pending`; the substitution record, not the inspector, fills its seat. Record the substitution in `external_review_substitutions` in `.agent/dev-state.md` and as one PR comment naming the rate-limit count, the substitute identity, and its model family. If the trusted reviewer later posts a review at the same head, reconcile its findings normally; the substitution record stands.
+
 ### Deadline choices
 
 At the configured deadline, stop before merge and offer these explicit choices:
@@ -162,6 +170,6 @@ silently overriding the inspector.
 ## Result Routing
 
 - `not_applicable` or `clear` → continue to the final internal Review Rating.
-- `pending` → continue permitted independent work, then observe, retry when authorized, or use the explicit deadline choices.
+- `pending` → continue permitted independent work, then observe, retry when authorized, take the rate-limit breakpoint when reached, or use the explicit deadline choices.
 - `blocking` → REQUEST CHANGES; batch fixes and run Phase 3.5 plus Phase 4 under **Review after fixes** in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 - `incomplete` → stop and resolve the evidence failure or obtain an explicit pending-review bypass; never merge silently.

@@ -63,6 +63,26 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   commit-range rule, cross-referenced rather than duplicated.
   `validate_skill.py` and the doc-assertion test suite pin the new
   load-bearing sentences.
+- External-review rate-limit breakpoint (#48). The rate-limited retry loop
+  in `skills/dev/phases/external-review.md` had no exit except the deadline
+  choices, so a rate-limited reviewer could hold a green PR open
+  indefinitely. After 3 consecutive rate-limited responses to review
+  requests on the same PR (counted per PR and reviewer; any
+  non-rate-limit response resets the count), the lead records
+  `external_reviewer_unavailable: rate_limited` and dispatches a substitute
+  reviewer from the agent selection guide's review fallback chain. The
+  substitute is a fresh identity whose model family differs from the
+  implementation worker, the QA lane, and the internal reviewer, so the
+  second review keeps its family diversity; if no qualifying family is
+  available the gate stays pending, never falling back to the bypass or to
+  a same-family reviewer. A completed substitute review satisfies the
+  external gate as a review, not a bypass, and creates no review debt; it
+  never satisfies a required reviewer or a required branch-protection
+  check. The substitution (rate-limit count, substitute identity, family)
+  is recorded in the new `external_review_substitutions` ledger field and
+  as one PR comment, and stands even if the trusted reviewer later reviews
+  the same head. `validate_skill.py` and the doc-assertion test suite pin
+  the new load-bearing sentences.
 
 ### Fixed
 
