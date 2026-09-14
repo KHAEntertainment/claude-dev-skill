@@ -149,9 +149,9 @@ If the head changed, invalidate QA, internal review, and external-review complet
 for the new head, retain historical evidence, and follow **Review after fixes**
 below before rating the PR.
 
-- `blocking` external review → REQUEST CHANGES.
-- `pending` or `incomplete` external review → do not merge; follow the explicit waiting/approval choices in the external-review gate.
-- A `pending` whose only open seats are filled by a completed, current-head substitution routes as `clear` per **Rate-limit breakpoint** in the external-review gate; a substitute at an older head does not count.
+- `blocking` external review, or a completed, current-head substitute review with a blocking finding → REQUEST CHANGES.
+- A `pending` whose only open seats are filled by a completed, current-head substitution routes as `clear` per **Rate-limit breakpoint** in the external-review gate, provided no finding, the substitute's included, is blocking or awaiting disposition; a substitute at an older head does not count.
+- Any other `pending`, or `incomplete`, external review → do not merge; follow the explicit waiting/approval choices in the external-review gate.
 - `clear` or `not_applicable` → continue to the internal rating below. This is not a substitute for the internal checklist.
 
 Must give one explicit rating:

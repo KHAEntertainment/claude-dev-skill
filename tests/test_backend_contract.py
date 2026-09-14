@@ -813,7 +813,12 @@ class BackendContractTests(unittest.TestCase):
             "The count is kept per PR per reviewer, across heads and wait episodes, not per session",
             "Only a completed review or an explicit non-rate-limit decline from that reviewer resets the count",
             "an acknowledgement or a processing or in-progress reply neither resets nor increments it",
-            "a rate-limit message later edited in place counts once",
+            # A reviewer that reports each rate limit by editing one summary
+            # comment must still reach the threshold.
+            "An in-place edit that reports a new rate-limit event counts as a new rate-limited response",
+            "a reviewer that reports each rate limit by editing a single summary comment still reaches the threshold",
+            "a new event is a new head, a new limit window or reset time, or a response to a new retry request",
+            "Only a re-render of the same event (same head, same window, no new request) does not count again.",
             "The breakpoint is an exit from the retry loop, not a bypass",
             # Where the substitute comes from, on either backend.
             "The review fallback chain is the ordered set of available reviewer routes the lead can dispatch on the selected backend",
@@ -831,6 +836,7 @@ class BackendContractTests(unittest.TestCase):
             "apply the Head-Commit Invariant to it as to any review",
             "satisfies the external gate as a review, not a bypass",
             "creates no review debt",
+            "It routes a `pending` gate as `clear` only while no finding, the substitute's included, is blocking or awaiting disposition; see **Result Routing**",
             "It fills only the rate-limited reviewer's seat",
             "never satisfies a `Required reviewers` entry or a required branch-protection check",
             "every other expected reviewer still gates",
@@ -846,16 +852,20 @@ class BackendContractTests(unittest.TestCase):
             "The count carries across heads for the same PR and reviewer.",
             "the one re-request the Head-Commit Invariant obligates to the trusted reviewer",
             "that re-request is not a retry",
+            "After a breakpoint has fired on that PR for that reviewer, the count is already at or above the threshold",
             "dispatches a fresh substitute for the new head without a second retry cycle",
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, section)
+        # The reversed round-1 rule must not come back.
+        self.assertNotIn("edited in place counts once", section)
         # The shipped payload stays provider-neutral: roles and families only.
         # Backend names (Traycer, Claude-native) are adapter identifiers used
         # throughout `skills/dev/`, so they are not vendor names here.
         for vendor in (
             "Codex", "Kimi", "GLM", "Minimax", "CodeRabbit",
             "Kilo", "Copilot", "GPT", "Gemini",
+            "Opus", "Sonnet", "Haiku", "Anthropic", "OpenAI",
         ):
             with self.subTest(vendor=vendor):
                 self.assertNotIn(vendor, section)
@@ -866,6 +876,7 @@ class BackendContractTests(unittest.TestCase):
             "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
             "no finding, the substitute's included, is blocking or awaiting disposition",
             "a substitute at an older head does not count",
+            "A completed, current-head substitute review with a blocking finding routes as `blocking`, not as any other `pending`.",
             "take the rate-limit breakpoint when reached",
         ):
             with self.subTest(routing=token):
@@ -879,7 +890,10 @@ class BackendContractTests(unittest.TestCase):
         for token in (
             "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
             "per **Rate-limit breakpoint** in the external-review gate",
+            "no finding, the substitute's included, is blocking or awaiting disposition",
             "a substitute at an older head does not count",
+            "a completed, current-head substitute review with a blocking finding → REQUEST CHANGES",
+            "Any other `pending`, or `incomplete`, external review → do not merge",
             "a `pending` routed as `clear` by a completed, current-head substitution counts",
         ):
             with self.subTest(rating=token):
@@ -891,8 +905,12 @@ class BackendContractTests(unittest.TestCase):
         ):
             with self.subTest(traycer=token):
                 self.assertIn(token, traycer)
-        state = " ".join(self.read("templates/DEV_STATE_TEMPLATE.md").split())
-        schema = state.split("Each `pull_requests` entry records:", 1)[1].split(".", 1)[0]
+        raw_state = self.read("templates/DEV_STATE_TEMPLATE.md")
+        state = " ".join(raw_state.split())
+        # Slice the schema list itself (its one line), not the prose below it,
+        # and not at the first "." so a dotted field name cannot truncate it.
+        schema = raw_state.split("Each `pull_requests` entry records:", 1)[1].split("\n", 1)[0]
+        self.assertIn("`next_action`", schema)
         # Each field is pinned on its own so reordering the schema list is safe.
         for field in (
             "`consecutive_rate_limits`",
