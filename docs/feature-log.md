@@ -91,6 +91,46 @@
 2. Run the planned controlled ScadForge #48 test in a fresh session after the tag,
    when authorized; prioritize its findings before expanding the debt scope.
 
+## Retro — claude-dev-skill / v2.1.1
+
+### Completed
+
+- ADR-012 + child-harness capability checklist (#58) and ADR-009 guard
+  reclassification recorded in `skills/dev/backends/contract.md` (#38).
+- Lead-to-user end-of-turn reply contract (#54) in
+  `skills/dev/reply-contract.md`.
+- Unconditional post-merge verification step (#26), owned by the lead.
+- `install.sh` and `install.ps1` no longer ship the working tree under
+  `skills/dev` (#44): git-staged archive from a captured commit, with a
+  matching preflight validator.
+- External-review bypass requires a re-request after a head-moving push (#33).
+- Closed test-coverage gaps from PR #30 (#31, #25).
+- `en/commands/dev.md` no longer leaks the maintainer's home directory (#42).
+- Version metadata bumped from `v2.1.0` to `v2.1.1` in the four repo fields
+  (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `ref` +
+  `version`, `skills/dev/SKILL.md` frontmatter) with the `+upstream.3e87db0`
+  build metadata preserved.
+
+### Known Issues
+
+- v2.1.1 git tag publication and isolated post-tag installation are still
+  pending.
+- Pre-write verification scope is unchanged from v2.1.0.
+- Existing v2.1.1 engineering debt remains separate from release preparation.
+
+### Deferred
+
+- Homebrew formula `url` + `sha256` bump to v2.1.1 (Wave 4 Step 6) and the
+  post-bump `brew install --build-from-source` + `brew test` (Wave 4 Step 7).
+- Marketplace install test against the live v2.1.1 tag (Wave 4 Step 5).
+- Dogfooding distillation (#40) remains a separate workstream.
+
+### Recommended Next Priorities
+
+1. Authorize and publish the v2.1.1 tag (Wave 4 Step 4), then run the
+   marketplace install test against it (Wave 4 Step 5).
+2. Bump the Homebrew formula and verify via `brew test` (Wave 4 Steps 6–7).
+
 ## Known Tech Debt
 
 - Phase-level role prompts are not covered by the reviewer/QA distinctness
