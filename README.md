@@ -131,7 +131,7 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 - [RTK](https://github.com/rtk-ai/rtk) — `brew install rtk`, or see the RTK README for other platforms
 - Python 3 (used by the Skill at runtime, and by the manual installer's preflight validation)
 - **Optional** Traycer CLI/Host for managed multi-harness execution; Traycer children use the Chat/GUI surface in v1. Without it, the skill runs Claude-native with no loss of core workflow.
-- **Optional** [Graft](https://github.com/NanoNets/context-graph-engine) (`@nanonets/graft@0.18.0`) for pinned code-graph evidence at gates; accessed via `rtk proxy graft` per `skills/dev/graft.md`. Not installed by the Skill; each developer runs `graft init` locally if desired. Without it, gates record `graph_evidence: unavailable` and fall back to manual tracing — no loss of core workflow.
+- **Optional** [Graft](https://github.com/trailhq/Graft) (`@nanonets/graft@0.18.0`) for pinned code-graph evidence at gates; accessed via `rtk proxy graft` per `skills/dev/graft.md`. Not installed by the Skill; each developer runs `graft init` locally if desired. Without it, gates record `graph_evidence: unavailable` and fall back to manual tracing — no loss of core workflow.
 - Agent Teams run in-process and do not require tmux or iTerm
 
 ## Manual installation
@@ -224,6 +224,7 @@ Use `-Target C:\path\to\skills\dev` for an isolated target.
 skills/dev/
 ├── SKILL.md
 ├── reply-contract.md
+├── graft.md
 ├── backends/
 │   ├── contract.md
 │   ├── claude-native.md
@@ -263,14 +264,14 @@ These are the third-party systems `/dev` invokes or composes with at runtime. RT
 - **[RTK](https://github.com/rtk-ai/rtk)** — command transport for every shell, Git, GitHub, test, and lint invocation the Skill runs. Hard prerequisite at install time ([`install.sh`](install.sh) line 160); ambient thereafter and never version-checked at runtime.
 - **[Traycer](https://github.com/traycerai/traycer)** — optional multi-harness execution backend. The lead loads the Traycer adapter at [`skills/dev/backends/traycer.md`](skills/dev/backends/traycer.md) only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present in the environment; otherwise it resolves `claude-native`. Capability-verified: any gap in a child harness surfaces as `incomplete`, not as a silent fallback.
 - **[i-have-adhd](https://github.com/ayghri/i-have-adhd)** — *composes with*, **not depends on**. A session brevity skill that `/dev` aligns with at the end-of-turn reply layer ([`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) §6): `/dev` never claims a task-requirements override to justify verbosity. Per-session activation is required to enable i-have-adhd; `/dev` does not install, invoke, or require it.
-- **[Graft](https://github.com/nanonets/graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
+- **[Graft](https://github.com/trailhq/Graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
 - **[CodeRabbit](https://github.com/coderabbitai)** — trusted external reviewer for Phase 4 oversight ([`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md)). Substituted after the rate-limit breakpoint (#48) with a family-distinct reviewer from the review fallback chain; the substitute reviewer must post a real verdict — a clear status field is not a review.
 
 ## Concepts we learned from
 
 These are systems `/dev` does *not* install. We borrow a discipline, cite the project that taught it to us, and stop there.
 
-- **[Ponytail](https://github.com/dietrichgebert/ponytail)** by Dietrich Gebert — the reuse-first ladder borrowed in PR #30 (Issue #20) and stress-tested in the calibration experiment Issue #43. Also cited in [`docs/architecture.md`](docs/architecture.md) as the source of the config-leak problem that bounds the native non-Claude lead escape hatch. Not installed; `/dev` adapts the ladder only.
+- **[Ponytail](https://github.com/dietrichgebert/ponytail)** by Dietrich Gebert — the reuse-first ladder borrowed in PR #30 (Issue #20); a calibration experiment is planned in open Issue #43 (v2.1.2). Also cited in [`docs/architecture.md`](docs/architecture.md) as the source of the config-leak problem that bounds the native non-Claude lead escape hatch. Not installed; `/dev` adapts the ladder only.
 - The dogfooding distillation ([`docs/dogfooding.md`](docs/dogfooding.md), Issue #40 / PR #63) is `/dev`'s own codification, not a borrowed system — it captures seven lessons from this round's recovery log and is the method source for the rate-limit breakpoint (#48).
 
 ## Thank you
@@ -280,9 +281,9 @@ These are systems `/dev` does *not* install. We borrow a discipline, cite the pr
 - **RTK** and the RTK maintainers for the proxy command-transport primitives that the verification gate is built around.
 - **Traycer** and the Traycer team for the multi-harness execution substrate that lets `/dev` coordinate Claude Code, Codex, OpenCode, Cursor, and other harnesses through one lead.
 - **ayghri** for [i-have-adhd](https://github.com/ayghri/i-have-adhd) — a brevity-skill discipline that `/dev` aligns with rather than competes against.
-- **NanoNets** for [Graft](https://github.com/nanonets/graft) — the code-graph evidence source whose pinned optional adapter gives `/dev` structured queries at every gate.
-- **CodeRabbit** for the trusted external reviewer seat at Phase 4, and for the rate-limit substitution breakpoint that preserves the seat's intent under quota pressure.
-- **Dietrich Gebert** for [Ponytail](https://github.com/dietrichgebert/ponytail) — the reuse-first ladder we adapted into the calibration workflow.
+- **NanoNets** for [Graft](https://github.com/trailhq/Graft) — the code-graph evidence source whose pinned optional adapter gives `/dev` structured queries at every gate.
+- **CodeRabbit** for the trusted external-reviewer seat at Phase 4. `/dev`'s own rate-limit breakpoint (#48) is what keeps that seat's intent intact under quota pressure.
+- **Dietrich Gebert** for [Ponytail](https://github.com/dietrichgebert/ponytail) — the reuse-first ladder we adapted into the worker role prompts.
 - The agents, maintainers, and reviewers who contributed to the upstream [`hnaymyh123-henry/claude-dev-skill`](https://github.com/hnaymyh123-henry/claude-dev-skill) lineage that this fork extends.
 
 ## License
