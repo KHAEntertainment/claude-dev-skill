@@ -90,6 +90,45 @@ version. Ignore the tag name it proposes; do not let it create the tag.
    `owner/repo` shorthand and the explicit HTTPS URL fail on the missing
    manifest, which is expected and tells you nothing about the release.
 
+## Homebrew formula
+
+The formula lives in [`KHAEntertainment/homebrew-tap`](https://github.com/KHAEntertainment/homebrew-tap)
+at `Formula/dev-skill.rb`. The marketplace plugin and the Homebrew formula are
+independent distribution channels — they ship the same payload but follow
+different update cadences. The formula's `url` and `sha256` must be bumped per
+release; until bumped, the formula serves the previous release.
+
+### Bumping the formula
+
+After `docs/RELEASING.md` step 5 (marketplace install verification) succeeds:
+
+```bash
+# 1. Compute the new tarball sha256
+curl -sL https://github.com/KHAEntertainment/claude-dev-skill/archive/refs/tags/vX.Y.Z.tar.gz \
+  | shasum -a 256 | awk '{print $1}'
+
+# 2. Update the formula in KHAEntertainment/homebrew-tap
+git clone https://github.com/KHAEntertainment/homebrew-tap.git /tmp/homebrew-tap-bump
+cd /tmp/homebrew-tap-bump
+# Edit Formula/dev-skill.rb:
+#   - url: bump vX.Y.Z in the refs/tags/vX.Y.Z.tar.gz URL
+#   - sha256: paste the value from step 1
+git commit -am "dev-skill X.Y.Z"
+git push origin main
+
+# 3. Verify the install
+brew update
+brew install --build-from-source khaentertainment/tap/dev-skill
+brew test dev-skill
+```
+
+### Tag immutability
+
+The formula pins a tag, not a commit SHA, so a moved tag silently changes what
+existing users receive. Treat a pushed release tag as immutable. Formula
+defects are fixed in the tap; payload defects wait for the next version. See
+ADR-007 for the original tap design.
+
 ## What CI enforces for you
 
 `.github/workflows/ci.yml` runs the full Verification Gate on every pull request

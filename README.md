@@ -19,6 +19,21 @@ Restart Claude Code, then invoke:
 /dev-skill:dev [optional project or feature description]
 ```
 
+### Homebrew (alternative install)
+
+If you prefer Homebrew, install via the [KHAEntertainment tap](https://github.com/KHAEntertainment/homebrew-tap):
+
+```bash
+brew tap KHAEntertainment/tap
+brew install khaentertainment/tap/dev-skill
+dev-skill-install --dry-run   # verify the install
+brew test dev-skill            # run the formula's test block
+```
+
+The Homebrew formula and the plugin marketplace install the same payload but
+follow independent release cadences. The formula may lag by one release while
+`url`/`sha256` are bumped — see [`docs/RELEASING.md`](docs/RELEASING.md#homebrew-formula).
+
 That is the whole install. To update later:
 
 ```bash
