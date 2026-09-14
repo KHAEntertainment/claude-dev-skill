@@ -100,12 +100,12 @@ When both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, detection return
 ### What's new in v2.1.1
 
 - **Lead → user end-of-turn reply contract** — the Tech Lead summarizes, never relays: routine replies aim under 100 words; material failures, gate verdicts, decisions, and irreversible actions are surfaced first and in full. See [`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) (WS1 / PR #55).
-- **Post-merge verification step** — every merge re-runs the gate at the merged commit so a tree that only matches by identity is independently re-verified. Issue #26 / PR #46.
-- **External-review rate-limit substitution breakpoint** — after consecutive rate-limits on one PR (#48), a substitute reviewer from a family distinct from worker, QA, *and* internal review takes the external seat, preserving two-family diversity. PR #46 applied the breakpoint with a substitute reviewer.
-- **Scoped external-review bypass with substitute review** — repo-policy bypasses carry a substitute-reviewer verdict, never an empty status. Mirroring pattern: PR #46 → PR #61.
+- **Post-merge verification step** — after every merge to `main`, the lead verifies the merged commit. When the merge commit's tree is identical to the verified PR head's tree, the PR-head Verification Gate result on record is re-used and the equivalence recorded; when the trees differ, the full gate re-runs on the merged commit in a clean worktree. The lead then re-checks the closed Issue's acceptance criteria against what shipped and reopens it for any unmet item. See [`skills/dev/phases/phase4.md`](skills/dev/phases/phase4.md) (Issue #26 / PR #46).
+- **External-review rate-limit breakpoint** — after 3 consecutive rate-limited responses from a trusted reviewer on the same PR, the lead stops retrying and dispatches a fresh substitute reviewer whose model family differs from the implementation worker's, the QA lane's, and the internal reviewer's. The substitute must return a real verdict at the current head, and it takes that reviewer's seat as a review, not a bypass, so it creates no review debt. PR #46's manual substitute review after repeated CodeRabbit rate-limits is the precedent #48 codified. See [`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md) (Issue #48 / PR #68).
+- **Scoped external-review bypass** — a bypass is only for a review that is pending or unavailable, never one invalidated by the author's own fix push, which instead obligates a re-request at the new head. It requires explicit user approval and records the reason, approver, timestamp, and review debt naming the exact unreviewed commit range (`<reviewed-head>..<merged-head>`, or `<base-head>..<merged-head>` when no review ever completed). Unlike a substitute review, a bypass is not a review (Issue #33 / PR #45).
 - **Graft code-graph evidence adapter** — pinned optional code-graph evidence via `rtk proxy graft` with a four-step availability check, three approved queries (`callers`, `grep`, `map`), and a recorded manual fallback whenever `graph_evidence: unavailable`. See [`skills/dev/graft.md`](skills/dev/graft.md) (WS2 / PR #60).
-- **Distribution: marketplace install plus forthcoming Homebrew tap** — Wave 4 ships the `dev-skill` formula alongside the existing marketplace path so the install stays one command on every supported platform.
-- **Child-harness capability checklist** — every Traycer Chat/GUI child harness declares its capability set against a pre-flight checklist before the lead dispatches a lane to it. ADR-012, `skills/dev/backends/contract.md` (WS4 / PR #61).
+- **Distribution: marketplace install plus Homebrew tap** — the [`KHAEntertainment/homebrew-tap`](https://github.com/KHAEntertainment/homebrew-tap) tap ships the `dev-skill` formula alongside the marketplace install. The formula follows its own release cadence and may lag a release; see [Homebrew (alternative install)](#homebrew-alternative-install) (Issue #39 / PR #65).
+- **Child-harness capability checklist** — at first dispatch of a Traycer-managed lane, the child harness is checked against a four-item capability checklist and the result is recorded in `.agent/dev-state.md`. An unmet item fails the lane closed to `incomplete`; the remedy is a different route, never a trimmed prompt. ADR-012 in [`docs/architecture.md`](docs/architecture.md), checklist in [`skills/dev/backends/contract.md`](skills/dev/backends/contract.md) (WS4 / PR #61).
 
 ### Standing guarantees
 
@@ -131,7 +131,7 @@ See [the full audit](docs/AUDIT.md), [upstream maintenance procedure](UPSTREAM.m
 - [RTK](https://github.com/rtk-ai/rtk) — `brew install rtk`, or see the RTK README for other platforms
 - Python 3 (used by the Skill at runtime, and by the manual installer's preflight validation)
 - **Optional** Traycer CLI/Host for managed multi-harness execution; Traycer children use the Chat/GUI surface in v1. Without it, the skill runs Claude-native with no loss of core workflow.
-- **Optional** [Graft](https://github.com/NanoNets/context-graph-engine) (`@nanonets/graft@0.18.0`) for pinned code-graph evidence at gates; accessed via `rtk proxy graft` per `skills/dev/graft.md`. Not installed by the Skill; each developer runs `graft init` locally if desired. Without it, gates record `graph_evidence: unavailable` and fall back to manual tracing — no loss of core workflow.
+- **Optional** [Graft](https://github.com/trailhq/Graft) (`@nanonets/graft@0.18.0`) for pinned code-graph evidence at gates; accessed via `rtk proxy graft` per `skills/dev/graft.md`. Not installed by the Skill; each developer runs `graft init` locally if desired. Without it, gates record `graph_evidence: unavailable` and fall back to manual tracing — no loss of core workflow.
 - Agent Teams run in-process and do not require tmux or iTerm
 
 ## Manual installation
@@ -224,6 +224,7 @@ Use `-Target C:\path\to\skills\dev` for an isolated target.
 skills/dev/
 ├── SKILL.md
 ├── reply-contract.md
+├── graft.md
 ├── backends/
 │   ├── contract.md
 │   ├── claude-native.md
@@ -258,20 +259,20 @@ skills/dev/
 
 ## Integrations
 
-These are the third-party systems `/dev` invokes or composes with at runtime. Every entry below is wired into the Skill payload (`skills/dev/`) and gated by the verification harness.
+These are the third-party systems `/dev` invokes or composes with at runtime. RTK, Traycer, Graft, and CodeRabbit are wired into the Skill payload (`skills/dev/`) and gated by the verification harness. i-have-adhd is a documented composition only: the payload deliberately names no brevity skill (see [`docs/dogfooding.md`](docs/dogfooding.md#i-have-adhd)).
 
 - **[RTK](https://github.com/rtk-ai/rtk)** — command transport for every shell, Git, GitHub, test, and lint invocation the Skill runs. Hard prerequisite at install time ([`install.sh`](install.sh) line 160); ambient thereafter and never version-checked at runtime.
 - **[Traycer](https://github.com/traycerai/traycer)** — optional multi-harness execution backend. The lead loads the Traycer adapter at [`skills/dev/backends/traycer.md`](skills/dev/backends/traycer.md) only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present in the environment; otherwise it resolves `claude-native`. Capability-verified: any gap in a child harness surfaces as `incomplete`, not as a silent fallback.
 - **[i-have-adhd](https://github.com/ayghri/i-have-adhd)** — *composes with*, **not depends on**. A session brevity skill that `/dev` aligns with at the end-of-turn reply layer ([`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) §6): `/dev` never claims a task-requirements override to justify verbosity. Per-session activation is required to enable i-have-adhd; `/dev` does not install, invoke, or require it.
-- **[Graft](https://github.com/nanonets/graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
-- **[CodeRabbit](https://github.com/coderabbitai)** — trusted external reviewer for Phase 4 oversight ([`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md)). Substituted after the rate-limit breakpoint (#48) with a family-distinct reviewer from the selection-guide fallback chain; the substitute reviewer must post a real verdict — a clear status field is not a review.
+- **[Graft](https://github.com/trailhq/Graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
+- **[CodeRabbit](https://github.com/coderabbitai)** — trusted external reviewer for Phase 4 oversight ([`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md)). Substituted after the rate-limit breakpoint (#48) with a family-distinct reviewer from the review fallback chain; the substitute reviewer must post a real verdict — a clear status field is not a review.
 
 ## Concepts we learned from
 
 These are systems `/dev` does *not* install. We borrow a discipline, cite the project that taught it to us, and stop there.
 
-- **[Ponytail](https://github.com/dietrichgebert/ponytail)** by Dietrich Gebert — the reuse-first ladder borrowed in PR #30 (Issue #20) and stress-tested in the calibration experiment Issue #43. Also cited in [`docs/architecture.md`](docs/architecture.md) as the source of the config-leak problem that bounds the native non-Claude lead escape hatch. Not installed; `/dev` adapts the ladder only.
-- The dogfooding distillation ([`docs/dogfooding.md`](docs/dogfooding.md), Issue #40 / PR #63) is `/dev`'s own codification, not a borrowed system — it captures seven lessons from this round's recovery log and is the method source for the rate-limit breakpoint (#48) and the post-merge verification step.
+- **[Ponytail](https://github.com/dietrichgebert/ponytail)** by Dietrich Gebert — the reuse-first ladder borrowed in PR #30 (Issue #20); a calibration experiment is planned in open Issue #43 (v2.1.2). Also cited in [`docs/architecture.md`](docs/architecture.md) as the source of the config-leak problem that bounds the native non-Claude lead escape hatch. Not installed; `/dev` adapts the ladder only.
+- The dogfooding distillation ([`docs/dogfooding.md`](docs/dogfooding.md), Issue #40 / PR #63) is `/dev`'s own codification, not a borrowed system — it captures seven lessons from this round's recovery log and is the method source for the rate-limit breakpoint (#48).
 
 ## Thank you
 
@@ -280,9 +281,9 @@ These are systems `/dev` does *not* install. We borrow a discipline, cite the pr
 - **RTK** and the RTK maintainers for the proxy command-transport primitives that the verification gate is built around.
 - **Traycer** and the Traycer team for the multi-harness execution substrate that lets `/dev` coordinate Claude Code, Codex, OpenCode, Cursor, and other harnesses through one lead.
 - **ayghri** for [i-have-adhd](https://github.com/ayghri/i-have-adhd) — a brevity-skill discipline that `/dev` aligns with rather than competes against.
-- **NanoNets** for [Graft](https://github.com/nanonets/graft) — the code-graph evidence source whose pinned optional adapter gives `/dev` structured queries at every gate.
-- **CodeRabbit** for the trusted external reviewer seat at Phase 4, and for the rate-limit substitution breakpoint that preserves the seat's intent under quota pressure.
-- **Dietrich Gebert** for [Ponytail](https://github.com/dietrichgebert/ponytail) — the reuse-first ladder we adapted into the calibration workflow.
+- **NanoNets** for [Graft](https://github.com/trailhq/Graft) — the code-graph evidence source whose pinned optional adapter gives `/dev` structured queries at every gate.
+- **CodeRabbit** for the trusted external-reviewer seat at Phase 4. `/dev`'s own rate-limit breakpoint (#48) is what keeps that seat's intent intact under quota pressure.
+- **Dietrich Gebert** for [Ponytail](https://github.com/dietrichgebert/ponytail) — the reuse-first ladder we adapted into the worker role prompts.
 - The agents, maintainers, and reviewers who contributed to the upstream [`hnaymyh123-henry/claude-dev-skill`](https://github.com/hnaymyh123-henry/claude-dev-skill) lineage that this fork extends.
 
 ## License

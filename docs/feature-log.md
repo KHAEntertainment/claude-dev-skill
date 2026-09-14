@@ -91,6 +91,67 @@
 2. Run the planned controlled ScadForge #48 test in a fresh session after the tag,
    when authorized; prioritize its findings before expanding the debt scope.
 
+## Retro — claude-dev-skill / v2.1.1
+
+### Completed
+
+- ADR-012 + child-harness capability checklist (#58) and ADR-009 guard
+  reclassification recorded in `skills/dev/backends/contract.md` (#38).
+- Lead-to-user end-of-turn reply contract (#54) in
+  `skills/dev/reply-contract.md`.
+- Unconditional post-merge verification step (#26), owned by the lead.
+- `install.sh` and `install.ps1` no longer ship the working tree under
+  `skills/dev` (#44): git-staged archive from a captured commit, with a
+  matching preflight validator.
+- External-review bypass requires a re-request after a head-moving push (#33).
+- Closed test-coverage gaps from PR #30 (#31, #25).
+- `en/commands/dev.md` no longer leaks the maintainer's home directory (#42).
+- Graft pinned optional code-graph evidence adapter (#57, PR #60) in
+  `skills/dev/graft.md`, recorded as ADR-011.
+- Dogfooding distillation (#40, PR #63) in `docs/dogfooding.md`, plus the
+  i-have-adhd compatibility note added with this release.
+- README documents the v2.1.1 integrations, borrowed concepts, and
+  thank-yous (#50, PR #64).
+- Homebrew tap documentation (#39, PR #65): the `docs/RELEASING.md` Homebrew
+  formula section and the README alternative-install subsection. The tap
+  formula is published at v2.1.0.
+- External-review rate-limit breakpoint (#48, PR #68): after 3 consecutive
+  rate-limited responses from a trusted reviewer on one PR, the lead
+  dispatches a family-distinct substitute reviewer instead of waiting or
+  bypassing.
+- Version metadata bumped from `v2.1.0` to `v2.1.1` in the four repo fields
+  (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `ref` +
+  `version`, `skills/dev/SKILL.md` frontmatter) with the `+upstream.3e87db0`
+  build metadata preserved.
+
+### Known Issues
+
+- v2.1.1 git tag publication and isolated post-tag installation are still
+  pending.
+- Pre-write verification scope is unchanged from v2.1.0.
+- Remaining engineering debt is tracked in the v2.1.2 milestone: #56, #53,
+  #51, #43, #37, #34, #17, #67, and #69.
+
+### Deferred
+
+- Homebrew formula `url` + `sha256` bump to v2.1.1 and the post-bump
+  `brew install --build-from-source` + `brew test` (`docs/RELEASING.md`,
+  "Bumping the formula").
+- Marketplace install test against the live v2.1.1 tag (`docs/RELEASING.md`
+  step 5).
+
+### Recommended Next Priorities
+
+1. Run the controlled ScadForge issue #48 test against v2.1.1 in a fresh
+   session, as independent real-project validation, once the tag in item 2 is
+   published. ScadForge's #48 is that project's issue number, not this repo's
+   #48. Prioritize its findings before working the v2.1.2 milestone.
+2. Authorize and publish the v2.1.1 tag (`docs/RELEASING.md` step 3), verify
+   it resolves (step 4), then run the marketplace install test against it
+   (step 5).
+3. Bump the Homebrew formula and verify it with `brew install
+   --build-from-source` + `brew test` ("Bumping the formula").
+
 ## Known Tech Debt
 
 - Phase-level role prompts are not covered by the reviewer/QA distinctness

@@ -8,7 +8,7 @@ build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries belo
 `v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
 record upstream SHAs as plain text in their `### Upstream` blocks.
 
-## v2.1.1 — Unreleased
+## v2.1.1 — 2026-09-14
 
 ### Added
 
@@ -27,6 +27,18 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   reclassification now sits at the point of use so a future round does
   not re-litigate the AST guard; `validate_skill.py` and the doc-assertion
   test suite pin the new load-bearing sentences.
+- Graft as a pinned optional code-graph evidence source (#57, PR #60).
+  `skills/dev/graft.md` pins `@nanonets/graft@0.18.0`, reached only through
+  `rtk proxy graft`; it is never an execution backend, and `/dev` never runs
+  `graft init` in a managed project. The worker, QA, Phase 2 change-impact,
+  and Phase 4 coverage-path prompts run its availability check and either
+  produce query evidence or record `graph_evidence: unavailable` with a
+  cause and the manual fallback actually performed. Ledger entries gain
+  `graft_version`, `graph_evidence`, and `graph_evidence_cause`, and the
+  Phase 5 retro reports unavailable-evidence counts by cause (`0` included).
+  ADR-011 records the adapter and narrows ADR-005's "no third-party
+  dependencies" to install time and the core workflow. `validate_skill.py`
+  and the doc-assertion test suite pin the new file and its policy tokens.
 - Lead-to-user end-of-turn reply contract (#54): `skills/dev/reply-contract.md`
   governs only the Tech Lead's own replies to the user, never the
   agent-to-lead report-back contract, Issue/PR bodies, or project docs.
@@ -265,6 +277,28 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   forbidden token, replacing it with patterns for any absolute home
   directory (`/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\`) so the
   guard itself no longer republishes the token it exists to keep out.
+
+### Documentation
+
+- `docs/dogfooding.md` distills the v2.1.0 dogfooding round into seven
+  evidence-anchored operational lessons (#40, PR #63), each citing a
+  recovery entry in that round's `.agent/dev-state.md` log, and is linked
+  from `PROJECT_CONTEXT.md`'s sub-document index. The release commit adds a
+  named i-have-adhd compatibility note there, keeping `skills/dev/`
+  third-party-agnostic.
+- README documents the v2.1.1 work (#50, PR #64): a "What's new in v2.1.1"
+  list, an Integrations section for the five systems `/dev` invokes or
+  composes with (RTK, Traycer, i-have-adhd, Graft, CodeRabbit), a "Concepts
+  we learned from" section naming borrowed disciplines that are not
+  installed (Ponytail's reuse-first ladder), and a thank-you section.
+- Homebrew tap documentation (#39, PR #65). `docs/RELEASING.md` gains a
+  Homebrew formula section: bump the formula's `url` and `sha256` after the
+  marketplace install check, verify with `brew install --build-from-source`
+  and `brew test`, and treat a pushed release tag as immutable. README gains
+  a Homebrew alternative-install subsection. The formula lives in
+  `KHAEntertainment/homebrew-tap` at `Formula/dev-skill.rb`; it is published
+  at v2.1.0 and is bumped to v2.1.1 after this tag, so until then it serves
+  the previous release.
 
 ## v2.1.0 — 2026-09-11
 
