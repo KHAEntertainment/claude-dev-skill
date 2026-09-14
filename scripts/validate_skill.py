@@ -490,6 +490,18 @@ def main() -> int:
             "gate_result",
             "criteria_verdict",
             "Auto-closure by a merge keyword is never evidence of completion",
+            # Issue #48: the ledger half of the rate-limit breakpoint — the
+            # count, the no-family home, the substitution record, the families
+            # that keep distinctness re-checkable, and that it is not bypass
+            # debt. Fields are pinned one by one, never by list adjacency.
+            "`consecutive_rate_limits`",
+            "`external_reviewer_unavailable`",
+            "`external_review_substitutions`",
+            "external_reviewer_unavailable: rate_limited",
+            "only a completed review or an explicit non-rate-limit decline from that reviewer resets it to 0",
+            "it is the ledger record of the still-`pending` gate",
+            "the model families of the substitute, the implementation worker, the QA lane, and the internal reviewer",
+            "A substitution is a completed review, not an `approved_bypasses` or `review_debt` entry.",
         ),
         # Issue #33: the gate's own bypass path had become the routine path
         # because a review invalidated by the author's own fix-commit push
@@ -500,6 +512,54 @@ def main() -> int:
             "obligates a re-request at the new head, not a bypass",
             "the exact unreviewed commit range",
             "<base-head>..<merged-head>",
+            # Issue #48: the rate-limited retry loop's only automatic exit was
+            # the deadline choices. These pin the threshold, the per-reviewer
+            # count and what resets it, the backend-neutral fallback chain,
+            # the family-distinct substitute (never the internal reviewer's
+            # seat), the seat and required-check limits, the new-head path,
+            # and the Result Routing clause that lets a completed substitution
+            # reach `clear` — without it the substitute cannot reach APPROVE.
+            "After 3 consecutive rate-limited responses to review requests on the same PR",
+            "send that reviewer no further retries",
+            "external_reviewer_unavailable: rate_limited",
+            "The count is kept per PR per reviewer, across heads and wait episodes",
+            "Only a completed review or an explicit non-rate-limit decline from that reviewer resets the count",
+            "an acknowledgement or a processing or in-progress reply neither resets nor increments it",
+            # An in-place edit reporting a new event is a new response;
+            # counting it once would freeze a single-comment reviewer at 1.
+            "An in-place edit that reports a new rate-limit event counts as a new rate-limited response",
+            "a reviewer that reports each rate limit by editing a single summary comment still reaches the threshold",
+            "a new event is a new head, a new limit window or reset time, or a response to a new retry request",
+            "Only a re-render of the same event (same head, same window, no new request) does not count again.",
+            "The breakpoint is an exit from the retry loop, not a bypass",
+            "The review fallback chain is the ordered set of available reviewer routes the lead can dispatch on the selected backend",
+            "on Traycer, the agent selection guide's review routes",
+            "on Claude-native, any distinct-family reviewer the lead can actually dispatch",
+            "differs from the implementation worker, the QA lane, and the internal reviewer",
+            "never reuses the internal reviewer's seat",
+            "never falls back to the bypass or to a same-family reviewer",
+            "the lead never bypasses unilaterally",
+            "deadline choice 2 (an explicit re-request) and choice 3 (a user-approved bypass) remain available",
+            "apply the Head-Commit Invariant to it as to any review",
+            "satisfies the external gate as a review, not a bypass",
+            "creates no review debt",
+            "It fills only the rate-limited reviewer's seat",
+            "every other expected reviewer still gates",
+            "still dispatch the substitute as review evidence; it does not fill that seat",
+            "the breakpoint does not unblock merge",
+            "this SOP never overrides GitHub branch protection",
+            "the substitution record, not the inspector, fills its seat",
+            "so distinctness stays re-checkable",
+            "reconcile its findings normally",
+            "the substitution record stands",
+            "The count carries across heads for the same PR and reviewer.",
+            "that re-request is not a retry",
+            "After a breakpoint has fired on that PR for that reviewer, the count is already at or above the threshold",
+            "dispatches a fresh substitute for the new head without a second retry cycle",
+            "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
+            "no finding, the substitute's included, is blocking or awaiting disposition",
+            "a substitute at an older head does not count",
+            "A completed, current-head substitute review with a blocking finding routes as `blocking`, not as any other `pending`.",
         ),
         # Issue #33: without a named retro line, repeated bypass across
         # rounds was only ever visible per-PR, never as a pattern.
@@ -530,6 +590,15 @@ def main() -> int:
             "graph_evidence: unavailable",
             "trace dependents manually",
             "Graph output = static evidence, never execution confirmation",
+            # Issue #48: the rating is decided here, so a completed current-head
+            # substitution must route as `clear` here too, not only in the gate.
+            "whose only open seats are filled by a completed, current-head substitution routes as `clear`",
+            "per **Rate-limit breakpoint** in the external-review gate",
+            "no finding, the substitute's included, is blocking or awaiting disposition",
+            "a substitute at an older head does not count",
+            "a completed, current-head substitute review with a blocking finding → REQUEST CHANGES",
+            "Any other `pending`, or `incomplete`, external review → do not merge",
+            "a `pending` routed as `clear` by a completed, current-head substitution counts",
         ),
         "phases/phase2.md": (
             "${CLAUDE_SKILL_DIR}/graft.md",
@@ -562,6 +631,10 @@ def main() -> int:
             "Quality-gate self-assessment",
             "Bound that read.",
             "Classify `absent` before anything else.",
+            # Issue #48: the no-heuristics rule stays; the breakpoint is carved
+            # out as an SOP exit so the two do not read as a contradiction.
+            "Do not add cost, rate-limit, or performance routing heuristics.",
+            "is a documented SOP exit, not a routing heuristic",
         ),
         "backends/claude-native.md": (
             "seven required sections",
