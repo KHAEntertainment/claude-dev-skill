@@ -115,6 +115,10 @@
 - Homebrew tap documentation (#39, PR #65): the `docs/RELEASING.md` Homebrew
   formula section and the README alternative-install subsection. The tap
   formula is published at v2.1.0.
+- External-review rate-limit breakpoint (#48, PR #68): after 3 consecutive
+  rate-limited responses from a trusted reviewer on one PR, the lead
+  dispatches a family-distinct substitute reviewer instead of waiting or
+  bypassing.
 - Version metadata bumped from `v2.1.0` to `v2.1.1` in the four repo fields
   (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `ref` +
   `version`, `skills/dev/SKILL.md` frontmatter) with the `+upstream.3e87db0`
@@ -126,7 +130,7 @@
   pending.
 - Pre-write verification scope is unchanged from v2.1.0.
 - Remaining engineering debt is tracked in the v2.1.2 milestone: #56, #53,
-  #51, #43, #37, #34, #17, and #67.
+  #51, #43, #37, #34, #17, #67, and #69.
 
 ### Deferred
 
