@@ -142,10 +142,14 @@
 
 ### Recommended Next Priorities
 
-1. Authorize and publish the v2.1.1 tag (`docs/RELEASING.md` step 3), verify
+1. Run the controlled ScadForge issue #48 test against v2.1.1 in a fresh
+   session, as independent real-project validation, once the tag in item 2 is
+   published. ScadForge's #48 is that project's issue number, not this repo's
+   #48. Prioritize its findings before working the v2.1.2 milestone.
+2. Authorize and publish the v2.1.1 tag (`docs/RELEASING.md` step 3), verify
    it resolves (step 4), then run the marketplace install test against it
    (step 5).
-2. Bump the Homebrew formula and verify it with `brew install
+3. Bump the Homebrew formula and verify it with `brew install
    --build-from-source` + `brew test` ("Bumping the formula").
 
 ## Known Tech Debt
