@@ -106,6 +106,15 @@
 - External-review bypass requires a re-request after a head-moving push (#33).
 - Closed test-coverage gaps from PR #30 (#31, #25).
 - `en/commands/dev.md` no longer leaks the maintainer's home directory (#42).
+- Graft pinned optional code-graph evidence adapter (#57, PR #60) in
+  `skills/dev/graft.md`, recorded as ADR-011.
+- Dogfooding distillation (#40, PR #63) in `docs/dogfooding.md`, plus the
+  i-have-adhd compatibility note added with this release.
+- README documents the v2.1.1 integrations, borrowed concepts, and
+  thank-yous (#50, PR #64).
+- Homebrew tap documentation (#39, PR #65): the `docs/RELEASING.md` Homebrew
+  formula section and the README alternative-install subsection. The tap
+  formula is published at v2.1.0.
 - Version metadata bumped from `v2.1.0` to `v2.1.1` in the four repo fields
   (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `ref` +
   `version`, `skills/dev/SKILL.md` frontmatter) with the `+upstream.3e87db0`
@@ -116,20 +125,24 @@
 - v2.1.1 git tag publication and isolated post-tag installation are still
   pending.
 - Pre-write verification scope is unchanged from v2.1.0.
-- Existing v2.1.1 engineering debt remains separate from release preparation.
+- Remaining engineering debt is tracked in the v2.1.2 milestone: #56, #53,
+  #51, #43, #37, #34, #17, and #67.
 
 ### Deferred
 
-- Homebrew formula `url` + `sha256` bump to v2.1.1 (Wave 4 Step 6) and the
-  post-bump `brew install --build-from-source` + `brew test` (Wave 4 Step 7).
-- Marketplace install test against the live v2.1.1 tag (Wave 4 Step 5).
-- Dogfooding distillation (#40) remains a separate workstream.
+- Homebrew formula `url` + `sha256` bump to v2.1.1 and the post-bump
+  `brew install --build-from-source` + `brew test` (`docs/RELEASING.md`,
+  "Bumping the formula").
+- Marketplace install test against the live v2.1.1 tag (`docs/RELEASING.md`
+  step 5).
 
 ### Recommended Next Priorities
 
-1. Authorize and publish the v2.1.1 tag (Wave 4 Step 4), then run the
-   marketplace install test against it (Wave 4 Step 5).
-2. Bump the Homebrew formula and verify via `brew test` (Wave 4 Steps 6–7).
+1. Authorize and publish the v2.1.1 tag (`docs/RELEASING.md` step 3), verify
+   it resolves (step 4), then run the marketplace install test against it
+   (step 5).
+2. Bump the Homebrew formula and verify it with `brew install
+   --build-from-source` + `brew test` ("Bumping the formula").
 
 ## Known Tech Debt
 

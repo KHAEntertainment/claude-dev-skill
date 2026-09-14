@@ -38,3 +38,12 @@ An assertion about a document's content is unverified until the document has bee
 ### 7. A green status check or an acknowledgement is not a review
 A passing status field or an "acknowledged" event is evidence of no findings so far, not evidence that a reviewer actually inspected the work.
 *Evidence*: recovery entry 2026-09-12T06:29:38Z — PR #46 reached merge only by enforcing substitute review (kimi k3,thinking, APPROVE) after 4 CodeRabbit rate-limits; the "0 external-review bypasses" record required an actual reviewer verdict, not just a clear status field — a green status with no reviewer would have satisfied the gate's text but not its intent.
+
+## Compatibility notes
+
+Named notes for third-party skills `/dev` composes with. They live here, not
+under `skills/dev/`, so the shipped payload stays third-party-agnostic.
+
+### i-have-adhd
+[i-have-adhd](https://github.com/ayghri/i-have-adhd) is a session brevity skill that `/dev` *composes with* and does **not depend on**. It requires per-session activation; `/dev` does not install, invoke, or require it.
+*Composition point*: `skills/dev/reply-contract.md` §6 — "`/dev` never claims a task-requirements override to justify verbosity." With i-have-adhd active, the lead-to-user reply stays short (under 100 words for routine replies), while worker report-backs stay full in `.agent/dev-state.md` and the PR record.
