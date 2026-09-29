@@ -139,10 +139,10 @@
   - ASK findings answerable from the plan or code
 
   For each: adopt the recommended answer, append to `assumed_decisions`, keep going.
-- **Turn-end rule.** In goal mode a turn ends only in one of three ways:
-  - (a) its last line is `HARD-STOP: H<n> — <one line>`;
-  - (b) a scheduled wake or yield (`external-review.md:92-98`);
-  - (c) H6.
+- **Turn-end rule.** In goal mode a turn ends only in one of three ways, each marked by the message's last non-empty line (grammar and precedence in §5.2):
+  - (a) a hard stop: `HARD-STOP: H<1-5> — <one line>`;
+  - (b) a scheduled wake or yield (`external-review.md:92-98`): `WAKE: <ISO-8601 UTC time> — <next action>`, with the same time and action recorded in the ledger;
+  - (c) H6, goal complete: the final report, ending with `GOAL-COMPLETE: <goal_source>`.
 - **Assumption digest.** Every hard stop and the final report list "Decisions made without you", each with how to reverse it. This needs a reply-contract §4 carve-out.
 - **Contradiction fixes, both modes:**
   - `phase2.md:19` vs `:30`
@@ -155,13 +155,18 @@
 
 - **What a guard may read:**
   - ledger `autonomy` and `goal_source`
-  - the `HARD-STOP:` grammar
   - `assumed_decisions`
+  - the last assistant message (Claude Code: the Stop payload's `last_assistant_message`)
+- **Turn-end markers**, the only machine-readable signals of a legitimate stop:
+  - `HARD-STOP: H<1-5> — <text>` (H1–H5)
+  - `WAKE: <ISO-8601 UTC timestamp> — <next action>` (scheduled wake or yield)
+  - `GOAL-COMPLETE: <goal_source>` (H6; the value must equal the ledger's `goal_source`)
+- **Precedence:** only the message's last non-empty line is inspected, and it must match exactly one marker. A marker anywhere else in the message does not count. A malformed marker, or a `GOAL-COMPLETE:` naming a different source, counts as no marker.
 - **What a guard must never do:**
   - write the ledger
   - answer for you
   - push past H1–H4
-- **Recommended Claude Code `/goal` condition** (zero build): *"Complete `<goal_source>` under /dev goal mode. Met: the final report shows every planned Issue merged. Impossible: only if the last message ends with a `HARD-STOP:` line."* The `/goal` judge's job then shrinks to checking whether a literal line is present.
+- **Recommended Claude Code `/goal` condition** (zero build): *"Complete `<goal_source>` under /dev goal mode. Met: the last message ends with `GOAL-COMPLETE: <goal_source>` and its report shows every planned Issue merged. Impossible: only if the last message ends with a `HARD-STOP:` line."* The `/goal` judge's job then shrinks to checking whether a literal line is present.
 - **Pairing:** Claude Code auto mode removes per-tool prompts; goal mode plus a guard removes per-turn stops.
 - **Vendor names** stay out of the payload, keeping `tests/test_backend_contract.py:866-871` clean.
 
@@ -181,11 +186,18 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
   - **the `.agent/dev-state.md` found under the hook's `cwd` is not `autonomy: goal`**, so interactive phases are never touched
 - **Stage 1: deterministic, no network, the default.**
   - Read `last_assistant_message` from the Stop payload.
-  - If it has no valid `HARD-STOP: H<n>` line, no wake was recorded, and the goal is not complete, **block** with exit 2 and a one-line reason on stderr: *"/dev goal mode: this is not a hard stop (H1–H6). Adopt your recommended answer, record it in `assumed_decisions`, continue. If it is a hard stop, restate it with a `HARD-STOP:` line and stop."*
+  - If its last non-empty line is not a valid turn-end marker (`HARD-STOP:`, `WAKE:` or `GOAL-COMPLETE:`, per §5.2's grammar and precedence), **block** with exit 2 and a one-line reason on stderr: *"/dev goal mode: this is not a hard stop (H1–H6). Adopt your recommended answer, record it in `assumed_decisions`, continue. If it is a hard stop, restate it with a `HARD-STOP:` line and stop."*
   - A genuine hard stop that lacks the tag costs one extra turn.
 - **Stage 2: the classifier. Built but off by default; runs in shadow or log mode until the pilot says otherwise.**
   - One Decisions call, pinned model, `noul` only.
-  - State: `{input: goal + H-list + the last 3 messages, output: final message}`, redacted. No diffs, files or paths.
+  - State: `{input: goal + H-list + the last 3 messages, output: final message}`, redacted as below. No diffs, files or paths.
+  - **Redaction boundary** (applies in shadow and log mode too):
+    - Allowed fields only: the plan's one-line Destination (not the plan body), the fixed H1–H6 text, and the last 3 messages' prose.
+    - Removed before sending: fenced and inline code, file paths, URLs, email addresses, IP addresses, and tool-call or tool-result content.
+    - Masked as `[SECRET]`: known credential formats (e.g. `ghp_`, `github_pat_`, `sk-`, `AKIA`, JWTs, `-----BEGIN … KEY-----`), `KEY=value` assignments, and high-entropy strings of 24+ characters.
+    - Each message capped at 2,000 characters after redaction.
+    - Fail closed: if redaction errors, nothing is sent and Stage 1's result stands.
+  - **Gate:** Stage 2 does not run in any mode until payload tests pass with representative secrets and personal data (each credential format, an email, a home path, a `.env` excerpt) and assert none reaches the request body.
   - Behaviors:
     - `asks_confirmation`
     - `states_recommendation`
@@ -216,7 +228,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
 | # | Conflict | Sev. | Remediation |
 |---|---|---|---|
 | G-C1 | The guard pushes past a genuine hard stop | High | Stage 1 costs one turn at most, then the tagged restatement passes. Stage 2 never blocks when an H1–H4 behavior score is high. **Pilot bar: zero wrong continues past H1–H4.** |
-| G-C2 | Transcript text is sent to OpenRouter or Respan (stage 2 only) | Med | Opt-in. Minimal redacted state. Respan's retention policy is unverified (its site is blocked here), so check it before enabling. Stage 1 sends nothing. |
+| G-C2 | Transcript text is sent to OpenRouter or Respan (stage 2 only) | Med | Opt-in. Minimal redacted state (redaction boundary and test gate in §5.3). Respan's retention policy is unverified (its site is blocked here), so check it before enabling. Stage 1 sends nothing. |
 | G-C3 | Vendor newness; alpha API | Med | Pin `canonical_slug`, fail-open, swap by config, re-probe on every model change. |
 | G-C4 | Text in the span argues for continuing | Med | The deterministic line check plus ledger facts veto first. Adversarial fixtures go in the probe. |
 | G-C5 | ADR-002, ADR-005 and ADR-012, plus the vendor-name tests | High if placed inside /dev | The companion lives outside the payload. /dev ships only text and a contract doc. |
@@ -240,7 +252,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
 | **WP-G2** Contract doc and README "Companions" | §5.2, including the recommended `/goal` condition | new `docs/stop-guard-contract.md`, `README.md` | G1 |
 | **WP-G3** Pilot, no build | Claude Code with MiniMax M3 and Kimi K3 on one approved plan, three arms: (1) no goal mode; (2) G1; (3) G1 plus the `/goal` HARD-STOP condition. Log every stop by class | `docs/dogfooding.md` | G1, G2 |
 | **WP-G4** `dev-stopguard` stage 0+1 | §5.3 stages 0 and 1; stdlib Python; Claude Code and Codex hook configs; offline tests | separate repo | G3 shows leftover untagged stops |
-| **WP-G4b** Stage 2, dormant | Decisions client, probe fixtures, `compare` across span-01, span-01-lite and jev; logging only | separate repo | G4 |
+| **WP-G4b** Stage 2, dormant | Decisions client, redaction module and its payload tests (§5.3 gate), probe fixtures, `compare` across span-01, span-01-lite and jev; logging only | separate repo | G4 |
 | **WP-G5** Enable stage 2, or not | Turn stage 2 on only if G4's logs show tag abuse, or more than 1 in 5 stage-1 blocks landing on genuine hard stops | README, `docs/dogfooding.md` | G4b plus 1 week of logs |
 | *Deferred* | OpenCode adapter; deterministic PreToolUse Iron-Rule-1 guard (lead edits non-doc files; no model needed); drift enforcement | — | measured need |
 
@@ -262,6 +274,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
   - a dogfood run: `/dev goal <approved plan>` with a MiniMax M3 or Kimi K3 lead. Every stop carries an H-line or is a wake.
 - **WP-G4/G4b:**
   - offline tests against a fake Decisions endpoint (the jev-belay `fake-jev` pattern)
-  - Stop-payload fixtures: an untagged confirmation ask; each H-class, tagged and untagged; a tag on a non-hard-stop; completion; an empty or garbled payload (must exit 0); `stop_hook_active`; each cap
+  - Stop-payload fixtures: an untagged confirmation ask; each H-class, tagged and untagged; a tag on a non-hard-stop; a `WAKE:` line; completion with `GOAL-COMPLETE:` naming the right and a wrong `goal_source`; a marker that is not the last line; an empty or garbled payload (must exit 0); `stop_hook_active`; each cap
+  - redaction payload tests: representative secrets and personal data never appear in the request body; a redaction error sends nothing
   - probe fixtures including negated and adversarial "you may continue" text
   - recorded `decide.ts --compare` output for each candidate model
