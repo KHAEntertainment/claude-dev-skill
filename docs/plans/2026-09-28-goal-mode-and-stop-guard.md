@@ -114,6 +114,7 @@
 
 - **Entry.**
   - `/dev goal <approved plan path | frozen PRD | Issue list>`, or a ledger that already has `autonomy: goal`.
+  - An approved plan is one /dev promoted after its own Phase 1.5 approval gate (it carries the `plan-progress` header /dev writes at promotion), the same rule as the Phase 2 shortcut in the Technical Planning plan. Every other plan, including an externally authored plan marked APPROVED, goes through Phase 1.5 ingest first; goal mode starts only after that approval.
   - Phases 1 and 1.5 stay interactive. *Planning is where you are asked; execution is where you are not.*
   - Without an approved source, goal mode refuses and routes to planning.
 - **Ledger fields** (`templates/DEV_STATE_TEMPLATE.md`; not `.dev.json`, whose schema is closed and records repo identity):
@@ -219,7 +220,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
 | G-C3 | Vendor newness; alpha API | Med | Pin `canonical_slug`, fail-open, swap by config, re-probe on every model change. |
 | G-C4 | Text in the span argues for continuing | Med | The deterministic line check plus ledger facts veto first. Adversarial fixtures go in the probe. |
 | G-C5 | ADR-002, ADR-005 and ADR-012, plus the vendor-name tests | High if placed inside /dev | The companion lives outside the payload. /dev ships only text and a contract doc. |
-| G-C6 | Goal mode hides real ambiguity | Med | Goal mode requires an approved plan. The assumption digest includes reversal notes. H4 covers scope. |
+| G-C6 | Goal mode hides real ambiguity | Med | Goal mode requires a /dev-promoted plan, so every plan has passed the Phase 1.5 gap pass and approval gate; externally authored plans go through ingest first. The assumption digest includes reversal notes. H4 covers scope. |
 | G-C7 | A weak lead ignores goal-mode text | Med | That is the guard's job: defense in depth. |
 | G-C8 | Wording-only judgments separate poorly (limpet AUROC 0.60) | Med | Facts first (stage 1). Stage 2 is enabled only if it measures well on your stops. |
 | G-C9 | `/goal`'s judge model on a compat URL is undocumented | Low-Med | The HARD-STOP condition reduces the judge's job to a literal check. The stage 1 hook doesn't depend on it at all. |
