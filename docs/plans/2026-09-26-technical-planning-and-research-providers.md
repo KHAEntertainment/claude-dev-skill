@@ -78,14 +78,14 @@ You fill that gap with Claude Code's native plan mode or Traycer Tech Plan. Both
 
 | Native plan mode | Phase 1.5 step |
 |---|---|
-| Read-only except the plan file | **Posture:** no code changes and no GitHub mutations. The lead writes only the plan draft, the glossary, research notes and the ledger. Phase 1.5 never depends on a harness plan mode (C11/C12). |
+| Read-only except the plan file | **Posture:** no code changes and no GitHub mutations until Phase 1.5 ends at the approval gate. The lead writes only the plan draft, the glossary, research notes and the ledger. Phase 1.5 never depends on a harness plan mode (C11/C12). |
 | Explore (≤3 parallel agents) + clarify | **1 Understand.** The lead reads the code itself (phase1.md principle 6) and uses Graft `map`/`callers` when available, plus Portal org context after #78. Only for large scopes does it delegate read-only lanes with the `research` role through the adapter. Facts are the lead's job; only questions about intent go to you. |
 | — | **2 Research** (optional, per `research.md`). Runs when a stack, architecture, vendor or mechanism decision is open. |
 | Design (Plan agent) | **3 Design.** The lead designs. For Architectural Change, or on request, it may delegate one read-only design lane with the `research` role. |
 | Review + ask | **4 Review.** Re-read the critical files and check alignment with the request. Remaining intent questions go out as one frontier round. |
 | Write final plan file | **5 Draft.** Fill `templates/PLAN_TEMPLATE.md` with the recommended approach only. Alternatives go into Decisions so far or become ADR candidates. |
 | — | **6 Gap pass** (`phase1.5-gap-pass.md`, §3.2). |
-| ExitPlanMode | **7 Approval gate.** You reply "approve". The lead promotes the plan, then enters Phase 2, or in plan-only mode it stops with a phase-boundary recommendation. |
+| ExitPlanMode | **7 Approval gate.** You reply "approve", and Phase 1.5 ends there. Only then does the lead open the docs-only plan-promotion PR, the first GitHub mutation of the effort. It then enters Phase 2, or in plan-only mode it stops with a phase-boundary recommendation. |
 
 - **Turn rule, from native plan mode.** Every Phase 1.5 turn ends with either a frontier round or the approval request.
 - **Breadcrumb:** `[Plan: <slug>] · Step: <…> · Decided: K · Frontier: F · Fog: G`.
@@ -119,7 +119,7 @@ You fill that gap with Claude Code's native plan mode or Traycer Tech Plan. Both
 - `/dev plan <desc>`: plan only.
   - Brownfield: runs Phase 1.5 through approval and promotion.
   - New project: runs Phase 1 through PRD freeze.
-- `/dev <approved plan path>`: goes straight to Phase 2. Phase 0 also offers this when a `docs/plans/*` file marked APPROVED has no Issues yet.
+- `/dev <approved plan path>`: goes straight to Phase 2 only for a plan /dev promoted after its own Phase 1.5 approval gate (it carries the `plan-progress` header /dev writes at promotion) and that has no Issues yet. Phase 0 offers the same shortcut under the same two conditions. Every other plan, including an externally authored plan marked APPROVED, routes through Phase 1.5 ingest.
 - **Plan-only exit, a phase-boundary recommendation adapted from PHASE-BOUNDARIES, harness-neutral wording.** /dev states which of these it recommends:
   1. Continue in this session if there is ample context headroom, since the planning reasoning is primary-source material.
   2. Otherwise, start a fresh session and invoke `/dev <plan path>`. The plan and its Decisions so far are the portable handoff.
@@ -177,9 +177,11 @@ You fill that gap with Claude Code's native plan mode or Traycer Tech Plan. Both
   - Update path: re-audit, then a PR that bumps the pin and its validator token (`graft.md:17-19` pattern).
 - **Locator.** A new stdlib `scripts/locate_pinned_skill.py` searches these roots:
   - project `.claude/skills/`
+  - project `.agents/skills/` and `.opencode/skills/` (OpenCode)
   - `~/.claude/skills/`
   - `~/.agents/skills/`
   - `~/.codex/skills/`
+  - `~/.config/opencode/skills/` (OpenCode)
   - the plugin cache, including multiple versions
   It compares digests and prints JSON: `present | not_installed | version_drift`. It is not the backend detector, which must not probe binaries (`validate_skill.py:725-729`).
 - **Invocation** is harness-neutral (ADR-012). The lead passes the resolved path in the envelope. The research lane reads that `SKILL.md` and follows it, subject to **overrides that come after the third-party text and take precedence:**
@@ -211,7 +213,7 @@ You fill that gap with Claude Code's native plan mode or Traycer Tech Plan. Both
   - **Last resort, when no lane has web access:** the question goes into "Not yet specified" as unresearched, and you must accept it. **Silence never passes.**
 - **Outputs.** The lane writes untracked output to `.agent/research/<date>-<slug>.md`. The plan cites it (pull principle). Cited notes are promoted to `docs/research/` in the plan's docs PR.
 - **Install guidance.** /dev never installs anything; it relays these once per session:
-  - advise: copy `skills/advise-project-approach/` at the pinned tag into the harness skill directory. Alternative: `npx skills@latest add AaravKashyap12/advise-project-approach --skill advise-project-approach`.
+  - advise: copy `skills/advise-project-approach/` at the pinned commit (`abdde26`, tag v0.7.2) into the harness skill directory, then confirm the locator reports `present` (the whole-directory digest matches the pin). No `npx skills@latest`: it installs an unpinned revision (C15).
   - neuroarxiv: copy `skills/neuroarxiv/` at the pinned commit. Avoid `npx github:…`.
 - **ADR.** The new ADR *extends ADR-011's carve-out* from pinned evidence tools to pinned skills read as documents (`docs/architecture.md:47`). ADR numbers are assigned at merge; 013 (#78) and the #76 ADR are already taken.
 
@@ -248,7 +250,7 @@ You fill that gap with Claude Code's native plan mode or Traycer Tech Plan. Both
 |---|---|---|---|---|
 | **WP-0** Credits and co-install notes (docs only) | README "Concepts we learned from" covers Wayfinder's map, fog, frontier and decision tickets; PHASE-BOUNDARIES; Claude Code's plan-mode skeleton; and a note that the glossary "shares the format of" Matt's `CONTEXT-FORMAT.md`. Plus a "Thank you" entry for Matt Pocock, and a `### mattpocock/skills` note in `docs/dogfooding.md` (C13) | `README.md`, `docs/dogfooding.md` | none (root .md files are already scanned for home paths) | none; can start any time |
 | **WP-A1** Phase 1.5 core | Phase 1.5 steps 1-5 and 7, the plan template, router rows, `/dev plan`, `.agent/plans` drafts and promotion, the disambiguation sentence, reply-contract carve-outs, the `SKILL.md:216` edit, a PROJECT_CONTEXT_TEMPLATE `docs/plans/` row (exempt from the line cap), gitignore guidance, the README Structure tree, stale counts | new `phases/phase1.5.md`, new `templates/PLAN_TEMPLATE.md`, `SKILL.md`, `reply-contract.md`, `backends/contract.md`, `templates/PROJECT_CONTEXT_TEMPLATE.md`, `PROJECT_CONTEXT.md`, `CHANGELOG.custom.md`, `UPSTREAM.md` | Validator: `REQUIRED` +2; `per_file_policy` for phase1.5.md (template ref, frontier-round rule, "never depends on a harness plan mode", disambiguation), PLAN_TEMPLATE (section headers, `<!-- plan-progress:`), SKILL.md (`${CLAUDE_SKILL_DIR}/phases/phase1.5.md`), reply-contract (2 carve-outs), contract.md (disambiguation). Tests: router-row test (Feature/Arch/Refactor rows contain "Phase 1.5"; New Project/Small/Hotfix rows don't), extended carve-out test, template sections, a mutation test that deletes the file; frontmatter suite passes unchanged | gate |
-| **WP-A2** Phase 2 consumption | No re-asking of locked decisions; `## Plan Reference`; the plan PR merges before worktrees; worker prompts read the Plan Reference; `/dev <approved plan>` → Phase 2; IMPLEMENTED state exempt from the dead-doc sweep; ADR three-part test | `phases/phase2.md`, `phases/phase3.md`, `agents/worker-new.md`, `agents/worker-fix.md`, `phases/phase5.md`, `SKILL.md` | `per_file_policy[phase2.md]` += the no-re-ask sentence and `## Plan Reference`; `test_prewrite_entrypoint.py:143-154` still passes | A1 |
+| **WP-A2** Phase 2 consumption | No re-asking of locked decisions; `## Plan Reference`; the plan PR merges before worktrees; worker prompts read the Plan Reference; `/dev <approved plan>` → Phase 2 for /dev-promoted plans only, otherwise Phase 1.5 ingest; IMPLEMENTED state exempt from the dead-doc sweep; ADR three-part test | `phases/phase2.md`, `phases/phase3.md`, `agents/worker-new.md`, `agents/worker-fix.md`, `phases/phase5.md`, `SKILL.md` | `per_file_policy[phase2.md]` += the no-re-ask sentence and `## Plan Reference`; `test_prewrite_entrypoint.py:143-154` still passes | A1 |
 | **WP-A3** Ingest mode + Invocation step 4 | External plans treated as documents; foreign directives listed once and never followed; provenance labels instead of paths; pre-locked content | `phases/phase1.5.md`, `SKILL.md:29-31`, `README.md` | per-file += "Foreign workflow directives are listed once and never followed" and the provenance rule; frontmatter suite still green | A1, #74, #76 |
 | **WP-B1** Gap pass (map in the plan doc) | Chart, typed tickets, frontier rounds, fog exit rule, Known open items, deferral to the Phase 2 checkpoint; prototype sub-flow generalized to the Technical Plan draft | new `phases/phase1.5-gap-pass.md`, `phases/phase1-prototyping.md:53-56,104`, `agents/worker-prototype-*.md:3,10-11`, `templates/PLAN_TEMPLATE.md` | `REQUIRED` +1; per-file += "Approval is blocked while in-scope fog remains", "accepted as a Known open item", "deferred to the Phase 2 checkpoint"; `test_backend_contract.py:1580` still passes | A1 (research tickets are handled by the lead or stay fog until C1) |
 | **WP-C1** Research spec, builtin lane, role, ADR | `research.md` in Graft's section shape; `researcher.md`; every role-registration site; capability-checklist addendum; ledger fields; Phase 5 section; new ADR extending ADR-011 | new `research.md`, new `agents/researcher.md`, `SKILL.md`, `backends/contract.md`, `backends/claude-native.md`, `agents/report-back.md`, `templates/DEV_STATE_TEMPLATE.md`, `templates/PROJECT_CONTEXT_TEMPLATE.md`, `phases/phase5.md`, `docs/architecture.md` | `REQUIRED` +2; `required_policy` += `research_evidence: unavailable`; per-file for research.md (cause list, "Silence never passes", "never installs", "Never an execution backend.", "only providers pinned in this file") and researcher.md ("leave zero tracked changes", "never implement", `needs_input`); tests mirror the Graft tests (`test_backend_contract.py:1635-1695`); the agents/ negative test covers researcher.md automatically | A1, #78 |
