@@ -123,14 +123,14 @@
   - `assumed_decisions[]`, each with `{what, why, reversible_how, phase}`
   - `hard_stops[]`
   - `next_wake_at: <ISO-8601 UTC> | none`, written whenever a turn ends with `WAKE:`; paired with the existing `next_action`
-  - `goal_issues[]`: the Issue numbers the goal covers, recorded when goal mode starts (from the approved plan's Phase 2 breakdown, or the supplied Issue list)
+  - `goal_issues[]`: each entry `{repository: OWNER/REPO, number}`, recorded when goal mode starts (from the approved plan's Phase 2 breakdown, or the supplied Issue list). The repository is the confirmed Issue repository from repository context, never inferred from the number; a bare number is invalid
 - **Closed hard-stop list.** These are the only reasons to end a turn waiting for you:
   - **H1 Irreversible or outward-facing** actions the plan did not authorize: force-push, deleting a branch or data, a review-gate bypass, a release or publish, repo settings.
   - **H2 Credentials, identity, money:** pre-write verification not `ready`, a paid service, installing a tool.
   - **H3 Security or data-loss finding** (`reply-contract.md:33`).
   - **H4 Scope conflict:** the work contradicts the plan's Out of scope or Decisions, or would change an acceptance criterion.
   - **H5 Unrecoverable failure:** a gate still failing after the retry budget, with no autonomous path.
-  - **H6 Goal complete** (the final report).
+  - **H6 Goal complete** (the final report). The lead emits it only after checking every `goal_issues[]` entry is closed by a merged PR; the stop guard verifies it independently (§5.2).
   - **Merges are not a hard stop** (your answer): merge on APPROVE with green CI; post-merge verification still runs, and each merge is listed in the digest.
 - **Everything else is decided, recorded, and the session continues:**
   - route classification
@@ -164,7 +164,9 @@
   - `WAKE: <ISO-8601 UTC timestamp> — <next action>` (scheduled wake or yield)
   - `GOAL-COMPLETE: <goal_source>` (H6; the value must equal the ledger's `goal_source`)
 - **Precedence:** only the message's last non-empty line is inspected, and it must match exactly one marker. A marker anywhere else in the message does not count. A malformed marker, or a `GOAL-COMPLETE:` naming a different source, counts as no marker. A `WAKE:` marker is valid only when its time equals the ledger's `next_wake_at` and its action equals `next_action` (whitespace trimmed). A `GOAL-COMPLETE:` marker is valid only when the completion verifier passes.
-- **Completion verifier** (one implementation, shared by every runner's hook, Claude Code and Codex alike): before accepting `GOAL-COMPLETE:`, read `goal_issues[]` and query GitHub read-only for each Issue. Pass only when every Issue is closed by a merged PR. Fail when `goal_issues[]` is empty, any Issue is open or closed without a merged PR, or any query errors or is rate limited; failed and inconclusive both **block** with the unverified Issue numbers in the reason. This is the one exception to Stage 0's fail-open, and it stays bounded by the block caps. The `/goal` judge below reads text only and is not the authority.
+- **Completion verifier** (one implementation, shared by every runner's hook, Claude Code and Codex alike): before accepting `GOAL-COMPLETE:`, read `goal_issues[]` and query GitHub read-only for each Issue by its recorded `repository` and `number` (`--repo OWNER/REPO`). Pass only when every Issue is closed by a merged PR. Fail when `goal_issues[]` is empty, any entry lacks a repository, any Issue is open or closed without a merged PR, or any query errors or is rate limited; failed and inconclusive both **block** with the unverified `OWNER/REPO#N` identities in the reason. This is the one exception to Stage 0's fail-open, and it stays bounded by the block caps.
+- **Cap exhaustion is incomplete, never complete.** When a cap stops the hook from blocking an unverified `GOAL-COMPLETE:`, the hook still lets the turn end, but reports the outcome as `goal_incomplete: verification_failed` (a warning to you where the harness supports one, and a line in the guard's own log; the guard still never writes the ledger).
+- **`GOAL-COMPLETE:` is a claim, not proof.** No consumer treats it as verified on its own: the `/goal` judge (text only, not the authority), the pilot metrics, and a lead resuming the run all count the goal complete only when the completion verifier passes. A resuming lead re-runs the verifier before reporting the goal done.
 - **What a guard must never do:**
   - write the ledger
   - answer for you
@@ -263,6 +265,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
 - human interventions per Issue
 - stops by class
 - wrong continues past H1–H4, which must be **0**
+- unverified completions (`GOAL-COMPLETE:` without a passing verifier, including cap exhaustion), counted as incomplete, never complete
 - wrong blocks
 - turns spent
 - cost and latency (stage 2)
@@ -277,7 +280,7 @@ It ships as its own Claude Code plugin with `hooks/hooks.json`. It may optionall
   - a dogfood run: `/dev goal <approved plan>` with a MiniMax M3 or Kimi K3 lead. Every stop carries an H-line or is a wake.
 - **WP-G4/G4b:**
   - offline tests against a fake Decisions endpoint (the jev-belay `fake-jev` pattern)
-  - Stop-payload fixtures: an untagged confirmation ask; each H-class, tagged and untagged; a tag on a non-hard-stop; a `WAKE:` line matching and not matching the ledger's `next_wake_at`/`next_action`; completion with `GOAL-COMPLETE:` naming the right and a wrong `goal_source`; completion verifier cases for both runners: all Issues merged, one Issue open, an Issue closed without a merged PR, empty `goal_issues[]`, and a GitHub query error (all but the first must block); a marker that is not the last line; an empty or garbled payload (must exit 0); `stop_hook_active`; each cap
+  - Stop-payload fixtures: an untagged confirmation ask; each H-class, tagged and untagged; a tag on a non-hard-stop; a `WAKE:` line matching and not matching the ledger's `next_wake_at`/`next_action`; completion with `GOAL-COMPLETE:` naming the right and a wrong `goal_source`; completion verifier cases for both runners: all Issues merged, one Issue open, an Issue closed without a merged PR, empty `goal_issues[]`, an entry without a repository, the same Issue number in two repositories, and a GitHub query error (all but the first must block); cap exhaustion on an unverified `GOAL-COMPLETE:` (the stop is allowed and reported `goal_incomplete`, never complete); a marker that is not the last line; an empty or garbled payload (must exit 0); `stop_hook_active`; each cap
   - redaction payload tests: representative secrets and personal data never appear in the request body; a redaction error sends nothing
   - probe fixtures including negated and adversarial "you may continue" text
   - recorded `decide.ts --compare` output for each candidate model
