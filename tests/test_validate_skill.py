@@ -186,5 +186,79 @@ class HomePathScopeTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
 
 
+class SuppliedIdentityPinTests(unittest.TestCase):
+    """Issue #89: the manifest entry and policy pins fail the validator when removed."""
+
+    PINS = (
+        ("backends/traycer.md", ".agent/traycer.env"),
+        ("backends/traycer.md", "export TRAYCER_AGENT_ID="),
+        ("backends/traycer.md", "git-ignored or excluded"),
+        ("backends/traycer.md", "never guesses an id"),
+        ("backends/traycer.md", "ask the user once and stop until answered"),
+        ("backends/traycer.md", "isSelf: true"),
+        ("backends/traycer.md", "This check applies to `detected` and `supplied` alike."),
+        ("backends/traycer.md", "unverified for Codex and OpenCode leads"),
+        ("backends/traycer.md", "Never invoke `traycer` directly"),
+        ("backends/contract.md", "`claude-native` is never available to it"),
+        ("backends/contract.md", "`lead.harness` is recorded from the Traycer agent list, never inferred."),
+        ("backends/contract.md", "A lead whose harness is not Claude Code selects `traycer` or records `incomplete` and stops."),
+        ("backends/contract.md", "Sources are never mixed"),
+        ("templates/DEV_STATE_TEMPLATE.md", "`supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`)"),
+        ("SKILL.md", "never available to a lead whose harness is not Claude Code"),
+    )
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        shutil.copytree(SKILL, self.root / "skills" / "dev")
+        (self.root / "scripts").mkdir(parents=True)
+        shutil.copy(VALIDATOR, self.root / "scripts" / "validate_skill.py")
+        shutil.copy(PROJECT_CONTEXT, self.root / "PROJECT_CONTEXT.md")
+        self.skill_dir = self.root / "skills" / "dev"
+
+    def run_validator(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.root / "scripts" / "validate_skill.py"), "--skill-dir", str(self.skill_dir)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_clean_fixture_passes(self) -> None:
+        completed = self.run_validator()
+        self.assertEqual(0, completed.returncode, completed.stderr)
+
+    def test_missing_wrapper_fails_the_manifest(self) -> None:
+        (self.skill_dir / "scripts" / "traycer_cli.py").unlink()
+        completed = self.run_validator()
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("missing required file: scripts/traycer_cli.py", completed.stderr)
+
+    def test_removing_each_pinned_sentence_fails(self) -> None:
+        for relative, token in self.PINS:
+            with self.subTest(file=relative, token=token):
+                target = self.skill_dir / relative
+                original = target.read_text(encoding="utf-8")
+                self.assertIn(token, original)
+                target.write_text(original.replace(token, "REMOVED"), encoding="utf-8")
+                try:
+                    completed = self.run_validator()
+                finally:
+                    target.write_text(original, encoding="utf-8")
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("missing required policy", completed.stderr)
+
+    def test_a_bare_traycer_route_alone_does_not_satisfy_the_wrapper_pin(self) -> None:
+        route = "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py"
+        for target in sorted(self.skill_dir.rglob("*.md")):
+            text = target.read_text(encoding="utf-8")
+            if route in text:
+                target.write_text(text.replace(route, "rtk proxy traycer"), encoding="utf-8")
+        completed = self.run_validator()
+        self.assertEqual(1, completed.returncode)
+        self.assertIn(route, completed.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

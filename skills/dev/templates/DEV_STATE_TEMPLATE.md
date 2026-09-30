@@ -42,7 +42,7 @@ Each `execution` entry records: `execution_backend`, `detection_status`, `detect
 
 `skill_dir` is the absolute path `${CLAUDE_SKILL_DIR}` resolved to at dispatch time. Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so the lead substitutes this path into worker, QA, and reviewer prompts before sending them. Re-resolve it at the start of each run rather than trusting a stored value: the path changes when the Skill is reinstalled, and it is version-stamped when the Skill is installed as a plugin.
 
-Allowed `backend_source` values: `null` (not yet resolved), `detected` (the detector chose the backend), and `lead_resolved` (the lead overrode an `incomplete` result, e.g. `claude-native`).
+Allowed `backend_source` values: `null` (not yet resolved), `detected` (the detector chose `traycer` from identifiers in the environment), `supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`), and `lead_resolved` (the lead overrode an `incomplete` result, e.g. `claude-native`).
 
 ## Worker record schema
 

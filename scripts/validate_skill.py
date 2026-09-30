@@ -34,6 +34,7 @@ REQUIRED = {
     "templates/PROJECT_CONTEXT_TEMPLATE.md",
     "templates/DEV_STATE_TEMPLATE.md",
     "scripts/detect_execution_backend.py",
+    "scripts/traycer_cli.py",
     "scripts/inspect_external_reviews.py",
     "scripts/dev_config.py",
     "scripts/resolve_repository.py",
@@ -275,6 +276,17 @@ def main() -> int:
         "TRAYCER_EPIC_ID",
         "claude-native",
         "rtk proxy traycer",
+        # Issue #89: every Traycer CLI step goes through the wrapper, which is
+        # what supplies a session identity the harness did not export. A bare
+        # `traycer` call loses that identity, so the route and its prohibition
+        # are pinned together. `rtk proxy traycer` stays pinned because
+        # `test_no_baseline_policy_token_is_ever_removed` forbids dropping a
+        # baseline token; the payload now carries it as the forbidden form.
+        "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py",
+        "Never invoke `traycer` directly",
+        "backend_source: supplied",
+        ".agent/traycer.env",
+        "never inferred",
         "--surface gui",
         "--expect-reply",
         "--workspace-entry",
@@ -461,6 +473,14 @@ def main() -> int:
             # rejected credential layer from ADR-008 as a control.
             "an authorship lint, not a security control",
             "behavioural tests and the supported pre-write verification are the real controls",
+            # Issue #89: a lead that is not Claude Code has no native path, and
+            # its harness is read from Traycer rather than assumed.
+            "A lead whose harness is not Claude Code selects `traycer` or records `incomplete` and stops.",
+            "`claude-native` is never available to it",
+            "`lead.harness` is recorded from the Traycer agent list, never inferred.",
+            "backend_source: supplied",
+            "Sources are never mixed",
+            "Never invoke `traycer` directly, and never through a bare `rtk proxy traycer`.",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
@@ -472,6 +492,9 @@ def main() -> int:
             "report_back_termination",
             "termination, reply correlation, and section presence",
             "Every bounded read records how it ended",
+            # Issue #89: the ledger must be able to say which source the
+            # identity came from.
+            "`supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`)",
             # Issue #33: a bypass recorded against a PR number alone lets the
             # same debt be re-hidden behind a later, partially-reviewed head.
             "the exact unreviewed commit range",
@@ -608,6 +631,9 @@ def main() -> int:
         ),
         "SKILL.md": (
             "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
+            # Issue #89: the Execution Backend section names the supplied source.
+            "backend_source: supplied",
+            "never available to a lead whose harness is not Claude Code",
             "${CLAUDE_SKILL_DIR}/reply-contract.md",
         ),
         # Issue #54: the reply contract's own pinned sentences, held in the one
@@ -627,6 +653,23 @@ def main() -> int:
         # exist but cannot supply a page size or a timeout for a transport it
         # does not know. An adapter naming no bound has not implemented observe.
         "backends/traycer.md": (
+            # Issue #89: the wrapper route, the identity file format and its
+            # acquisition rule, and the preflight self-check that catches a
+            # wrong supplied pair mechanically.
+            "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py",
+            "Never invoke `traycer` directly",
+            ".agent/traycer.env",
+            "export TRAYCER_AGENT_ID=",
+            "export TRAYCER_EPIC_ID=",
+            "git-ignored or excluded",
+            "never guesses an id",
+            "Never derive an id from a path guess, a directory name, or another agent's record.",
+            "ask the user once and stop until answered",
+            "isSelf: true",
+            "data.caller.agentId",
+            "the identity is wrong, and the lead deletes or corrects `.agent/traycer.env` before anything else",
+            "This check applies to `detected` and `supplied` alike.",
+            "unverified for Codex and OpenCode leads",
             "report_back: incomplete",
             "Quality-gate self-assessment",
             "Bound that read.",
