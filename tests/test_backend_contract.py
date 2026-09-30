@@ -1831,20 +1831,84 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, section)
 
-    def test_preflight_self_check_catches_a_wrong_identity(self) -> None:
+    def test_preflight_verifies_a_supplied_identity_with_two_independent_checks(self) -> None:
         preflight = _markdown_section(self.read("backends/traycer.md"), "## Preflight")
         self.assertIsNotNone(preflight)
         for token in (
-            "`isSelf: true`",
-            "equals the recorded `TRAYCER_AGENT_ID`",
-            "data.caller.agentId",
-            "No such row, or a different id, is `incomplete`",
+            "**(a) Self-source comparison.**",
+            "the recorded agent id must equal the id that source reports",
+            "This is mandatory whenever the source exists, including when the id came from the user's message.",
+            "**(b) Row corroboration.**",
+            "`folderPaths` must include the lead's current worktree root",
+            "its `harnessId` must be the harness the lead itself knows it is running on",
+            "A wrong id belonging to another agent fails this unless that agent shares the same worktree and harness.",
+            "A failed (a) or a failed (b) is `incomplete`",
             "deletes or corrects `.agent/traycer.env` before anything else",
-            "`detected` and `supplied` alike",
-            "`backend_source`",
+            "(b) alone is the floor and the ledger records that",
+            "When neither can be made, the result is `incomplete`.",
+            "(b) cannot distinguish two agents that share one worktree and one harness",
+            "`identity_verification`",
+            "a `detected` identity leaves it `null`",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, preflight)
+
+    def test_the_cli_self_marker_is_never_treated_as_evidence(self) -> None:
+        """The CLI derives `isSelf` and `data.caller.agentId` from the supplied
+        identifiers, so a wrong pair reports itself as the caller. The adapter
+        must say so, and no sentence may claim the marker catches a wrong pair."""
+        adapter = self.read("backends/traycer.md")
+        preflight = _markdown_section(adapter, "## Preflight")
+        supplied = _markdown_section(adapter, "## Supplied identity")
+        self.assertIsNotNone(preflight)
+        self.assertIsNotNone(supplied)
+        for section in (preflight, supplied):
+            self.assertIn("are not evidence of the caller's identity", section)
+            self.assertIn("derived", section)
+        self.assertIn("proves nothing here", preflight)
+        self.assertIn("never by the marker", supplied)
+        for retired in (
+            "the output must contain a row marked `isSelf: true`",
+            "`data.caller.agentId` must equal it too",
+            "run the self-check",
+            "This check applies to `detected` and `supplied` alike.",
+            "a wrong supplied pair must be caught mechanically, not trusted: preflight step 3 fails closed on it",
+        ):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired.lower(), adapter.lower())
+
+    def test_a_partial_environment_is_a_host_defect_the_file_cannot_repair(self) -> None:
+        supplied = _markdown_section(self.read("backends/traycer.md"), "## Supplied identity")
+        self.assertIsNotNone(supplied)
+        for token in (
+            "with neither identifier in the environment",
+            "a partial environment cannot be recovered by the file",
+            "The lead records `incomplete`, reports the partial environment to the user as a host defect, and stops.",
+            "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, supplied)
+
+    def test_ledger_records_which_check_verified_a_supplied_identity(self) -> None:
+        template = self.read("templates/DEV_STATE_TEMPLATE.md")
+        frontmatter = template.split("\n---\n", 1)[0]
+        self.assertIn("  identity_verification: null", frontmatter)
+        self.assertIn("schema_version: 2", frontmatter)
+        schema = _markdown_section(template, "## Execution record schema")
+        self.assertIsNotNone(schema)
+        self.assertIn("`identity_verification`", schema)
+        line = next(
+            row for row in schema.splitlines() if row.startswith("Allowed `identity_verification` values")
+        )
+        for value in (
+            "`null`",
+            "`self_source`",
+            "`worktree_match`",
+            "`self_source_and_worktree_match`",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, line)
+        self.assertIn("additive under `schema_version: 2`", line)
 
     def test_recovery_accepts_a_supplied_identity(self) -> None:
         adapter = self.read("backends/traycer.md")

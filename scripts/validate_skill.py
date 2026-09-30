@@ -287,6 +287,8 @@ def main() -> int:
         "backend_source: supplied",
         ".agent/traycer.env",
         "never inferred",
+        "identity_verification",
+        "are not evidence of the caller's identity",
         "--surface gui",
         "--expect-reply",
         "--workspace-entry",
@@ -495,6 +497,9 @@ def main() -> int:
             # Issue #89: the ledger must be able to say which source the
             # identity came from.
             "`supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`)",
+            "identity_verification",
+            "`self_source_and_worktree_match`",
+            "additive under `schema_version: 2`",
             # Issue #33: a bypass recorded against a PR number alone lets the
             # same debt be re-hidden behind a later, partially-reviewed head.
             "the exact unreviewed commit range",
@@ -665,10 +670,26 @@ def main() -> int:
             "never guesses an id",
             "Never derive an id from a path guess, a directory name, or another agent's record.",
             "ask the user once and stop until answered",
-            "isSelf: true",
-            "data.caller.agentId",
+            # The CLI derives its self marker and caller block from the supplied
+            # identifiers, so neither can catch a wrong pair. Pinned as a
+            # statement, with the two independent checks that replace them.
+            "are not evidence of the caller's identity",
+            "**(a) Self-source comparison.**",
+            "This is mandatory whenever the source exists, including when the id came from the user's message.",
+            "**(b) Row corroboration.**",
+            "`folderPaths`",
+            "`harnessId`",
+            "its `harnessId` must be the harness the lead itself knows it is running on",
             "the identity is wrong, and the lead deletes or corrects `.agent/traycer.env` before anything else",
-            "This check applies to `detected` and `supplied` alike.",
+            "(b) alone is the floor and the ledger records that",
+            "When neither can be made, the result is `incomplete`.",
+            "(b) cannot distinguish two agents that share one worktree and one harness",
+            "identity_verification",
+            # A partial environment is a host defect, not something the lead
+            # repairs by editing its own environment.
+            "a partial environment cannot be recovered by the file",
+            "reports the partial environment to the user as a host defect",
+            "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply.",
             "unverified for Codex and OpenCode leads",
             "report_back: incomplete",
             "Quality-gate self-assessment",
