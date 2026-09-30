@@ -1,4 +1,43 @@
-# Install the English /dev personal Skill for Claude Code on Windows.
+<#
+.SYNOPSIS
+Installs the English /dev personal Skill for Claude Code on Windows.
+
+.DESCRIPTION
+Installs skills\dev as a personal Claude Code Skill. The installed copy has its
+${CLAUDE_SKILL_DIR} references replaced by its absolute path, so harnesses other
+than Claude Code can resolve them.
+
+A default install also links "$env:USERPROFILE\.agents\skills\dev" to the
+installed Skill (a junction on Windows, a symbolic link elsewhere) so Codex and
+other harnesses discover the same copy. An existing real directory, file, or
+link to another existing directory at that path is reported and left untouched;
+a link whose target no longer exists is replaced. If the link cannot be created
+the install still succeeds and the skip is reported.
+
+A custom -Target installs in isolation: it does not migrate legacy commands by
+default and does not create the Codex discovery link.
+
+.PARAMETER Lang
+Only "en" is accepted; Chinese is not distributed.
+
+.PARAMETER ConfigDir
+Claude Code configuration directory. Defaults to CLAUDE_CONFIG_DIR or "$env:USERPROFILE\.claude".
+
+.PARAMETER Target
+Exact dev Skill directory to install into; must end in \dev.
+
+.PARAMETER MigrateLegacy
+Back up and remove legacy commands\dev.md and commands\dev.
+
+.PARAMETER KeepLegacy
+Leave legacy commands in place.
+
+.PARAMETER NoAgentsLink
+Do not create or touch the "$env:USERPROFILE\.agents\skills\dev" Codex discovery link.
+
+.PARAMETER DryRun
+Validate and report without changing any files.
+#>
 [CmdletBinding()]
 param(
     [string]$Lang = "en",
@@ -6,6 +45,7 @@ param(
     [string]$Target,
     [switch]$MigrateLegacy,
     [switch]$KeepLegacy,
+    [switch]$NoAgentsLink,
     [switch]$DryRun
 )
 
@@ -165,6 +205,21 @@ $targetWasExplicit = $PSBoundParameters.ContainsKey("Target")
 if (-not $Target) {
     $Target = Join-Path $ConfigDir "skills\dev"
 }
+# Codex discovery link decision. Home is the same one the unsafe-target check
+# below uses (USERPROFILE, with $HOME as the non-Windows fallback so the suite
+# can run under pwsh on macOS/Linux); tests override it by setting USERPROFILE.
+$agentsLinkPath = $null
+$agentsLinkSkip = $null
+if ($NoAgentsLink) {
+    $agentsLinkSkip = "-NoAgentsLink"
+}
+elseif ($targetWasExplicit) {
+    $agentsLinkSkip = "explicit -Target installs in isolation"
+}
+else {
+    $agentsHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    $agentsLinkPath = Join-Path $agentsHome ".agents\skills\dev"
+}
 if ((Split-Path $Target -Leaf) -ne "dev") {
     throw "-Target must be the exact dev Skill directory and end in \dev: $Target"
 }
@@ -228,6 +283,8 @@ if ($migrate) {
 Write-Host "Source: $source"
 Write-Host "Target: $Target"
 Write-Host "Legacy migration: $migrate"
+if ($agentsLinkPath) { Write-Host "Codex discovery link: $agentsLinkPath" }
+else { Write-Host "Codex discovery link: skipped ($agentsLinkSkip)" }
 if ($DryRun) {
     Write-Host "DRY RUN: validation passed; no files changed."
     return
@@ -256,6 +313,36 @@ try {
     }
     & $pythonExe $validator --skill-dir $stage
     if ($LASTEXITCODE -ne 0) { throw "Staged Skill validation failed." }
+
+    # Stamp only after the staged (git-archived, still variable-form) payload
+    # has passed validation, and only on the staged copy that is about to
+    # become the installed one: the repository, the preflight tree, and the
+    # validator's variable-form pins are never modified. The stamped value is
+    # the final absolute install path, not the stage path.
+    $targetAbs = Join-Path (Resolve-Path -LiteralPath $targetParent).ProviderPath (Split-Path $Target -Leaf)
+    # Byte-exact literal replacement: Latin-1 maps every byte to one char, so
+    # the round trip is lossless for any file content, and String.Replace is
+    # ordinal (no regex, no $-substitution), so space, &, |, \, $ and quotes in
+    # the path cannot corrupt it. The replacement is the path's UTF-8 bytes
+    # seen through Latin-1, so non-ASCII paths are written as UTF-8.
+    $stampNeedle = '${CLAUDE_SKILL_DIR}'
+    $latin1 = [Text.Encoding]::GetEncoding(28591)
+    $stampValue = $latin1.GetString([Text.Encoding]::UTF8.GetBytes($targetAbs))
+    $stampedCount = 0
+    foreach ($stampFile in Get-ChildItem -LiteralPath $stage -Recurse -File -Force) {
+        if ($stampFile.LinkType) { continue }
+        $stampText = $latin1.GetString([IO.File]::ReadAllBytes($stampFile.FullName))
+        if (-not $stampText.Contains($stampNeedle)) { continue }
+        $stampText = $stampText.Replace($stampNeedle, $stampValue)
+        if ($stampText.Contains($stampNeedle)) {
+            throw "Stamping left a literal `${CLAUDE_SKILL_DIR} in $($stampFile.FullName); the install path must not itself contain that text."
+        }
+        [IO.File]::WriteAllBytes($stampFile.FullName, $latin1.GetBytes($stampText))
+        $stampedCount++
+    }
+    Write-Host "Stamped $stampedCount files with $targetAbs"
+
+    if ($env:DEV_INSTALL_FAIL_AT -eq "after-stamp") { throw "Injected failure after stamp." }
 
     if ($env:DEV_INSTALL_FAIL_AT -eq "after-stage") { throw "Injected failure after stage." }
 
@@ -308,4 +395,51 @@ else {
     Write-Host "Installed from: no git metadata (tarball install)"
 }
 if (Test-Path $backup) { Write-Host "Previous files backed up at $backup" }
+
+# Codex discovery link. Runs after the install is committed and outside the
+# rollback try/catch: a link problem is reported, never fatal, and never undoes
+# or blocks the install. Nothing that holds data is overwritten.
+function Set-AgentsSkillLink {
+    if (-not $agentsLinkPath) {
+        Write-Host "Codex discovery link: skipped ($agentsLinkSkip)"
+        return
+    }
+    $onWindows = ($PSVersionTable.PSEdition -eq "Desktop") -or ($IsWindows -eq $true)
+    $linkType = if ($onWindows) { "Junction" } else { "SymbolicLink" }
+    try {
+        $existing = Get-Item -LiteralPath $agentsLinkPath -Force -ErrorAction SilentlyContinue
+        if ($existing -and $existing.LinkType) {
+            $oldTarget = [string](@($existing.Target)[0])
+            # Test-Path on the link itself reports true for a dangling link on
+            # PowerShell 7, so test the target it names (relative to the link).
+            $oldTargetPath = if ([IO.Path]::IsPathRooted($oldTarget)) { $oldTarget } else { Join-Path (Split-Path $agentsLinkPath -Parent) $oldTarget }
+            if (Test-Path -LiteralPath $oldTargetPath) {
+                $comparison = if ($onWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+                if ([string]::Equals($oldTarget.TrimEnd("\", "/"), $targetAbs.TrimEnd("\", "/"), $comparison)) {
+                    Write-Host "Codex discovery link: up to date: $agentsLinkPath -> $oldTarget"
+                }
+                else {
+                    Write-Warning "Codex discovery link not changed: $agentsLinkPath already points to $oldTarget; leaving it. Remove it to let the installer link $targetAbs."
+                }
+                return
+            }
+            # Dangling: holds no data and would otherwise block the link forever.
+            $existing.Delete()
+            New-Item -ItemType $linkType -Path $agentsLinkPath -Value $targetAbs | Out-Null
+            Write-Host "Codex discovery link: replaced dangling link (was -> $oldTarget): $agentsLinkPath -> $targetAbs"
+            return
+        }
+        if ($existing) {
+            Write-Warning "Codex discovery link not created: $agentsLinkPath already exists and is not a link; leaving it."
+            return
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path $agentsLinkPath -Parent) | Out-Null
+        New-Item -ItemType $linkType -Path $agentsLinkPath -Value $targetAbs | Out-Null
+        Write-Host "Codex discovery link: created $agentsLinkPath -> $targetAbs"
+    }
+    catch {
+        Write-Warning "Codex discovery link skipped: $_"
+    }
+}
+Set-AgentsSkillLink
 Write-Host "Restart Claude Code, then invoke /dev."
