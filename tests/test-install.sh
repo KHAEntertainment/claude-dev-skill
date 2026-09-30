@@ -11,8 +11,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The installer links "$HOME/.agents/skills/dev" by default. Point HOME at a
+# scratch directory for the whole suite so no case can touch the real
+# ~/.agents (or ~/.claude); cases that assert on the link use their own HOME.
+export HOME="$TEST_ROOT/home"
+mkdir -p "$HOME"
+
 pass_count=0
-pass() { printf 'PASS: %s\n' "$1"; pass_count=$((pass_count + 1)); }
+# Each case starts with no discovery link under the suite HOME, so cases that
+# do not assert on the link never see (or print) a leftover from the previous one.
+pass() { printf 'PASS: %s\n' "$1"; pass_count=$((pass_count + 1)); rm -rf -- "$HOME/.agents"; }
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 expect_file() { [[ -f "$1" ]] || fail "missing file $1"; }
 expect_absent() { [[ ! -e "$1" ]] || fail "unexpected path $1"; }
@@ -39,6 +47,54 @@ build_path_without() {
   done
   IFS="$saved_ifs"
   printf '%s\n' "$scratch"
+}
+
+# Replaces the stamped absolute path $2 with the variable form in every file
+# under $1 (byte-exact, path via the environment), undoing the install stamp.
+unstamp_tree() {
+  UNSTAMP_ROOT="$1" UNSTAMP_VALUE="$2" python3 - <<'PY'
+import os
+value = os.environb[b"UNSTAMP_VALUE"]
+for dirpath, _dirs, files in os.walk(os.environb[b"UNSTAMP_ROOT"]):
+    for name in files:
+        path = os.path.join(dirpath, name)
+        with open(path, "rb") as handle:
+            data = handle.read()
+        if value in data:
+            with open(path, "wb") as handle:
+                handle.write(data.replace(value, b"${CLAUDE_SKILL_DIR}"))
+PY
+}
+
+# Asserts the installed Skill at $1 has no literal ${CLAUDE_SKILL_DIR} left and
+# that every path stamped as "$1/<relpath>" names an existing file or
+# directory. Prints how many stamped paths it resolved.
+check_stamped_tree() {
+  local root="$1"
+  # shellcheck disable=SC2016 # literal text to grep for, not expansion
+  if grep -rqF '${CLAUDE_SKILL_DIR}' -- "$root"; then
+    fail "literal \${CLAUDE_SKILL_DIR} remains under $root"
+  fi
+  CHECK_ROOT="$root" python3 - <<'PY' || fail "a stamped path under $root does not exist"
+import os
+import re
+import sys
+root = os.environ["CHECK_ROOT"]
+pattern = re.compile(re.escape(root) + r"((?:/[A-Za-z0-9_.-]+)*)")
+checked = 0
+missing = []
+for dirpath, _dirs, files in os.walk(root):
+    for name in files:
+        with open(os.path.join(dirpath, name), encoding="utf-8") as handle:
+            text = handle.read()
+        for match in pattern.finditer(text):
+            rel = match.group(1).rstrip(".")
+            checked += 1
+            if not os.path.exists(root + rel):
+                missing.append(root + rel)
+if missing or checked == 0:
+    sys.exit("stamped paths: checked=%d missing=%s" % (checked, sorted(set(missing))))
+PY
 }
 
 # Fresh installation, compatibility argument, and path containing spaces.
@@ -274,8 +330,15 @@ fi
 archive_check="$TEST_ROOT/archive-check"
 mkdir -p "$archive_check"
 git -C "$REPO_DIR" archive HEAD -- skills/dev | tar -x -C "$archive_check" --strip-components=2
-diff -r "$archive_check" "$clean_target/skills/dev" >/dev/null || fail "installed tree differs from git archive of HEAD"
-pass "clean checkout install matches git archive and reports commit provenance"
+# The installed copy is stamped, so it differs from the archive only by the
+# absolute path standing in for the variable. Undo the stamp on a copy and the
+# trees must be identical: nothing but the stamp differs, and no working-tree
+# content shipped.
+unstamped="$TEST_ROOT/unstamped"
+cp -R -- "$clean_target/skills/dev" "$unstamped"
+unstamp_tree "$unstamped" "$(cd -- "$clean_target/skills" && pwd)/dev"
+diff -r "$archive_check" "$unstamped" >/dev/null || fail "installed tree differs from git archive of HEAD beyond the stamp"
+pass "clean checkout install matches git archive (modulo stamp) and reports commit provenance"
 
 # Static guard against the provenance race regressing: both archive calls
 # must pin the commit already captured and validated (INSTALL_COMMIT), not
@@ -321,5 +384,158 @@ if ! grep -q "Installed from commit $expected_real_commit" <<<"$env_hijack_outpu
   fail "install reported the wrong commit under an inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR"
 fi
 pass "inherited GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR cannot redirect install to another repository"
+
+# --- Issue #88: install-time stamping and the Codex discovery link ---------
+
+# Substitution: no literal left, every stamped path resolves, and the
+# detector executes from the installed copy.
+stamp_config="$TEST_ROOT/stamp config"
+stamp_home="$TEST_ROOT/stamp home"
+mkdir -p "$stamp_home"
+HOME="$stamp_home" bash "$INSTALLER" --config-dir "$stamp_config" >/dev/null
+stamp_root="$(cd -- "$stamp_config/skills" && pwd)/dev"
+check_stamped_tree "$stamp_root"
+detector_output="$(python3 "$stamp_root/scripts/detect_execution_backend.py")" || fail "detector did not execute from the installed copy"
+grep -q '"detection_status"' <<<"$detector_output" || fail "detector output from the installed copy is not the expected JSON"
+pass "installed copy has no literal variable, every stamped path resolves, detector runs"
+
+# The repository keeps the variable form: stamping touches only the installed copy.
+# shellcheck disable=SC2016 # literal text to grep for, not expansion
+grep -rqF '${CLAUDE_SKILL_DIR}' -- "$REPO_DIR/skills/dev" || fail "repository payload lost its variable form"
+python3 "$REPO_DIR/scripts/validate_skill.py" --skill-dir "$REPO_DIR/skills/dev" >/dev/null || fail "repository payload no longer validates"
+pass "repository payload keeps the variable form and still validates"
+
+# Byte-exact stamp for a path with a space, &, |, a backslash, $, quotes and a
+# sed-style back-reference.
+# shellcheck disable=SC2016 # deliberately literal special characters
+weird_config="$TEST_ROOT"'/we ird & pipe | back\slash $x '"'"'q'"'"' "dq" \1 &amp'
+weird_home="$TEST_ROOT/weird home"
+mkdir -p "$weird_home"
+HOME="$weird_home" bash "$INSTALLER" --config-dir "$weird_config" >/dev/null
+weird_root="$(cd -- "$weird_config/skills" && pwd)/dev"
+check_stamped_tree "$weird_root"
+grep -qF -- "$weird_root/scripts/detect_execution_backend.py" "$weird_root/SKILL.md" || fail "special-character path was not stamped byte-exact"
+[[ "$(readlink -- "$weird_home/.agents/skills/dev")" == "$weird_root" ]] || fail "link target is not the byte-exact special-character path"
+pass "path with space, &, |, backslash, \$, quotes is stamped and linked byte-exact"
+
+# A relative --target is stamped as an absolute path.
+rel_base="$TEST_ROOT/relative target base"
+mkdir -p "$rel_base"
+(cd -- "$rel_base" && bash "$INSTALLER" --config-dir "$TEST_ROOT/rel config" --target rel/dev >/dev/null)
+check_stamped_tree "$(cd -- "$rel_base/rel" && pwd)/dev"
+pass "relative --target is stamped as an absolute path"
+
+# A target path that itself contains the variable text cannot be stamped
+# faithfully: abort before mutation rather than leave a literal behind.
+# shellcheck disable=SC2016 # deliberately literal variable text
+token_config="$TEST_ROOT"'/tok ${CLAUDE_SKILL_DIR} cfg'
+if HOME="$stamp_home" bash "$INSTALLER" --config-dir "$token_config" >/dev/null 2>&1; then fail "install into a path containing the variable text unexpectedly succeeded"; fi
+expect_absent "$token_config/skills/dev"
+[[ -z "$(find "$token_config" -name '.dev-stage-*' -print -quit 2>/dev/null)" ]] || fail "stage directory left behind after stamp abort"
+pass "target path containing the variable text is rejected without residue"
+
+# Idempotence: a rerun over an existing install yields the identical tree,
+# keeps backing up the previous version, and leaves the link alone.
+idem_config="$TEST_ROOT/idem config"
+idem_home="$TEST_ROOT/idem home"
+mkdir -p "$idem_home"
+HOME="$idem_home" bash "$INSTALLER" --config-dir "$idem_config" >/dev/null
+cp -R -- "$idem_config/skills/dev" "$TEST_ROOT/idem-first"
+idem_output="$(HOME="$idem_home" bash "$INSTALLER" --config-dir "$idem_config")"
+diff -r "$TEST_ROOT/idem-first" "$idem_config/skills/dev" >/dev/null || fail "rerun produced a different tree than the first install"
+[[ -n "$(find "$idem_config/backups/dev" -type f -name SKILL.md -print -quit)" ]] || fail "rerun did not back up the previous install"
+grep -q 'Codex discovery link: up to date' <<<"$idem_output" || fail "rerun did not report the link as up to date"
+pass "rerun is idempotent, still backs up, and keeps the link"
+
+# Link: created on a default install, pointing at the installed Skill.
+link_home="$TEST_ROOT/link home"
+link_config="$TEST_ROOT/link config"
+mkdir -p "$link_home"
+link_output="$(HOME="$link_home" bash "$INSTALLER" --config-dir "$link_config")"
+link_root="$(cd -- "$link_config/skills" && pwd)/dev"
+[[ -L "$link_home/.agents/skills/dev" ]] || fail "default install did not create the discovery link"
+[[ "$(readlink -- "$link_home/.agents/skills/dev")" == "$link_root" ]] || fail "discovery link does not point at the installed Skill"
+[[ -f "$link_home/.agents/skills/dev/SKILL.md" ]] || fail "discovery link does not resolve to the Skill"
+grep -q 'Codex discovery link: created' <<<"$link_output" || fail "link creation was not reported"
+pass "default install creates the discovery link to the installed Skill"
+
+# Link: a real directory at the path is reported and left untouched.
+dir_home="$TEST_ROOT/dir home"
+mkdir -p "$dir_home/.agents/skills/dev"
+printf 'keep\n' >"$dir_home/.agents/skills/dev/sentinel.txt"
+dir_output="$(HOME="$dir_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/dir config" 2>&1)" || fail "install failed because a real directory sat at the link path"
+[[ ! -L "$dir_home/.agents/skills/dev" ]] || fail "a real directory was replaced by a link"
+expect_file "$dir_home/.agents/skills/dev/sentinel.txt"
+grep -q 'already exists and is not a link' <<<"$dir_output" || fail "real directory at the link path was not reported"
+expect_file "$TEST_ROOT/dir config/skills/dev/SKILL.md"
+pass "a real directory at the link path is reported and left untouched"
+
+# Link: a regular file at the path is also left untouched.
+file_home="$TEST_ROOT/file home"
+mkdir -p "$file_home/.agents/skills"
+printf 'keep\n' >"$file_home/.agents/skills/dev"
+HOME="$file_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/file config" >/dev/null 2>&1 || fail "install failed because a file sat at the link path"
+[[ -f "$file_home/.agents/skills/dev" && ! -L "$file_home/.agents/skills/dev" ]] || fail "a file at the link path was replaced"
+pass "a file at the link path is left untouched"
+
+# Link: a symlink to a different, existing directory is reported and left.
+foreign_home="$TEST_ROOT/foreign home"
+foreign_dir="$TEST_ROOT/foreign skill"
+mkdir -p "$foreign_home/.agents/skills" "$foreign_dir"
+ln -s -- "$foreign_dir" "$foreign_home/.agents/skills/dev"
+foreign_output="$(HOME="$foreign_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/foreign config" 2>&1)" || fail "install failed because a foreign link sat at the link path"
+[[ "$(readlink -- "$foreign_home/.agents/skills/dev")" == "$foreign_dir" ]] || fail "a link to another existing directory was overwritten"
+grep -q 'Codex discovery link not changed' <<<"$foreign_output" || fail "foreign link was not reported"
+pass "a link to another existing directory is reported and left untouched"
+
+# Link: a dangling symlink holds no data and is replaced, with a report.
+dangling_home="$TEST_ROOT/dangling home"
+mkdir -p "$dangling_home/.agents/skills"
+ln -s -- "$TEST_ROOT/deleted scratch install/dev" "$dangling_home/.agents/skills/dev"
+dangling_link_config="$TEST_ROOT/dangling link config"
+dangling_link_output="$(HOME="$dangling_home" bash "$INSTALLER" --config-dir "$dangling_link_config")"
+[[ "$(readlink -- "$dangling_home/.agents/skills/dev")" == "$(cd -- "$dangling_link_config/skills" && pwd)/dev" ]] || fail "dangling link was not replaced"
+grep -q 'replaced dangling link (was -> ' <<<"$dangling_link_output" || fail "dangling link replacement was not reported"
+pass "a dangling link is replaced and reported"
+
+# Link: opt-out creates nothing and leaves an existing link alone.
+optout_home="$TEST_ROOT/optout home"
+mkdir -p "$optout_home"
+HOME="$optout_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/optout config" --no-agents-link >/dev/null
+expect_absent "$optout_home/.agents"
+optout_kept_home="$TEST_ROOT/optout kept home"
+mkdir -p "$optout_kept_home/.agents/skills" "$TEST_ROOT/optout other"
+ln -s -- "$TEST_ROOT/optout other" "$optout_kept_home/.agents/skills/dev"
+HOME="$optout_kept_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/optout kept config" --no-agents-link >/dev/null
+[[ "$(readlink -- "$optout_kept_home/.agents/skills/dev")" == "$TEST_ROOT/optout other" ]] || fail "--no-agents-link touched an existing link"
+pass "--no-agents-link creates and touches nothing"
+
+# Link: an explicit --target is an isolated install; dry run never links.
+iso_home="$TEST_ROOT/iso home"
+mkdir -p "$iso_home"
+HOME="$iso_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/iso config" --target "$TEST_ROOT/iso target/dev" >/dev/null
+expect_absent "$iso_home/.agents"
+check_stamped_tree "$(cd -- "$TEST_ROOT/iso target" && pwd)/dev"
+HOME="$iso_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/iso dry config" --dry-run >/dev/null
+expect_absent "$iso_home/.agents"
+pass "explicit --target and --dry-run do not create the link"
+
+# Failure after stamping leaves the previous install untouched and no residue.
+stampfail_config="$TEST_ROOT/stampfail config"
+mkdir -p "$stampfail_config/skills/dev"
+printf 'old skill\n' >"$stampfail_config/skills/dev/old.txt"
+stampfail_home="$TEST_ROOT/stampfail home"
+mkdir -p "$stampfail_home"
+if DEV_INSTALL_FAIL_AT=after-stamp HOME="$stampfail_home" bash "$INSTALLER" --config-dir "$stampfail_config" >/dev/null 2>&1; then fail "injected after-stamp failure unexpectedly succeeded"; fi
+expect_file "$stampfail_config/skills/dev/old.txt"
+[[ -z "$(find "$stampfail_config" -name '.dev-stage-*' -print -quit)" ]] || fail "stage directory left behind after after-stamp failure"
+expect_absent "$stampfail_home/.agents"
+expect_absent "$stampfail_config/backups"
+pass "failure after stamping keeps the previous install and leaves no residue"
+
+# Help documents the flag.
+usage_text="$(bash "$INSTALLER" --help)"
+grep -q -- '--no-agents-link' <<<"$usage_text" || fail "--help does not document --no-agents-link"
+pass "--help documents --no-agents-link"
 
 printf 'All %d installer tests passed.\n' "$pass_count"
