@@ -197,7 +197,12 @@ function Export-CommittedSkillsDev([string]$Destination) {
         # newline translation), which a file handoff avoids entirely.
         $archiveResult = Invoke-GitClean -ArgumentList @("-C", $PSScriptRoot, "archive", "-o", $archiveFile, $installCommit, "--", "skills/dev")
         if ($archiveResult.ExitCode -ne 0) { throw "git archive failed with exit code $($archiveResult.ExitCode)" }
-        & $tarCommand.Source -xf $archiveFile -C $Destination --strip-components=2
+        # Extract from inside the destination instead of `tar -C`: GNU tar
+        # processes backslash escapes in a -C argument, and $Destination can
+        # live under a caller-chosen path (TMPDIR, or the target's parent).
+        Push-Location -LiteralPath $Destination
+        try { & $tarCommand.Source -xf $archiveFile --strip-components=2 }
+        finally { Pop-Location }
         if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit code $LASTEXITCODE" }
     }
     finally {

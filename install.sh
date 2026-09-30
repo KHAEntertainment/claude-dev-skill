@@ -218,7 +218,9 @@ if ((IS_GIT_CHECKOUT)); then
   PREFLIGHT_DIR="$(mktemp -d)"
   # shellcheck disable=SC2064 # intentionally expand PREFLIGHT_DIR now
   trap "rm -rf -- '$PREFLIGHT_DIR'" EXIT
-  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
+  # cd instead of `tar -C`: GNU tar processes backslash escapes in a -C
+  # argument, and PREFLIGHT_DIR lives under the caller's TMPDIR.
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | (cd -- "$PREFLIGHT_DIR" && tar -x --strip-components=2)
   python3 "$VALIDATOR" --skill-dir "$PREFLIGHT_DIR"
   rm -rf -- "$PREFLIGHT_DIR"
   trap - EXIT

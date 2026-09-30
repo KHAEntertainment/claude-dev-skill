@@ -24,6 +24,7 @@ unset CLAUDE_CONFIG_DIR DEV_INSTALL_FAIL_AT
 pass_count=0
 # Each case starts with no discovery link under the suite HOME, so cases that
 # do not assert on the link never see (or print) a leftover from the previous one.
+skip() { printf 'SKIP: %s (%s)\n' "$1" "$2"; }
 pass() { printf 'PASS: %s\n' "$1"; pass_count=$((pass_count + 1)); rm -rf -- "$HOME/.agents"; }
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 expect_file() { [[ -f "$1" ]] || fail "missing file $1"; }
@@ -110,6 +111,7 @@ expect_file "$fresh/skills/dev/phases/external-review.md"
 expect_file "$fresh/skills/dev/phases/phase5.md"
 expect_file "$fresh/skills/dev/scripts/inspect_external_reviews.py"
 expect_file "$fresh/skills/dev/scripts/detect_execution_backend.py"
+expect_file "$fresh/skills/dev/scripts/traycer_cli.py"
 expect_file "$fresh/skills/dev/backends/contract.md"
 expect_file "$fresh/skills/dev/backends/claude-native.md"
 expect_file "$fresh/skills/dev/backends/traycer.md"
@@ -402,9 +404,15 @@ check_stamped_tree "$stamp_root"
 # The detector's answer depends on TRAYCER_AGENT_ID / TRAYCER_EPIC_ID, so both
 # outcomes are pinned explicitly: identifiers scrubbed -> exit 2, incomplete;
 # synthetic identifiers -> exit 0, traycer. The caller's own values never count.
+# The detector also falls back to <worktree root>/.agent/traycer.env, where the
+# root is the nearest directory above the working directory holding a .git
+# entry. Run it from a scratch directory that is its own root (an empty .git
+# marker) so no identity file from the caller's checkout can be found.
 detector="$stamp_root/scripts/detect_execution_backend.py"
+detector_cwd="$TEST_ROOT/detector cwd"
+mkdir -p "$detector_cwd/.git"
 detector_rc=0
-detector_output="$(env -u TRAYCER_AGENT_ID -u TRAYCER_EPIC_ID python3 "$detector")" || detector_rc=$?
+detector_output="$(cd -- "$detector_cwd" && env -u TRAYCER_AGENT_ID -u TRAYCER_EPIC_ID python3 "$detector")" || detector_rc=$?
 [[ "$detector_rc" == 2 ]] || fail "installed detector exited $detector_rc without session identifiers (expected 2)"
 DETECTOR_JSON="$detector_output" python3 -c '
 import json, os
@@ -412,7 +420,7 @@ d = json.loads(os.environ["DETECTOR_JSON"])
 assert d["detection_status"] == "incomplete" and d["execution_backend"] == "incomplete", d
 ' || fail "installed detector did not report incomplete without session identifiers: $detector_output"
 detector_rc=0
-detector_output="$(env TRAYCER_AGENT_ID=agent-under-test TRAYCER_EPIC_ID=epic-under-test python3 "$detector")" || detector_rc=$?
+detector_output="$(cd -- "$detector_cwd" && env TRAYCER_AGENT_ID=agent-under-test TRAYCER_EPIC_ID=epic-under-test python3 "$detector")" || detector_rc=$?
 [[ "$detector_rc" == 0 ]] || fail "installed detector exited $detector_rc with session identifiers (expected 0)"
 DETECTOR_JSON="$detector_output" python3 -c '
 import json, os
@@ -582,6 +590,22 @@ if HOME="$nl_link_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl link confi
 expect_absent "$TEST_ROOT/nl link config"
 HOME="$nl_link_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl link opt-out config" --no-agents-link >/dev/null 2>&1 || fail "a line break in HOME must not block an install that skips the link"
 pass "a path containing a newline or carriage return is refused before any change"
+
+# GNU tar processes backslash escapes in a -C argument, so extraction into a
+# directory under a TMPDIR containing a backslash used to fail preflight on
+# Linux. Only GNU tar shows the difference, so the case runs where GNU tar is
+# the tar in use and says so when it is skipped (bsdtar would pass either way).
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  # shellcheck disable=SC2016 # deliberately literal backslashes
+  bs_tmp="$TEST_ROOT"'/tmp back\slash \1'
+  mkdir -p "$bs_tmp"
+  bs_config="$TEST_ROOT/backslash tmp config"
+  TMPDIR="$bs_tmp" bash "$INSTALLER" --config-dir "$bs_config" --no-agents-link >/dev/null || fail "install failed with a backslash in TMPDIR (preflight extraction)"
+  expect_file "$bs_config/skills/dev/SKILL.md"
+  pass "a backslash in TMPDIR does not break preflight extraction"
+else
+  skip "a backslash in TMPDIR does not break preflight extraction" "tar is not GNU tar; the case is only meaningful with GNU tar"
+fi
 
 # Help documents the flag.
 usage_text="$(bash "$INSTALLER" --help)"

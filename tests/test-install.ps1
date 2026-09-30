@@ -154,6 +154,7 @@ try {
     Assert-Path (Join-Path $fresh "skills\dev\phases\phase5.md")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\inspect_external_reviews.py")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\detect_execution_backend.py")
+    Assert-Path (Join-Path $fresh "skills\dev\scripts\traycer_cli.py")
     Assert-Path (Join-Path $fresh "skills\dev\backends\contract.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\claude-native.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\traycer.md")
@@ -478,9 +479,16 @@ try {
     # both outcomes are pinned explicitly: identifiers scrubbed -> exit 2,
     # incomplete; synthetic identifiers -> exit 0, traycer. The caller's own
     # values never count and are restored afterwards.
+    # The detector also falls back to <worktree root>/.agent/traycer.env, where
+    # the root is the nearest directory above the working directory holding a
+    # .git entry: run it from a scratch directory that is its own root (an empty
+    # .git marker) so no identity file from the caller's checkout can be found.
     $detectorScript = Join-Path $stampRoot "scripts\detect_execution_backend.py"
+    $detectorCwd = Join-Path $testRoot "detector cwd"
+    New-Item -ItemType Directory -Force -Path (Join-Path $detectorCwd ".git") | Out-Null
     $savedAgentId = $env:TRAYCER_AGENT_ID
     $savedEpicId = $env:TRAYCER_EPIC_ID
+    Push-Location -LiteralPath $detectorCwd
     try {
         Remove-Item Env:TRAYCER_AGENT_ID, Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue
         $incompleteText = (& $pythonForDetector.Source $detectorScript | Out-String)
@@ -500,6 +508,7 @@ try {
         }
     }
     finally {
+        Pop-Location
         if ($null -ne $savedAgentId) { $env:TRAYCER_AGENT_ID = $savedAgentId } else { Remove-Item Env:TRAYCER_AGENT_ID -ErrorAction SilentlyContinue }
         if ($null -ne $savedEpicId) { $env:TRAYCER_EPIC_ID = $savedEpicId } else { Remove-Item Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue }
     }
