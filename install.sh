@@ -285,7 +285,11 @@ if ((IS_GIT_CHECKOUT)); then
   # Archive the exact commit already captured and validated above, not
   # HEAD again: re-resolving HEAD here would reopen the race the earlier
   # capture exists to close (see INSTALL_COMMIT's capture site).
-  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+  # cd into the stage dir instead of `tar -C`: GNU tar processes backslash
+  # escapes in a -C argument, which turns a stage path containing a backslash
+  # into a different (nonexistent) directory. The stage path holds the target's
+  # parent, which the user chooses.
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | (cd -- "$STAGE_DIR" && tar -x --strip-components=2)
 else
   cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
 fi
