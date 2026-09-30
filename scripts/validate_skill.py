@@ -34,6 +34,7 @@ REQUIRED = {
     "templates/PROJECT_CONTEXT_TEMPLATE.md",
     "templates/DEV_STATE_TEMPLATE.md",
     "scripts/detect_execution_backend.py",
+    "scripts/traycer_cli.py",
     "scripts/inspect_external_reviews.py",
     "scripts/dev_config.py",
     "scripts/resolve_repository.py",
@@ -275,6 +276,19 @@ def main() -> int:
         "TRAYCER_EPIC_ID",
         "claude-native",
         "rtk proxy traycer",
+        # Issue #89: every Traycer CLI step goes through the wrapper, which is
+        # what supplies a session identity the harness did not export. A bare
+        # `traycer` call loses that identity, so the route and its prohibition
+        # are pinned together. `rtk proxy traycer` stays pinned because
+        # `test_no_baseline_policy_token_is_ever_removed` forbids dropping a
+        # baseline token; the payload now carries it as the forbidden form.
+        "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py",
+        "Never invoke `traycer` directly",
+        "backend_source: supplied",
+        ".agent/traycer.env",
+        "never inferred",
+        "identity_verification",
+        "are not evidence of the caller's identity",
         "--surface gui",
         "--expect-reply",
         "--workspace-entry",
@@ -461,6 +475,17 @@ def main() -> int:
             # rejected credential layer from ADR-008 as a control.
             "an authorship lint, not a security control",
             "behavioural tests and the supported pre-write verification are the real controls",
+            # Issue #89: a lead that is not Claude Code has no native path, and
+            # its harness is read from Traycer rather than assumed.
+            "A lead whose harness is not Claude Code selects `traycer` or records `incomplete` and stops.",
+            "`claude-native` is never available to it",
+            "`lead.harness` is recorded from the Traycer agent list, never inferred.",
+            "backend_source: supplied",
+            "Sources are never mixed",
+            "Never invoke `traycer` directly, and never through a bare `rtk proxy traycer`.",
+            "with neither environment identifier present",
+            "A partial environment (exactly one identifier) is a host defect",
+            "the file never recovers it",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
@@ -472,6 +497,12 @@ def main() -> int:
             "report_back_termination",
             "termination, reply correlation, and section presence",
             "Every bounded read records how it ended",
+            # Issue #89: the ledger must be able to say which source the
+            # identity came from.
+            "`supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`)",
+            "identity_verification",
+            "`self_source_and_worktree_match`",
+            "additive under `schema_version: 2`",
             # Issue #33: a bypass recorded against a PR number alone lets the
             # same debt be re-hidden behind a later, partially-reviewed head.
             "the exact unreviewed commit range",
@@ -608,6 +639,9 @@ def main() -> int:
         ),
         "SKILL.md": (
             "the lead reconciles the merged tree and re-confirms the closed Issue's acceptance criteria",
+            # Issue #89: the Execution Backend section names the supplied source.
+            "backend_source: supplied",
+            "never available to a lead whose harness is not Claude Code",
             "${CLAUDE_SKILL_DIR}/reply-contract.md",
         ),
         # Issue #54: the reply contract's own pinned sentences, held in the one
@@ -627,6 +661,48 @@ def main() -> int:
         # exist but cannot supply a page size or a timeout for a transport it
         # does not know. An adapter naming no bound has not implemented observe.
         "backends/traycer.md": (
+            # Issue #89: the wrapper route, the identity file format and its
+            # acquisition rule, and the preflight self-check that catches a
+            # wrong supplied pair mechanically.
+            "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py",
+            "Never invoke `traycer` directly",
+            ".agent/traycer.env",
+            "export TRAYCER_AGENT_ID=",
+            "export TRAYCER_EPIC_ID=",
+            "git-ignored or excluded",
+            "never guesses an id",
+            "Never derive an id from a path guess, a directory name, or another agent's record.",
+            "ask the user once and stop until answered",
+            # The CLI derives its self marker and caller block from the supplied
+            # identifiers, so neither can catch a wrong pair. Pinned as a
+            # statement, with the two independent checks that replace them.
+            "are not evidence of the caller's identity",
+            "**(a) Self-source comparison.**",
+            "This is mandatory whenever the source exists, including when the id came from the user's message.",
+            "**(b) Row corroboration.**",
+            "`folderPaths`",
+            "`harnessId`",
+            "its `harnessId` must be the harness the lead itself knows it is running on",
+            "the identity is wrong, and the lead deletes or corrects `.agent/traycer.env` before anything else",
+            "(b) alone is the floor and the ledger records that",
+            "When neither can be made, the result is `incomplete`.",
+            "(b) cannot distinguish two agents that share one worktree and one harness",
+            # The two checks reduce the chance of accepting a wrong pair; they
+            # do not eliminate it, and the prose must not promise more.
+            "establishes the agent id when a self-identity source exists",
+            "corroborates it and is the weaker of the two",
+            "reduce, and do not eliminate, the chance of accepting a wrong pair",
+            "row corroboration accepts a wrong id that belongs to an agent sharing the lead's worktree and harness",
+            "Read-only QA and review lanes that share a checkout with the lead are the realistic way this happens.",
+            "A lead verified by `worktree_match` alone says so to the user in its first status reply.",
+            "the Preflight step 3 identity checks",
+            "identity_verification",
+            # A partial environment is a host defect, not something the lead
+            # repairs by editing its own environment.
+            "a partial environment cannot be recovered by the file",
+            "reports the partial environment to the user as a host defect",
+            "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply.",
+            "unverified for Codex and OpenCode leads",
             "report_back: incomplete",
             "Quality-gate self-assessment",
             "Bound that read.",

@@ -291,6 +291,7 @@ class BackendContractTests(unittest.TestCase):
         adapter = self.read("backends/traycer.md")
         required = (
             "rtk proxy traycer",
+            "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py",
             "worktree create",
             "--workspace",
             "--source-branch",
@@ -317,7 +318,7 @@ class BackendContractTests(unittest.TestCase):
         adapter = self.read("backends/traycer.md")
         project = adapter.index("Explicit `PROJECT_CONTEXT.md`")
         workspace = adapter.index("Workspace `.traycer/agent-selection-guide.md`")
-        global_guide = adapter.index("Global `rtk proxy traycer agent selection-guide")
+        global_guide = adapter.index("Global `rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py agent selection-guide")
         lead = adapter.index("Lead route from the lead row")
         self.assertLess(project, workspace)
         self.assertLess(workspace, global_guide)
@@ -1740,6 +1741,253 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("rtk proxy graft callers <symbol> -d all --json", phase2)
         self.assertIn("graph_evidence: unavailable", phase2)
         self.assertIn("trace dependents manually", phase2)
+
+
+WRAPPER_ROUTE = "rtk proxy python3 ${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py"
+
+
+class SuppliedIdentityContractTests(unittest.TestCase):
+    """Issue #89: supplied identity, the wrapper route, and the non-Claude lead rule."""
+
+    def read(self, relative: str) -> str:
+        return (SKILL / relative).read_text(encoding="utf-8")
+
+    def test_every_traycer_cli_step_is_routed_through_the_wrapper(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        for step in (
+            "whoami",
+            "host status",
+            "agent list",
+            "agent create",
+            "agent send",
+            "agent selection-guide",
+            "worktree create",
+        ):
+            with self.subTest(step=step):
+                self.assertIn(f"{WRAPPER_ROUTE} {step}", adapter)
+        for step in ("agent inbox", "agent transcript", "agent stop", "agent archive"):
+            with self.subTest(step=step):
+                self.assertIn(step, adapter)
+        self.assertIn("means that route", adapter)
+        self.assertIn("Never invoke `traycer` directly", adapter)
+        self.assertIn(WRAPPER_ROUTE, self.read("backends/contract.md"))
+        self.assertIn(WRAPPER_ROUTE, self.read("SKILL.md"))
+
+    def test_no_line_runs_traycer_directly(self) -> None:
+        pattern = re.compile(r"`(?:rtk proxy )?traycer (?:whoami|host|agent|worktree)")
+        for path in sorted(SKILL.rglob("*.md")):
+            with self.subTest(path=str(path.relative_to(SKILL))):
+                self.assertIsNone(pattern.search(path.read_text(encoding="utf-8")))
+
+    def test_the_wrapper_is_a_required_payload_file(self) -> None:
+        self.assertTrue((SKILL / "scripts" / "traycer_cli.py").is_file())
+        validator = (ROOT / "scripts" / "validate_skill.py").read_text(encoding="utf-8")
+        self.assertIn('"scripts/traycer_cli.py"', validator)
+
+    def test_adapter_documents_the_identity_file_format_and_source_rules(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        for token in (
+            ".agent/traycer.env",
+            "export TRAYCER_AGENT_ID=<agent-id>",
+            "export TRAYCER_EPIC_ID=<epic-id>",
+            "exactly two lines, in either order",
+            "`backend_source`: `detected`",
+            "`supplied`",
+            "Sources are never mixed",
+            "There is no override flag.",
+            "identifiers, never secrets",
+            "no_usable_identity",
+            "traycer_not_found",
+            "traycer_exec_failed",
+            "exits 78",
+            "69",
+            "nothing to stdout",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, adapter)
+
+    def test_identity_acquisition_rule_never_guesses(self) -> None:
+        section = _markdown_section(self.read("backends/traycer.md"), "## Supplied identity")
+        self.assertIsNotNone(section)
+        for token in (
+            "Identity acquisition rule",
+            "session's own self-identity source",
+            "Traycer session context the harness was given",
+            "user's invocation message",
+            "ask the user once and stop until answered",
+            "never guesses an id",
+            "Never derive an id from a path guess, a directory name, or another agent's record.",
+            "git-ignored or excluded",
+            "git check-ignore -q .agent/traycer.env",
+            "git rev-parse --git-path info/exclude",
+            "Re-run",
+            "backend_source: supplied",
+            "unverified for Codex and OpenCode leads",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, section)
+        # Harness-neutral: no Claude-specific tool name in the payload.
+        for forbidden in ("traycer_get_self", "mcp__", "AskUserQuestion"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, section)
+
+    def test_preflight_checks_a_supplied_identity_two_ways_without_promising_certainty(self) -> None:
+        preflight = _markdown_section(self.read("backends/traycer.md"), "## Preflight")
+        self.assertIsNotNone(preflight)
+        for token in (
+            "**(a) Self-source comparison.**",
+            "the recorded agent id must equal the id that source reports",
+            "This is mandatory whenever the source exists, including when the id came from the user's message.",
+            "**(b) Row corroboration.**",
+            "`folderPaths` must include the lead's current worktree root",
+            "its `harnessId` must be the harness the lead itself knows it is running on",
+            "A wrong id belonging to another agent fails this unless that agent shares the same worktree and harness.",
+            "A failed (a) or a failed (b) is `incomplete`",
+            "deletes or corrects `.agent/traycer.env` before anything else",
+            "(b) alone is the floor and the ledger records that",
+            "When neither can be made, the result is `incomplete`.",
+            "(b) cannot distinguish two agents that share one worktree and one harness",
+            "`identity_verification`",
+            "a `detected` identity leaves it `null`",
+            "neither check is proof",
+            "establishes the agent id when a self-identity source exists",
+            "corroborates it and is the weaker of the two",
+            "reduce, and do not eliminate, the chance of accepting a wrong pair",
+            "row corroboration accepts a wrong id that belongs to an agent sharing the lead's worktree and harness",
+            "Read-only QA and review lanes that share a checkout with the lead are the realistic way this happens.",
+            "`worktree_match` stays the floor",
+            "A lead verified by `worktree_match` alone says so to the user in its first status reply.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, preflight)
+
+    def test_the_cli_self_marker_is_never_treated_as_evidence(self) -> None:
+        """The CLI derives `isSelf` and `data.caller.agentId` from the supplied
+        identifiers, so a wrong pair reports itself as the caller. The adapter
+        must say so, and no sentence may claim the marker catches a wrong pair."""
+        adapter = self.read("backends/traycer.md")
+        preflight = _markdown_section(adapter, "## Preflight")
+        supplied = _markdown_section(adapter, "## Supplied identity")
+        self.assertIsNotNone(preflight)
+        self.assertIsNotNone(supplied)
+        for section in (preflight, supplied):
+            self.assertIn("are not evidence of the caller's identity", section)
+            self.assertIn("derived", section)
+        self.assertIn("proves nothing here", preflight)
+        self.assertIn("replace the marker", supplied)
+        self.assertIn("do not eliminate", supplied)
+        for retired in (
+            "the output must contain a row marked `isSelf: true`",
+            "`data.caller.agentId` must equal it too",
+            "run the self-check",
+            "This check applies to `detected` and `supplied` alike.",
+            "a wrong supplied pair must be caught mechanically, not trusted: preflight step 3 fails closed on it",
+            # Absolutes retired in round 2: the checks reduce the chance of a
+            # wrong pair, they do not remove it, and either alone can be the basis.
+            "two independent checks",
+            "verifies the pair with",
+            "a wrong pair is caught by",
+            "never by the marker",
+            "also needs",
+            "the preflight self-check",
+        ):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired.lower(), adapter.lower())
+
+    def test_a_partial_environment_is_a_host_defect_the_file_cannot_repair(self) -> None:
+        supplied = _markdown_section(self.read("backends/traycer.md"), "## Supplied identity")
+        self.assertIsNotNone(supplied)
+        for token in (
+            "with neither identifier in the environment",
+            "a partial environment cannot be recovered by the file",
+            "The lead records `incomplete`, reports the partial environment to the user as a host defect, and stops.",
+            "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, supplied)
+
+    def test_ledger_records_which_check_verified_a_supplied_identity(self) -> None:
+        template = self.read("templates/DEV_STATE_TEMPLATE.md")
+        frontmatter = template.split("\n---\n", 1)[0]
+        self.assertIn("  identity_verification: null", frontmatter)
+        self.assertIn("schema_version: 2", frontmatter)
+        schema = _markdown_section(template, "## Execution record schema")
+        self.assertIsNotNone(schema)
+        self.assertIn("`identity_verification`", schema)
+        line = next(
+            row for row in schema.splitlines() if row.startswith("Allowed `identity_verification` values")
+        )
+        for value in (
+            "`null`",
+            "`self_source`",
+            "`worktree_match`",
+            "`self_source_and_worktree_match`",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, line)
+        self.assertIn("additive under `schema_version: 2`", line)
+
+    def test_recovery_accepts_a_supplied_identity(self) -> None:
+        adapter = self.read("backends/traycer.md")
+        recovery = adapter.split("On recovery,", 1)[1].split("\n", 1)[0]
+        self.assertIn("re-run the detector", recovery)
+        self.assertIn(".agent/traycer.env", recovery)
+        self.assertIn("never a reason to fall back", recovery)
+        self.assertIn("Preflight step 3 identity checks", recovery)
+        self.assertNotIn("self-check", recovery)
+
+    def test_contract_states_the_non_claude_lead_rule(self) -> None:
+        contract = self.read("backends/contract.md")
+        for token in (
+            "**Non-Claude leads.**",
+            "A lead whose harness is not Claude Code selects `traycer` or records `incomplete` and stops.",
+            "`claude-native` is never available to it",
+            "`lead.harness` is recorded from the Traycer agent list, never inferred.",
+            "`backend_source: supplied`",
+            "Sources are never mixed",
+            "the file is not used to fill the gap",
+            "with neither environment identifier present",
+            "A partial environment (exactly one identifier) is a host defect: the lead records `incomplete`, reports it to the user, and stops, and the file never recovers it.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, contract)
+        non_claude = contract.split("**Non-Claude leads.**", 1)[1].split("\n", 1)[0]
+        self.assertNotIn(
+            "When the detector returns `incomplete` inside a Traycer session, the lead follows",
+            non_claude,
+        )
+
+    def test_ledger_allows_supplied_alongside_the_other_sources(self) -> None:
+        template = self.read("templates/DEV_STATE_TEMPLATE.md")
+        line = next(
+            row for row in template.splitlines() if row.startswith("Allowed `backend_source` values")
+        )
+        for value in ("`null`", "`detected`", "`supplied`", "`lead_resolved`"):
+            with self.subTest(value=value):
+                self.assertIn(value, line)
+
+    def test_skill_md_names_the_supplied_source_without_contradicting_the_detector(self) -> None:
+        section = _markdown_section(
+            self.read("SKILL.md"), "## Execution Backend and Topology Policy"
+        )
+        self.assertIsNotNone(section)
+        for token in (
+            "`backend_source: supplied`",
+            "`.agent/traycer.env`",
+            "sources are never mixed",
+            "never available to a lead whose harness is not Claude Code",
+            "Binary presence never selects Traycer.",
+            "A failed Traycer preflight never triggers Claude fallback.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, section)
+
+    def test_payload_paths_keep_the_variable_form(self) -> None:
+        for relative in ("backends/traycer.md", "backends/contract.md", "SKILL.md"):
+            text = self.read(relative)
+            with self.subTest(path=relative):
+                self.assertIn("${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py", text)
+                self.assertNotIn("/scripts/traycer_cli.py", text.replace("${CLAUDE_SKILL_DIR}/scripts/traycer_cli.py", ""))
 
 
 class MultiHarnessContractTests(unittest.TestCase):

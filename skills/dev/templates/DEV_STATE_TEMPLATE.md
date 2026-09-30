@@ -5,6 +5,7 @@ execution:
   detection_status: incomplete
   detection_reason: not_checked
   backend_source: null
+  identity_verification: null
   topology: serial
   skill_dir: null
   traycer_agent_id: null
@@ -38,11 +39,13 @@ The Tech Lead is the sole writer of this file. Append a timestamped entry after 
 
 ## Execution record schema
 
-Each `execution` entry records: `execution_backend`, `detection_status`, `detection_reason`, `backend_source`, `topology`, `skill_dir`, `traycer_agent_id`, and `traycer_epic_id`.
+Each `execution` entry records: `execution_backend`, `detection_status`, `detection_reason`, `backend_source`, `identity_verification`, `topology`, `skill_dir`, `traycer_agent_id`, and `traycer_epic_id`.
 
 `skill_dir` is the absolute path `${CLAUDE_SKILL_DIR}` resolved to at dispatch time. Dispatched agents do not inherit `CLAUDE_SKILL_DIR`, so the lead substitutes this path into worker, QA, and reviewer prompts before sending them. Re-resolve it at the start of each run rather than trusting a stored value: the path changes when the Skill is reinstalled, and it is version-stamped when the Skill is installed as a plugin.
 
-Allowed `backend_source` values: `null` (not yet resolved), `detected` (the detector chose the backend), and `lead_resolved` (the lead overrode an `incomplete` result, e.g. `claude-native`).
+Allowed `backend_source` values: `null` (not yet resolved), `detected` (the detector chose `traycer` from identifiers in the environment), `supplied` (the detector chose `traycer` from identifiers in `.agent/traycer.env`), and `lead_resolved` (the lead overrode an `incomplete` result, e.g. `claude-native`).
+
+Allowed `identity_verification` values, additive under `schema_version: 2`: `null` (not applicable or not yet verified; always the value for a `detected` identity), `self_source` (a `supplied` identity was verified only by comparison with the session's own self-identity source), `worktree_match` (verified only by the `agent list` row's `folderPaths` and `harnessId`, because the session has no self-identity source), and `self_source_and_worktree_match` (both checks passed). A `supplied` identity that passes neither is `incomplete` and is never recorded with a verification value. The checks are defined in Preflight step 3 of `${CLAUDE_SKILL_DIR}/backends/traycer.md`.
 
 ## Worker record schema
 
