@@ -66,11 +66,19 @@ Runtime prerequisites for the Skill (not for installing it): `rtk`, `gh`, `git`,
 
 ## Current Status
 
-- **Last updated**: 2026-09-14
-- **Current iteration goal**: v2.1.1 content complete: child-harness capability checklist (#58, #38), lead-to-user reply contract (#54), post-merge verification (#26), git-staged installs (#44), scoped external-review bypass (#33), external-review rate-limit breakpoint (#48), test-coverage gaps (#31, #25), home-path leak guard (#42), Graft evidence adapter (#57), dogfooding distillation (#40), README integrations (#50), and Homebrew tap docs (#39) are merged. Release metadata is PR #66; the tag, marketplace install check, and Homebrew formula bump still require their remaining approvals/checks.
+- **Last updated**: 2026-09-29
+- **Current iteration goal**: v2.1.2. v2.1.1 is released: tag `v2.1.1` (annotated `00ef967` on `4a0e699`, PR #66) is published, the marketplace install was verified against it in a scratch `CLAUDE_CONFIG_DIR` (installed `skills/dev` identical to `git archive v2.1.1`, reporting `2.1.1+upstream.3e87db0`), and the Homebrew formula is bumped to v2.1.1 at `homebrew-tap@7acd583`. `brew install` works; `brew test` fails and is tracked as #70. v2.1.1 content: child-harness capability checklist (#58, #38), lead-to-user reply contract (#54), post-merge verification (#26), git-staged installs (#44), scoped external-review bypass (#33), external-review rate-limit breakpoint (#48), test-coverage gaps (#31, #25), home-path leak guard (#42), Graft evidence adapter (#57), dogfooding distillation (#40), README integrations (#50), and Homebrew tap docs (#39).
 - **Architecture decisions this round**: ADR-011 adds Graft as a pinned optional code-graph evidence source and narrows ADR-005's no-third-party-dependencies rule to install time and the core workflow. ADR-012 routes child harnesses through the provider-neutral assignment envelope behind a capability checklist and moves ADR-009's authorship-lint reclassification to its point of use (#38 resolved). #17 remains deferred.
-- **Next iteration**: run the controlled ScadForge issue #48 test against v2.1.1 in a fresh session (independent real-project validation; ScadForge's issue number, not this repo's #48), then work the v2.1.2 milestone — #56, #53, #51, #43, #37, #34, #17, #67, and #69. The Homebrew formula bump to v2.1.1 follows the tag (ADR-007).
-- **Open PRs**: see `gh pr list`; release preparation follows the completed content stack.
+- **Next iteration**: work the v2.1.2 milestone in its planned phase order. Real-project testing of v2.1.1 is done (2026-09-29); its findings are #73, #74, #75, and #82.
+  - **Phase 1**, in order: #72 (this status correction) → #76 (orchestrator portability: Codex and OpenCode leads under the Traycer backend) → #70 (Homebrew formula test).
+  - **Phase 2**, after #70: #67 → #71 (release-procedure hardening), then #79 (move the dev-skill listing to the central KHA Entertainment marketplace).
+  - **Phase 3**, after #72: #69 → #82 (review gate), #56 + #53 (validator and prose follow-ups), #34 (assignment envelopes), #74 (Phase 1 document-first mode), then #73 (workspace debt).
+  - **Phase 4**, after #76: #51 (`install.ps1` PowerShell version).
+  - **Phase 5**, verification experiments whenever the environment allows: #37 with #75 (multi-account routing), #43, #59; #17 stays deferred.
+  - **Phase 6**, after #69 and #82: #84 (CodeRabbit CLI advisory review plane).
+  - **Phase 7**, after #84 and #73: #85 (ledger profile, `dev_state.py --validate`, three ADRs).
+  - Then the v2.1.2 release. The `docs/plans/` Technical Planning and goal-mode plans target v2.2.0.
+- **Open PRs**: see `gh pr list`.
 - **Known tech debt**: see the bottom of `docs/feature-log.md`
 
 ---

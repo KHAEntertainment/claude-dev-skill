@@ -124,33 +124,44 @@
   `version`, `skills/dev/SKILL.md` frontmatter) with the `+upstream.3e87db0`
   build metadata preserved.
 
+### Post-release record
+
+The retro above was written in the release commit (PR #66, `4a0e699`),
+before the tag existed. The tagged tree keeps that wording; these are the
+facts after release (recorded 2026-09-29, #72):
+
+- **Tag**: `v2.1.1` published as annotated tag `00ef967` on `4a0e699`.
+- **Marketplace install**: verified against the live tag in a scratch
+  `CLAUDE_CONFIG_DIR`. The installed `skills/dev` is identical to
+  `git archive v2.1.1` and reports `2.1.1+upstream.3e87db0`.
+- **Homebrew formula**: `url` + `sha256` bumped to v2.1.1 at
+  `homebrew-tap@7acd583`. `brew install` works; `brew test` fails (#70).
+
 ### Known Issues
 
-- v2.1.1 git tag publication and isolated post-tag installation are still
-  pending.
+- Homebrew `brew test` fails for the v2.1.1 formula (#70): the test asserts
+  the wrong `detect_execution_backend.py` path, and `brew test` times out for
+  a cause not yet diagnosed. The fix ships in v2.1.2; the v2.1.1 tag is not
+  moved (ADR-007).
 - Pre-write verification scope is unchanged from v2.1.0.
-- Remaining engineering debt is tracked in the v2.1.2 milestone: #56, #53,
-  #51, #43, #37, #34, #17, #67, and #69.
+- Remaining engineering debt is tracked in the v2.1.2 milestone (see
+  `PROJECT_CONTEXT.md`, "Next iteration").
 
 ### Deferred
 
-- Homebrew formula `url` + `sha256` bump to v2.1.1 and the post-bump
-  `brew install --build-from-source` + `brew test` (`docs/RELEASING.md`,
-  "Bumping the formula").
-- Marketplace install test against the live v2.1.1 tag (`docs/RELEASING.md`
-  step 5).
+- The `brew test` fix (#70), to v2.1.2.
 
 ### Recommended Next Priorities
 
-1. Run the controlled ScadForge issue #48 test against v2.1.1 in a fresh
-   session, as independent real-project validation, once the tag in item 2 is
-   published. ScadForge's #48 is that project's issue number, not this repo's
-   #48. Prioritize its findings before working the v2.1.2 milestone.
-2. Authorize and publish the v2.1.1 tag (`docs/RELEASING.md` step 3), verify
-   it resolves (step 4), then run the marketplace install test against it
-   (step 5).
-3. Bump the Homebrew formula and verify it with `brew install
-   --build-from-source` + `brew test` ("Bumping the formula").
+1. ~~Run the controlled ScadForge issue #48 test against v2.1.1.~~
+   **Done 2026-09-29**: about a week of real-project use across several
+   projects in place of the single ScadForge run. Findings were triaged as
+   #73, #74, #75, and #82, and are recorded in `docs/dogfooding.md`.
+2. ~~Publish the v2.1.1 tag and run the marketplace install test.~~
+   **Done**; see the post-release record above.
+3. ~~Bump the Homebrew formula and verify it.~~ **Bumped**; `brew test`
+   fails, tracked as #70.
+4. Work the v2.1.2 milestone in the phase order in `PROJECT_CONTEXT.md`.
 
 ## Known Tech Debt
 
@@ -189,3 +200,7 @@
 - CI installs a pinned `@anthropic-ai/claude-code@2.1.251` to run strict manifest
   validation. The pin needs periodic review: too old and it stops matching the
   format the runtime actually enforces. (recorded 2026-08-31)
+- The Homebrew formula's `brew test` fails at v2.1.1 (`homebrew-tap@7acd583`):
+  wrong `detect_execution_backend.py` path in the assertion, plus an
+  undiagnosed timeout. `brew install` works. Tracked as #70. (recorded
+  2026-09-29)
