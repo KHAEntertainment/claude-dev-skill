@@ -21,9 +21,11 @@ jobs:
       github.event_name != 'issue_comment' ||
       github.event.comment.user.login == 'coderabbitai[bot]' ||
       github.event.comment.author_association == 'OWNER'
-    # Pinned to a reviewed commit (review-workflows main, 2026-09-24) because the
-    # called workflow receives MINIMAX_API_KEY. Bump deliberately after review.
-    uses: KHAEntertainment/review-workflows/.github/workflows/pr-agent.yml@744df8cc9e8721b198310186b2953f94a3274089
+    # Pinned to a reviewed commit (review-workflows 4c165c9, 2026-09-29: owner-only
+    # /commands, PR-Agent action and image pinned, fallback catches every
+    # CodeRabbit notice and runs once per head commit) because the called
+    # workflow receives MINIMAX_API_KEY. Bump deliberately after review.
+    uses: KHAEntertainment/review-workflows/.github/workflows/pr-agent.yml@4c165c96c34190ad3892aca9e2365e4422dbce79
     with:
       pr_number: ${{ inputs.pr_number }}
     secrets:
