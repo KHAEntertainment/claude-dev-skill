@@ -1831,7 +1831,7 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, section)
 
-    def test_preflight_verifies_a_supplied_identity_with_two_independent_checks(self) -> None:
+    def test_preflight_checks_a_supplied_identity_two_ways_without_promising_certainty(self) -> None:
         preflight = _markdown_section(self.read("backends/traycer.md"), "## Preflight")
         self.assertIsNotNone(preflight)
         for token in (
@@ -1849,6 +1849,14 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             "(b) cannot distinguish two agents that share one worktree and one harness",
             "`identity_verification`",
             "a `detected` identity leaves it `null`",
+            "neither check is proof",
+            "establishes the agent id when a self-identity source exists",
+            "corroborates it and is the weaker of the two",
+            "reduce, and do not eliminate, the chance of accepting a wrong pair",
+            "row corroboration accepts a wrong id that belongs to an agent sharing the lead's worktree and harness",
+            "Read-only QA and review lanes that share a checkout with the lead are the realistic way this happens.",
+            "`worktree_match` stays the floor",
+            "A lead verified by `worktree_match` alone says so to the user in its first status reply.",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, preflight)
@@ -1866,13 +1874,22 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             self.assertIn("are not evidence of the caller's identity", section)
             self.assertIn("derived", section)
         self.assertIn("proves nothing here", preflight)
-        self.assertIn("never by the marker", supplied)
+        self.assertIn("replace the marker", supplied)
+        self.assertIn("do not eliminate", supplied)
         for retired in (
             "the output must contain a row marked `isSelf: true`",
             "`data.caller.agentId` must equal it too",
             "run the self-check",
             "This check applies to `detected` and `supplied` alike.",
             "a wrong supplied pair must be caught mechanically, not trusted: preflight step 3 fails closed on it",
+            # Absolutes retired in round 2: the checks reduce the chance of a
+            # wrong pair, they do not remove it, and either alone can be the basis.
+            "two independent checks",
+            "verifies the pair with",
+            "a wrong pair is caught by",
+            "never by the marker",
+            "also needs",
+            "the preflight self-check",
         ):
             with self.subTest(retired=retired):
                 self.assertNotIn(retired.lower(), adapter.lower())
@@ -1916,6 +1933,8 @@ class SuppliedIdentityContractTests(unittest.TestCase):
         self.assertIn("re-run the detector", recovery)
         self.assertIn(".agent/traycer.env", recovery)
         self.assertIn("never a reason to fall back", recovery)
+        self.assertIn("Preflight step 3 identity checks", recovery)
+        self.assertNotIn("self-check", recovery)
 
     def test_contract_states_the_non_claude_lead_rule(self) -> None:
         contract = self.read("backends/contract.md")
@@ -1927,9 +1946,16 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             "`backend_source: supplied`",
             "Sources are never mixed",
             "the file is not used to fill the gap",
+            "with neither environment identifier present",
+            "A partial environment (exactly one identifier) is a host defect: the lead records `incomplete`, reports it to the user, and stops, and the file never recovers it.",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, contract)
+        non_claude = contract.split("**Non-Claude leads.**", 1)[1].split("\n", 1)[0]
+        self.assertNotIn(
+            "When the detector returns `incomplete` inside a Traycer session, the lead follows",
+            non_claude,
+        )
 
     def test_ledger_allows_supplied_alongside_the_other_sources(self) -> None:
         template = self.read("templates/DEV_STATE_TEMPLATE.md")

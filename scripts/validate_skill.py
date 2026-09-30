@@ -483,6 +483,9 @@ def main() -> int:
             "backend_source: supplied",
             "Sources are never mixed",
             "Never invoke `traycer` directly, and never through a bare `rtk proxy traycer`.",
+            "with neither environment identifier present",
+            "A partial environment (exactly one identifier) is a host defect",
+            "the file never recovers it",
         ),
         # The ledger is the other half of Issue #3's "recorded in
         # .agent/dev-state.md": a contract pointing at a field that does not
@@ -684,6 +687,15 @@ def main() -> int:
             "(b) alone is the floor and the ledger records that",
             "When neither can be made, the result is `incomplete`.",
             "(b) cannot distinguish two agents that share one worktree and one harness",
+            # The two checks reduce the chance of accepting a wrong pair; they
+            # do not eliminate it, and the prose must not promise more.
+            "establishes the agent id when a self-identity source exists",
+            "corroborates it and is the weaker of the two",
+            "reduce, and do not eliminate, the chance of accepting a wrong pair",
+            "row corroboration accepts a wrong id that belongs to an agent sharing the lead's worktree and harness",
+            "Read-only QA and review lanes that share a checkout with the lead are the realistic way this happens.",
+            "A lead verified by `worktree_match` alone says so to the user in its first status reply.",
+            "the Preflight step 3 identity checks",
             "identity_verification",
             # A partial environment is a host defect, not something the lead
             # repairs by editing its own environment.
