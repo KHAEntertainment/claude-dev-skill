@@ -139,6 +139,10 @@ function Test-ScratchGitWorks([string]$ScratchPath, [string]$RepoPath) {
 }
 
 try {
+    # Nothing the caller exported may steer a case: the installer's config-dir
+    # default and failure-injection hook are cleared for this suite's process,
+    # and the detector case below scrubs or sets the Traycer identifiers itself.
+    Remove-Item Env:CLAUDE_CONFIG_DIR, Env:DEV_INSTALL_FAIL_AT -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     New-Item -ItemType Directory -Path $suiteHome | Out-Null
     $env:USERPROFILE = $suiteHome
@@ -470,11 +474,36 @@ try {
     Assert-Stamped $stampRoot
     $pythonForDetector = Get-Command python3 -ErrorAction SilentlyContinue
     if (-not $pythonForDetector) { $pythonForDetector = Get-Command python }
-    $detectorOutput = & $pythonForDetector.Source (Join-Path $stampRoot "scripts\detect_execution_backend.py")
-    if ($LASTEXITCODE -ne 0 -or ($detectorOutput | Out-String) -notmatch '"detection_status"') {
-        throw "Detector did not execute from the installed copy"
+    # The detector's answer depends on TRAYCER_AGENT_ID / TRAYCER_EPIC_ID, so
+    # both outcomes are pinned explicitly: identifiers scrubbed -> exit 2,
+    # incomplete; synthetic identifiers -> exit 0, traycer. The caller's own
+    # values never count and are restored afterwards.
+    $detectorScript = Join-Path $stampRoot "scripts\detect_execution_backend.py"
+    $savedAgentId = $env:TRAYCER_AGENT_ID
+    $savedEpicId = $env:TRAYCER_EPIC_ID
+    try {
+        Remove-Item Env:TRAYCER_AGENT_ID, Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue
+        $incompleteText = (& $pythonForDetector.Source $detectorScript | Out-String)
+        if ($LASTEXITCODE -ne 2) { throw "Installed detector exited $LASTEXITCODE without session identifiers (expected 2)" }
+        $incomplete = $incompleteText | ConvertFrom-Json
+        if ($incomplete.detection_status -ne "incomplete" -or $incomplete.execution_backend -ne "incomplete") {
+            throw "Installed detector did not report incomplete without session identifiers: $incompleteText"
+        }
+        $env:TRAYCER_AGENT_ID = "agent-under-test"
+        $env:TRAYCER_EPIC_ID = "epic-under-test"
+        $readyText = (& $pythonForDetector.Source $detectorScript | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw "Installed detector exited $LASTEXITCODE with session identifiers (expected 0)" }
+        $ready = $readyText | ConvertFrom-Json
+        if ($ready.detection_status -ne "ready" -or $ready.execution_backend -ne "traycer" -or
+            $ready.traycer_agent_id -ne "agent-under-test" -or $ready.traycer_epic_id -ne "epic-under-test") {
+            throw "Installed detector did not report traycer with session identifiers: $readyText"
+        }
     }
-    Pass "installed copy has no literal variable, every stamped path resolves, detector runs"
+    finally {
+        if ($null -ne $savedAgentId) { $env:TRAYCER_AGENT_ID = $savedAgentId } else { Remove-Item Env:TRAYCER_AGENT_ID -ErrorAction SilentlyContinue }
+        if ($null -ne $savedEpicId) { $env:TRAYCER_EPIC_ID = $savedEpicId } else { Remove-Item Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue }
+    }
+    Pass "installed copy has no literal variable, every stamped path resolves, detector answers both ways"
 
     # The repository keeps the variable form: stamping touches only the installed copy.
     $repoLiterals = Get-ChildItem -LiteralPath (Join-Path $repo "skills\dev") -Recurse -File |
@@ -646,6 +675,39 @@ try {
     Assert-Absent (Join-Path $stampFailHome ".agents")
     Assert-Absent (Join-Path $stampFailConfig "backups")
     Pass "failure after stamping keeps the previous install and leaves no residue"
+
+    # A path with a newline or carriage return cannot be stamped faithfully:
+    # refuse it before any change instead of exiting 0 with references to a
+    # path that does not exist. Strings alone reach the refusal, so this runs
+    # on Windows too; only the working-directory case needs a real directory.
+    function Assert-Refused([string]$Label, [hashtable]$InstallerArguments, [string[]]$MustStayAbsent) {
+        $refusal = $null
+        try { & $installer @InstallerArguments | Out-Null } catch { $refusal = $_.Exception.Message }
+        if (-not $refusal) { throw "$Label unexpectedly succeeded" }
+        if ($refusal -notmatch "must not contain a newline or carriage return") { throw "$Label was refused for the wrong reason: $refusal" }
+        foreach ($absentPath in $MustStayAbsent) { Assert-Absent $absentPath }
+    }
+    $nlHome = Use-CaseHome "nl home"
+    foreach ($nlConfig in @(
+        ((Join-Path $testRoot "nl") + "`n" + "config"),
+        ((Join-Path $testRoot "nl trailing") + "`n"),
+        ((Join-Path $testRoot "nl cr") + "`r" + "config"))) {
+        Assert-Refused "Install into a path with a line break" @{ ConfigDir = $nlConfig } @($nlConfig)
+    }
+    Assert-Refused "-Target with a line break" @{ ConfigDir = (Join-Path $testRoot "nl target config"); Target = ((Join-Path $testRoot "nl target") + "`n" + "x\dev") } @((Join-Path $testRoot "nl target config"))
+    if (-not $onWindowsHost) {
+        $nlRelativeBase = (Join-Path $testRoot "nl relative") + "`n" + "base"
+        New-Item -ItemType Directory -Force -Path $nlRelativeBase | Out-Null
+        Push-Location -LiteralPath $nlRelativeBase
+        try { Assert-Refused "Relative -Target under a working directory with a line break" @{ ConfigDir = (Join-Path $testRoot "nl relative config"); Target = "rel\dev" } @((Join-Path $testRoot "nl relative config")) }
+        finally { Pop-Location }
+        Assert-Absent (Join-Path $nlRelativeBase "rel")
+    }
+    $env:USERPROFILE = (Join-Path $testRoot "nl link") + "`n" + "home"
+    Assert-Refused "Install with a line break in the link path" @{ ConfigDir = (Join-Path $testRoot "nl link config") } @((Join-Path $testRoot "nl link config"))
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "nl link opt-out config"); NoAgentsLink = $true } | Out-Null
+    Assert-Path (Join-Path $testRoot "nl link opt-out config\skills\dev\SKILL.md")
+    Pass "a path containing a newline or carriage return is refused before any change"
 
     # Help documents the flag.
     $helpText = Get-Help $installer -Full | Out-String

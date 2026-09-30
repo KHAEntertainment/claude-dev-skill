@@ -11,8 +11,12 @@ A default install also links "$env:USERPROFILE\.agents\skills\dev" to the
 installed Skill (a junction on Windows, a symbolic link elsewhere) so Codex and
 other harnesses discover the same copy. An existing real directory, file, or
 link to another existing directory at that path is reported and left untouched;
-a link whose target no longer exists is replaced. If the link cannot be created
-the install still succeeds and the skip is reported.
+a link whose target no longer exists is replaced. That guarantee assumes nothing
+else writes to that path during the install. If the link cannot be created the
+install still succeeds and the skip is reported.
+
+Paths (config dir, target, home) containing a newline or carriage return are
+refused before anything is changed.
 
 A custom -Target installs in isolation: it does not migrate legacy commands by
 default and does not create the Codex discovery link.
@@ -220,6 +224,18 @@ else {
     $agentsHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
     $agentsLinkPath = Join-Path $agentsHome ".agents\skills\dev"
 }
+# The stamp is written into text files, where a line break in a path corrupts
+# it, so refuse such a path up front rather than stamp a wrong one. The working
+# directory only matters when a relative path is resolved against it.
+function Assert-NoLineBreak([string]$Name, [string]$Value) {
+    if ($Value -match '[\r\n]') {
+        throw "$Name must not contain a newline or carriage return: $($Value -replace '\r', '\r' -replace '\n', '\n')"
+    }
+}
+Assert-NoLineBreak "Config dir" $ConfigDir
+Assert-NoLineBreak "Install target" $Target
+Assert-NoLineBreak "Codex discovery link path" $agentsLinkPath
+if (-not [IO.Path]::IsPathRooted($Target)) { Assert-NoLineBreak "Working directory" (Get-Location).ProviderPath }
 if ((Split-Path $Target -Leaf) -ne "dev") {
     throw "-Target must be the exact dev Skill directory and end in \dev: $Target"
 }
@@ -320,6 +336,7 @@ try {
     # validator's variable-form pins are never modified. The stamped value is
     # the final absolute install path, not the stage path.
     $targetAbs = Join-Path (Resolve-Path -LiteralPath $targetParent).ProviderPath (Split-Path $Target -Leaf)
+    Assert-NoLineBreak "Resolved install target" $targetAbs
     # Byte-exact literal replacement: Latin-1 maps every byte to one char, so
     # the round trip is lossless for any file content, and String.Replace is
     # ordinal (no regex, no $-substitution), so space, &, |, \, $ and quotes in
@@ -424,6 +441,8 @@ function Set-AgentsSkillLink {
                 return
             }
             # Dangling: holds no data and would otherwise block the link forever.
+            # The check-then-delete below is not atomic: it assumes no concurrent
+            # writer swaps this entry in between (accepted for a single-user installer).
             $existing.Delete()
             New-Item -ItemType $linkType -Path $agentsLinkPath -Value $targetAbs | Out-Null
             Write-Host "Codex discovery link: replaced dangling link (was -> $oldTarget): $agentsLinkPath -> $targetAbs"

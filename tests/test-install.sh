@@ -16,6 +16,10 @@ trap cleanup EXIT
 # ~/.agents (or ~/.claude); cases that assert on the link use their own HOME.
 export HOME="$TEST_ROOT/home"
 mkdir -p "$HOME"
+# Nothing the caller exported may steer a case: the installer's config-dir
+# default and failure-injection hook are cleared, and the detector case below
+# scrubs or sets the Traycer session identifiers itself.
+unset CLAUDE_CONFIG_DIR DEV_INSTALL_FAIL_AT
 
 pass_count=0
 # Each case starts with no discovery link under the suite HOME, so cases that
@@ -395,9 +399,28 @@ mkdir -p "$stamp_home"
 HOME="$stamp_home" bash "$INSTALLER" --config-dir "$stamp_config" >/dev/null
 stamp_root="$(cd -- "$stamp_config/skills" && pwd)/dev"
 check_stamped_tree "$stamp_root"
-detector_output="$(python3 "$stamp_root/scripts/detect_execution_backend.py")" || fail "detector did not execute from the installed copy"
-grep -q '"detection_status"' <<<"$detector_output" || fail "detector output from the installed copy is not the expected JSON"
-pass "installed copy has no literal variable, every stamped path resolves, detector runs"
+# The detector's answer depends on TRAYCER_AGENT_ID / TRAYCER_EPIC_ID, so both
+# outcomes are pinned explicitly: identifiers scrubbed -> exit 2, incomplete;
+# synthetic identifiers -> exit 0, traycer. The caller's own values never count.
+detector="$stamp_root/scripts/detect_execution_backend.py"
+detector_rc=0
+detector_output="$(env -u TRAYCER_AGENT_ID -u TRAYCER_EPIC_ID python3 "$detector")" || detector_rc=$?
+[[ "$detector_rc" == 2 ]] || fail "installed detector exited $detector_rc without session identifiers (expected 2)"
+DETECTOR_JSON="$detector_output" python3 -c '
+import json, os
+d = json.loads(os.environ["DETECTOR_JSON"])
+assert d["detection_status"] == "incomplete" and d["execution_backend"] == "incomplete", d
+' || fail "installed detector did not report incomplete without session identifiers: $detector_output"
+detector_rc=0
+detector_output="$(env TRAYCER_AGENT_ID=agent-under-test TRAYCER_EPIC_ID=epic-under-test python3 "$detector")" || detector_rc=$?
+[[ "$detector_rc" == 0 ]] || fail "installed detector exited $detector_rc with session identifiers (expected 0)"
+DETECTOR_JSON="$detector_output" python3 -c '
+import json, os
+d = json.loads(os.environ["DETECTOR_JSON"])
+assert d["detection_status"] == "ready" and d["execution_backend"] == "traycer", d
+assert d["traycer_agent_id"] == "agent-under-test" and d["traycer_epic_id"] == "epic-under-test", d
+' || fail "installed detector did not report traycer with session identifiers: $detector_output"
+pass "installed copy has no literal variable, every stamped path resolves, detector answers both ways"
 
 # The repository keeps the variable form: stamping touches only the installed copy.
 # shellcheck disable=SC2016 # literal text to grep for, not expansion
@@ -532,6 +555,33 @@ expect_file "$stampfail_config/skills/dev/old.txt"
 expect_absent "$stampfail_home/.agents"
 expect_absent "$stampfail_config/backups"
 pass "failure after stamping keeps the previous install and leaves no residue"
+
+# A path with a newline or carriage return cannot be stamped faithfully (and a
+# trailing newline is stripped by command substitution): refuse it before any
+# mutation instead of exiting 0 with references to a path that does not exist.
+nl_home="$TEST_ROOT/nl home"
+mkdir -p "$nl_home"
+nl_cases=("$TEST_ROOT/nl"$'\n'"config" "$TEST_ROOT/nl trailing"$'\n' "$TEST_ROOT/nl cr"$'\r'"config")
+for nl_config in "${nl_cases[@]}"; do
+  if HOME="$nl_home" bash "$INSTALLER" --config-dir "$nl_config" >/dev/null 2>&1; then fail "install into a path with a line break unexpectedly succeeded"; fi
+  expect_absent "$nl_config"
+done
+nl_target_rc=0
+HOME="$nl_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl target config" --target "$TEST_ROOT/nl target"$'\n'"x/dev" >/dev/null 2>&1 || nl_target_rc=$?
+[[ "$nl_target_rc" == 2 ]] || fail "--target with a line break was not refused (exit $nl_target_rc)"
+expect_absent "$TEST_ROOT/nl target config"
+nl_relative_base="$TEST_ROOT/nl relative"$'\n'"base"
+mkdir -p "$nl_relative_base"
+nl_relative_rc=0
+(cd -- "$nl_relative_base" && HOME="$nl_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl relative config" --target rel/dev >/dev/null 2>&1) || nl_relative_rc=$?
+[[ "$nl_relative_rc" == 2 ]] || fail "relative --target under a working directory with a line break was not refused (exit $nl_relative_rc)"
+expect_absent "$nl_relative_base/rel"
+nl_link_home="$TEST_ROOT/nl link"$'\n'"home"
+mkdir -p "$nl_link_home"
+if HOME="$nl_link_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl link config" >/dev/null 2>&1; then fail "install with a line break in the link path unexpectedly succeeded"; fi
+expect_absent "$TEST_ROOT/nl link config"
+HOME="$nl_link_home" bash "$INSTALLER" --config-dir "$TEST_ROOT/nl link opt-out config" --no-agents-link >/dev/null 2>&1 || fail "a line break in HOME must not block an install that skips the link"
+pass "a path containing a newline or carriage return is refused before any change"
 
 # Help documents the flag.
 usage_text="$(bash "$INSTALLER" --help)"

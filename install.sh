@@ -105,7 +105,8 @@ usage() {
     'A default install also links $HOME/.agents/skills/dev to the installed Skill so Codex and' \
     'other harnesses discover the same copy. An existing real directory, file, or link to another' \
     'existing directory at that path is reported and left untouched; a link whose target no longer' \
-    'exists is replaced.' \
+    'exists is replaced. That guarantee assumes nothing else writes to that path during the install.' \
+    'Paths (config dir, target, home) containing a newline or carriage return are refused.' \
     '--no-agents-link  do not create or touch that link.'
 }
 
@@ -162,6 +163,23 @@ elif ((TARGET_EXPLICIT)); then
 else
   AGENTS_LINK_PATH="${HOME:?HOME is required}/.agents/skills/dev"
 fi
+
+# The stamp is written into text files and read back from command substitution,
+# both of which mangle a line break in a path (a trailing newline is stripped
+# outright), so refuse such a path up front rather than stamp a wrong one. The
+# working directory only matters when a relative path is resolved against it.
+reject_line_break() {
+  case "$2" in
+    *$'\n'*|*$'\r'*)
+      printf 'ERROR: %s must not contain a newline or carriage return: %q\n' "$1" "$2" >&2
+      exit 2
+      ;;
+  esac
+}
+reject_line_break 'config dir' "$CONFIG_DIR"
+reject_line_break 'install target' "$TARGET"
+reject_line_break 'Codex discovery link path' "$AGENTS_LINK_PATH"
+case "$TARGET" in /*) ;; *) reject_line_break 'working directory' "$PWD" ;; esac
 
 case "$TARGET" in
   ''|'/'|"$HOME"|"$CONFIG_DIR")
@@ -280,6 +298,7 @@ python3 "$VALIDATOR" --skill-dir "$STAGE_DIR"
 # absolute install path, not the stage path. TARGET_PARENT exists by now.
 TARGET_ABS="$(cd -- "$TARGET_PARENT" && pwd)"
 TARGET_ABS="${TARGET_ABS%/}/$(basename -- "$TARGET")"
+reject_line_break 'resolved install target' "$TARGET_ABS"
 # Byte-exact literal replacement in python3 (already required): the path is
 # handed over through the environment and never interpolated into code, argv,
 # or a sed/regex replacement, so space, &, |, \, $ and quotes cannot corrupt it.
@@ -378,7 +397,9 @@ link_agents_skill() {
       fi
       return 0
     fi
-    # Dangling: holds no data and would otherwise block the link forever.
+    # Dangling: holds no data and would otherwise block the link forever. The
+    # check-then-remove below is not atomic: it assumes no concurrent writer
+    # swaps this entry in between (accepted for a single-user installer).
     if rm -- "$link" && ln -s -- "$TARGET_ABS" "$link"; then
       printf 'Codex discovery link: replaced dangling link (was -> %s): %s -> %s\n' "$old_target" "$link" "$TARGET_ABS"
     else
