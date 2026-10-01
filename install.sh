@@ -88,14 +88,26 @@ TARGET=""
 TARGET_EXPLICIT=0
 MIGRATE_LEGACY="auto"
 DRY_RUN=0
+AGENTS_LINK=1
 
+# shellcheck disable=SC2016 # help text names variables literally
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--lang en] [--config-dir DIR] [--target DIR] [--dry-run]' \
+    'Usage: ./install.sh [--lang en] [--config-dir DIR] [--target DIR] [--no-agents-link] [--dry-run]' \
     '' \
     'Installs skills/dev as a personal Claude Code Skill.' \
     '--lang en and --lang=en are accepted for compatibility; Chinese is not distributed.' \
-    'A custom --target installs in isolation and does not migrate legacy commands by default.'
+    'A custom --target installs in isolation: it does not migrate legacy commands by default' \
+    'and does not create the Codex discovery link.' \
+    '' \
+    'The installed copy has its ${CLAUDE_SKILL_DIR} references replaced by its absolute path,' \
+    'so harnesses other than Claude Code can resolve them.' \
+    'A default install also links $HOME/.agents/skills/dev to the installed Skill so Codex and' \
+    'other harnesses discover the same copy. An existing real directory, file, or link to another' \
+    'existing directory at that path is reported and left untouched; a link whose target no longer' \
+    'exists is replaced. That guarantee assumes nothing else writes to that path during the install.' \
+    'Paths (config dir, target, home) containing a newline or carriage return are refused.' \
+    '--no-agents-link  do not create or touch that link.'
 }
 
 while (($#)); do
@@ -121,6 +133,7 @@ while (($#)); do
     --target=*) TARGET="${1#*=}"; TARGET_EXPLICIT=1; shift ;;
     --migrate-legacy) MIGRATE_LEGACY=1; shift ;;
     --keep-legacy) MIGRATE_LEGACY=0; shift ;;
+    --no-agents-link) AGENTS_LINK=0; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
@@ -140,6 +153,33 @@ if [[ -z "$TARGET" ]]; then TARGET="$CONFIG_DIR/skills/dev"; fi
 if [[ "$MIGRATE_LEGACY" == "auto" ]]; then
   if ((TARGET_EXPLICIT)); then MIGRATE_LEGACY=0; else MIGRATE_LEGACY=1; fi
 fi
+
+AGENTS_LINK_PATH=""
+AGENTS_LINK_SKIP=""
+if ((!AGENTS_LINK)); then
+  AGENTS_LINK_SKIP="--no-agents-link"
+elif ((TARGET_EXPLICIT)); then
+  AGENTS_LINK_SKIP="explicit --target installs in isolation"
+else
+  AGENTS_LINK_PATH="${HOME:?HOME is required}/.agents/skills/dev"
+fi
+
+# The stamp is written into text files and read back from command substitution,
+# both of which mangle a line break in a path (a trailing newline is stripped
+# outright), so refuse such a path up front rather than stamp a wrong one. The
+# working directory only matters when a relative path is resolved against it.
+reject_line_break() {
+  case "$2" in
+    *$'\n'*|*$'\r'*)
+      printf 'ERROR: %s must not contain a newline or carriage return: %q\n' "$1" "$2" >&2
+      exit 2
+      ;;
+  esac
+}
+reject_line_break 'config dir' "$CONFIG_DIR"
+reject_line_break 'install target' "$TARGET"
+reject_line_break 'Codex discovery link path' "$AGENTS_LINK_PATH"
+case "$TARGET" in /*) ;; *) reject_line_break 'working directory' "$PWD" ;; esac
 
 case "$TARGET" in
   ''|'/'|"$HOME"|"$CONFIG_DIR")
@@ -178,7 +218,9 @@ if ((IS_GIT_CHECKOUT)); then
   PREFLIGHT_DIR="$(mktemp -d)"
   # shellcheck disable=SC2064 # intentionally expand PREFLIGHT_DIR now
   trap "rm -rf -- '$PREFLIGHT_DIR'" EXIT
-  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$PREFLIGHT_DIR" --strip-components=2
+  # cd instead of `tar -C`: GNU tar processes backslash escapes in a -C
+  # argument, and PREFLIGHT_DIR lives under the caller's TMPDIR.
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | (cd -- "$PREFLIGHT_DIR" && tar -x --strip-components=2)
   python3 "$VALIDATOR" --skill-dir "$PREFLIGHT_DIR"
   rm -rf -- "$PREFLIGHT_DIR"
   trap - EXIT
@@ -198,6 +240,11 @@ if [[ "$MIGRATE_LEGACY" == 1 ]]; then
   printf 'Legacy migration: %s and %s\n' "$LEGACY_FILE" "$LEGACY_DIR"
 else
   printf 'Legacy migration: disabled\n'
+fi
+if [[ -n "$AGENTS_LINK_PATH" ]]; then
+  printf 'Codex discovery link: %s\n' "$AGENTS_LINK_PATH"
+else
+  printf 'Codex discovery link: skipped (%s)\n' "$AGENTS_LINK_SKIP"
 fi
 if ((DRY_RUN)); then
   printf 'DRY RUN: validation passed; no files changed.\n'
@@ -240,11 +287,58 @@ if ((IS_GIT_CHECKOUT)); then
   # Archive the exact commit already captured and validated above, not
   # HEAD again: re-resolving HEAD here would reopen the race the earlier
   # capture exists to close (see INSTALL_COMMIT's capture site).
-  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | tar -x -C "$STAGE_DIR" --strip-components=2
+  # cd into the stage dir instead of `tar -C`: GNU tar processes backslash
+  # escapes in a -C argument, which turns a stage path containing a backslash
+  # into a different (nonexistent) directory. The stage path holds the target's
+  # parent, which the user chooses.
+  "${GIT_ENV_CLEAN[@]}" -C "$SCRIPT_DIR" archive "$INSTALL_COMMIT" -- skills/dev | (cd -- "$STAGE_DIR" && tar -x --strip-components=2)
 else
   cp -R -- "$SOURCE_DIR/." "$STAGE_DIR/"
 fi
 python3 "$VALIDATOR" --skill-dir "$STAGE_DIR"
+
+# Stamp only after the staged (git-archived, still variable-form) payload has
+# passed validation, and only on the staged copy that is about to become the
+# installed one: the repository, the preflight tree, and the validator's
+# variable-form pins are never modified. The stamped value is the final
+# absolute install path, not the stage path. TARGET_PARENT exists by now.
+TARGET_ABS="$(cd -- "$TARGET_PARENT" && pwd)"
+TARGET_ABS="${TARGET_ABS%/}/$(basename -- "$TARGET")"
+reject_line_break 'resolved install target' "$TARGET_ABS"
+# Byte-exact literal replacement in python3 (already required): the path is
+# handed over through the environment and never interpolated into code, argv,
+# or a sed/regex replacement, so space, &, |, \, $ and quotes cannot corrupt it.
+STAMP_ROOT="$STAGE_DIR" STAMP_VALUE="$TARGET_ABS" python3 - <<'PY'
+import os
+import sys
+
+needle = b"${CLAUDE_SKILL_DIR}"
+value = os.environb[b"STAMP_VALUE"]
+root = os.environb[b"STAMP_ROOT"]
+stamped = 0
+for dirpath, _dirnames, filenames in os.walk(root):
+    for name in filenames:
+        path = os.path.join(dirpath, name)
+        if os.path.islink(path):
+            continue
+        with open(path, "rb") as handle:
+            data = handle.read()
+        if needle not in data:
+            continue
+        data = data.replace(needle, value)
+        if needle in data:
+            sys.exit("ERROR: stamping left a literal ${CLAUDE_SKILL_DIR} in " + os.fsdecode(path)
+                     + "; the install path must not itself contain that text.")
+        with open(path, "wb") as handle:
+            handle.write(data)
+        stamped += 1
+print("Stamped %d files with %s" % (stamped, os.fsdecode(value)))
+PY
+
+if [[ "${DEV_INSTALL_FAIL_AT:-}" == "after-stamp" ]]; then
+  printf 'ERROR: injected failure after stamp\n' >&2
+  exit 97
+fi
 
 if [[ "${DEV_INSTALL_FAIL_AT:-}" == "after-stage" ]]; then
   printf 'ERROR: injected failure after stage\n' >&2
@@ -286,4 +380,49 @@ else
   printf 'Installed from: no git metadata (tarball install)\n'
 fi
 if [[ -d "$BACKUP_DIR" ]]; then printf 'Previous files backed up at %s\n' "$BACKUP_DIR"; fi
+
+# Codex discovery link. Runs after the install is committed and outside the
+# rollback window: a link problem is reported, never fatal, and never undoes
+# or blocks the install. Nothing that holds data is overwritten.
+link_agents_skill() {
+  local link="$AGENTS_LINK_PATH" old_target want have
+  if [[ -z "$link" ]]; then
+    printf 'Codex discovery link: skipped (%s)\n' "$AGENTS_LINK_SKIP"
+    return 0
+  fi
+  if [[ -L "$link" ]]; then
+    old_target="$(readlink -- "$link")" || old_target="?"
+    if [[ -e "$link" ]]; then
+      want="$(cd -P -- "$TARGET_ABS" && pwd -P)"
+      have=""
+      if [[ -d "$link" ]]; then have="$(cd -P -- "$link" && pwd -P)"; fi
+      if [[ "$have" == "$want" ]]; then
+        printf 'Codex discovery link: up to date: %s -> %s\n' "$link" "$old_target"
+      else
+        printf 'WARNING: Codex discovery link not changed: %s already points to %s; leaving it. Remove it to let the installer link %s.\n' "$link" "$old_target" "$TARGET_ABS" >&2
+      fi
+      return 0
+    fi
+    # Dangling: holds no data and would otherwise block the link forever. The
+    # check-then-remove below is not atomic: it assumes no concurrent writer
+    # swaps this entry in between (accepted for a single-user installer).
+    if rm -- "$link" && ln -s -- "$TARGET_ABS" "$link"; then
+      printf 'Codex discovery link: replaced dangling link (was -> %s): %s -> %s\n' "$old_target" "$link" "$TARGET_ABS"
+    else
+      printf 'WARNING: Codex discovery link skipped: could not replace dangling link %s\n' "$link" >&2
+    fi
+    return 0
+  fi
+  if [[ -e "$link" ]]; then
+    printf 'WARNING: Codex discovery link not created: %s already exists and is not a link; leaving it.\n' "$link" >&2
+    return 0
+  fi
+  if mkdir -p -- "$(dirname -- "$link")" && ln -s -- "$TARGET_ABS" "$link"; then
+    printf 'Codex discovery link: created %s -> %s\n' "$link" "$TARGET_ABS"
+  else
+    printf 'WARNING: Codex discovery link skipped: could not create %s\n' "$link" >&2
+  fi
+  return 0
+}
+link_agents_skill
 printf 'Restart Claude Code, then invoke /dev.\n'

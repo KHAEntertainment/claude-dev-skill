@@ -4,6 +4,14 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $installer = Join-Path $repo "install.ps1"
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("claude-dev-install-" + [guid]::NewGuid())
 $passCount = 0
+# The installer links "$env:USERPROFILE\.agents\skills\dev" by default. Point
+# USERPROFILE at a scratch directory for the whole suite so no case can touch
+# the real ~/.agents (or ~/.claude); cases that assert on the link use their
+# own home. The original value is restored in the finally block.
+$originalUserProfile = $env:USERPROFILE
+$suiteHome = Join-Path $testRoot "home"
+$onWindowsHost = ($PSVersionTable.PSEdition -eq "Desktop") -or ($IsWindows -eq $true)
+$linkKind = if ($onWindowsHost) { "Junction" } else { "SymbolicLink" }
 
 function Assert-Path([string]$Path) {
     if (-not (Test-Path $Path)) { throw "Missing path: $Path" }
@@ -11,9 +19,58 @@ function Assert-Path([string]$Path) {
 function Assert-Absent([string]$Path) {
     if (Test-Path $Path) { throw "Unexpected path: $Path" }
 }
+# Each case starts with no discovery link under the suite home, so cases that
+# do not assert on the link never see a leftover from the previous one.
+function Reset-SuiteLink {
+    $suiteLink = Join-Path $suiteHome ".agents\skills\dev"
+    $suiteLinkItem = Get-Item -LiteralPath $suiteLink -Force -ErrorAction SilentlyContinue
+    if ($suiteLinkItem -and $suiteLinkItem.LinkType) { $suiteLinkItem.Delete() }
+    Remove-Item -LiteralPath (Join-Path $suiteHome ".agents") -Recurse -Force -ErrorAction SilentlyContinue
+}
 function Pass([string]$Name) {
     $script:passCount++
     Write-Host "PASS: $Name"
+    Reset-SuiteLink
+}
+# Runs the installer, capturing the success, warning, and information streams
+# as one string, so a test can assert on what was reported.
+function Invoke-InstallerText([hashtable]$InstallerArguments) {
+    (& $installer @InstallerArguments 3>&1 6>&1 | Out-String)
+}
+# Home for one case: a fresh directory, exported as USERPROFILE.
+function Use-CaseHome([string]$Name) {
+    $caseHome = Join-Path $testRoot $Name
+    New-Item -ItemType Directory -Force -Path $caseHome | Out-Null
+    $env:USERPROFILE = $caseHome
+    $caseHome
+}
+function Get-StampedRoot([string]$SkillsParent) {
+    Join-Path (Resolve-Path -LiteralPath $SkillsParent).ProviderPath "dev"
+}
+# Asserts the installed Skill at $Root has no literal variable left and that
+# every path stamped as "$Root/<relpath>" names an existing file or directory.
+function Assert-Stamped([string]$Root) {
+    $checked = 0
+    $pattern = [regex]::Escape($Root) + '((?:/[A-Za-z0-9_.-]+)*)'
+    foreach ($skillFile in Get-ChildItem -LiteralPath $Root -Recurse -File -Force) {
+        $text = [IO.File]::ReadAllText($skillFile.FullName)
+        if ($text.Contains('${CLAUDE_SKILL_DIR}')) { throw "Literal variable remains in $($skillFile.FullName)" }
+        foreach ($match in [regex]::Matches($text, $pattern)) {
+            $checked++
+            $stampedRel = $match.Groups[1].Value.TrimEnd(".")
+            if (-not (Test-Path -LiteralPath ($Root + $stampedRel))) { throw "Stamped path does not exist: $Root$stampedRel" }
+        }
+    }
+    if ($checked -eq 0) { throw "No stamped paths found under $Root" }
+}
+function Get-LinkTarget([string]$LinkPath) {
+    $linkItem = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if (-not ($linkItem -and $linkItem.LinkType)) { return $null }
+    [string](@($linkItem.Target)[0])
+}
+function New-TestLink([string]$LinkPath, [string]$LinkTarget) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $LinkPath -Parent) | Out-Null
+    New-Item -ItemType $linkKind -Path $LinkPath -Value $LinkTarget | Out-Null
 }
 function Skip([string]$Name, [string]$Reason) {
     Write-Host "SKIP: $Name ($Reason)"
@@ -82,7 +139,13 @@ function Test-ScratchGitWorks([string]$ScratchPath, [string]$RepoPath) {
 }
 
 try {
+    # Nothing the caller exported may steer a case: the installer's config-dir
+    # default and failure-injection hook are cleared for this suite's process,
+    # and the detector case below scrubs or sets the Traycer identifiers itself.
+    Remove-Item Env:CLAUDE_CONFIG_DIR, Env:DEV_INSTALL_FAIL_AT -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $testRoot | Out-Null
+    New-Item -ItemType Directory -Path $suiteHome | Out-Null
+    $env:USERPROFILE = $suiteHome
 
     $fresh = Join-Path $testRoot "fresh config"
     & $installer -ConfigDir $fresh -Lang en | Out-Null
@@ -91,6 +154,7 @@ try {
     Assert-Path (Join-Path $fresh "skills\dev\phases\phase5.md")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\inspect_external_reviews.py")
     Assert-Path (Join-Path $fresh "skills\dev\scripts\detect_execution_backend.py")
+    Assert-Path (Join-Path $fresh "skills\dev\scripts\traycer_cli.py")
     Assert-Path (Join-Path $fresh "skills\dev\backends\contract.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\claude-native.md")
     Assert-Path (Join-Path $fresh "skills\dev\backends\traycer.md")
@@ -400,9 +464,269 @@ try {
     }
     Pass "sentinel GIT_* env vars survive a -DryRun install unchanged in the caller's session"
 
+    # --- Issue #88: install-time stamping and the Codex discovery link -------
+
+    # Substitution: no literal left, every stamped path resolves, and the
+    # detector executes from the installed copy.
+    $stampHome = Use-CaseHome "stamp home"
+    $stampConfig = Join-Path $testRoot "stamp config"
+    & $installer -ConfigDir $stampConfig | Out-Null
+    $stampRoot = Get-StampedRoot (Join-Path $stampConfig "skills")
+    Assert-Stamped $stampRoot
+    $pythonForDetector = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $pythonForDetector) { $pythonForDetector = Get-Command python }
+    # The detector's answer depends on TRAYCER_AGENT_ID / TRAYCER_EPIC_ID, so
+    # both outcomes are pinned explicitly: identifiers scrubbed -> exit 2,
+    # incomplete; synthetic identifiers -> exit 0, traycer. The caller's own
+    # values never count and are restored afterwards.
+    # The detector also falls back to <worktree root>/.agent/traycer.env, where
+    # the root is the nearest directory above the working directory holding a
+    # .git entry: run it from a scratch directory that is its own root (an empty
+    # .git marker) so no identity file from the caller's checkout can be found.
+    $detectorScript = Join-Path $stampRoot "scripts\detect_execution_backend.py"
+    $detectorCwd = Join-Path $testRoot "detector cwd"
+    New-Item -ItemType Directory -Force -Path (Join-Path $detectorCwd ".git") | Out-Null
+    $savedAgentId = $env:TRAYCER_AGENT_ID
+    $savedEpicId = $env:TRAYCER_EPIC_ID
+    Push-Location -LiteralPath $detectorCwd
+    try {
+        Remove-Item Env:TRAYCER_AGENT_ID, Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue
+        $incompleteText = (& $pythonForDetector.Source $detectorScript | Out-String)
+        if ($LASTEXITCODE -ne 2) { throw "Installed detector exited $LASTEXITCODE without session identifiers (expected 2)" }
+        $incomplete = $incompleteText | ConvertFrom-Json
+        if ($incomplete.detection_status -ne "incomplete" -or $incomplete.execution_backend -ne "incomplete") {
+            throw "Installed detector did not report incomplete without session identifiers: $incompleteText"
+        }
+        $env:TRAYCER_AGENT_ID = "agent-under-test"
+        $env:TRAYCER_EPIC_ID = "epic-under-test"
+        $readyText = (& $pythonForDetector.Source $detectorScript | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw "Installed detector exited $LASTEXITCODE with session identifiers (expected 0)" }
+        $ready = $readyText | ConvertFrom-Json
+        if ($ready.detection_status -ne "ready" -or $ready.execution_backend -ne "traycer" -or
+            $ready.traycer_agent_id -ne "agent-under-test" -or $ready.traycer_epic_id -ne "epic-under-test") {
+            throw "Installed detector did not report traycer with session identifiers: $readyText"
+        }
+    }
+    finally {
+        Pop-Location
+        if ($null -ne $savedAgentId) { $env:TRAYCER_AGENT_ID = $savedAgentId } else { Remove-Item Env:TRAYCER_AGENT_ID -ErrorAction SilentlyContinue }
+        if ($null -ne $savedEpicId) { $env:TRAYCER_EPIC_ID = $savedEpicId } else { Remove-Item Env:TRAYCER_EPIC_ID -ErrorAction SilentlyContinue }
+    }
+    Pass "installed copy has no literal variable, every stamped path resolves, detector answers both ways"
+
+    # The repository keeps the variable form: stamping touches only the installed copy.
+    $repoLiterals = Get-ChildItem -LiteralPath (Join-Path $repo "skills\dev") -Recurse -File |
+        Select-String -SimpleMatch '${CLAUDE_SKILL_DIR}' -List
+    if (-not $repoLiterals) { throw "Repository payload lost its variable form" }
+    & $pythonForDetector.Source (Join-Path $repo "scripts\validate_skill.py") --skill-dir (Join-Path $repo "skills\dev") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Repository payload no longer validates" }
+    Pass "repository payload keeps the variable form and still validates"
+
+    # Byte-exact stamp for a path with a space, &, $, quotes and %. NTFS cannot
+    # name a directory with '|' or a backslash inside a component, so those two
+    # are added only on hosts that can (a backslash is a separator on Windows).
+    $weirdName = 'we ird & dollar$x ''q'' 100% ;x'
+    if (-not $onWindowsHost) { $weirdName += ' pipe | back\slash \1' }
+    $weirdHome = Use-CaseHome "weird home"
+    $weirdConfig = Join-Path $testRoot $weirdName
+    & $installer -ConfigDir $weirdConfig | Out-Null
+    $weirdRoot = Get-StampedRoot (Join-Path $weirdConfig "skills")
+    Assert-Stamped $weirdRoot
+    $weirdSkill = [IO.File]::ReadAllText((Join-Path $weirdRoot "SKILL.md"))
+    if (-not $weirdSkill.Contains($weirdRoot + "/scripts/detect_execution_backend.py")) { throw "Special-character path was not stamped byte-exact" }
+    if ((Get-LinkTarget (Join-Path $weirdHome ".agents\skills\dev")) -ne $weirdRoot) { throw "Link target is not the byte-exact special-character path" }
+    Pass "path with space, &, `$, quotes, % is stamped and linked byte-exact"
+
+    # A relative -Target is stamped as an absolute path.
+    $relBase = Join-Path $testRoot "relative target base"
+    New-Item -ItemType Directory -Force -Path $relBase | Out-Null
+    Push-Location $relBase
+    try { & $installer -ConfigDir (Join-Path $testRoot "rel config") -Target "rel\dev" | Out-Null }
+    finally { Pop-Location }
+    Assert-Stamped (Get-StampedRoot (Join-Path $relBase "rel"))
+    Pass "relative -Target is stamped as an absolute path"
+
+    # A target path that itself contains the variable text cannot be stamped
+    # faithfully: abort before mutation rather than leave a literal behind.
+    $tokenConfig = Join-Path $testRoot 'tok ${CLAUDE_SKILL_DIR} cfg'
+    $tokenRejected = $false
+    try { & $installer -ConfigDir $tokenConfig | Out-Null } catch { $tokenRejected = $true }
+    if (-not $tokenRejected) { throw "Install into a path containing the variable text unexpectedly succeeded" }
+    Assert-Absent (Join-Path $tokenConfig "skills\dev")
+    if (Get-ChildItem -LiteralPath $tokenConfig -Recurse -Force -Filter ".dev-stage-*" -ErrorAction SilentlyContinue) {
+        throw "Stage directory left behind after stamp abort"
+    }
+    Pass "target path containing the variable text is rejected without residue"
+
+    # Idempotence: a rerun over an existing install yields the identical tree,
+    # keeps backing up the previous version, and leaves the link alone.
+    $idemHome = Use-CaseHome "idem home"
+    $idemConfig = Join-Path $testRoot "idem config"
+    & $installer -ConfigDir $idemConfig | Out-Null
+    $firstCopy = Join-Path $testRoot "idem-first"
+    Copy-Item -LiteralPath (Join-Path $idemConfig "skills\dev") $firstCopy -Recurse
+    $idemOutput = Invoke-InstallerText @{ ConfigDir = $idemConfig }
+    $firstFiles = Get-ChildItem -LiteralPath $firstCopy -Recurse -File -Force
+    foreach ($firstFile in $firstFiles) {
+        $relative = $firstFile.FullName.Substring($firstCopy.Length)
+        $rerunFile = Join-Path (Join-Path $idemConfig "skills\dev") $relative
+        if ((Get-FileHash -LiteralPath $firstFile.FullName).Hash -ne (Get-FileHash -LiteralPath $rerunFile).Hash) {
+            throw "Rerun produced a different $relative than the first install"
+        }
+    }
+    $rerunCount = @(Get-ChildItem -LiteralPath (Join-Path $idemConfig "skills\dev") -Recurse -File -Force).Count
+    if ($rerunCount -ne $firstFiles.Count) { throw "Rerun produced a different file count than the first install" }
+    if (-not (Get-ChildItem -LiteralPath (Join-Path $idemConfig "backups\dev") -Filter SKILL.md -File -Recurse)) { throw "Rerun did not back up the previous install" }
+    if ($idemOutput -notmatch "Codex discovery link: up to date") { throw "Rerun did not report the link as up to date" }
+    Pass "rerun is idempotent, still backs up, and keeps the link"
+
+    # Link: created on a default install, pointing at the installed Skill.
+    $linkHome = Use-CaseHome "link home"
+    $linkConfig = Join-Path $testRoot "link config"
+    $linkOutput = Invoke-InstallerText @{ ConfigDir = $linkConfig }
+    $linkRoot = Get-StampedRoot (Join-Path $linkConfig "skills")
+    $linkPath = Join-Path $linkHome ".agents\skills\dev"
+    if ((Get-LinkTarget $linkPath) -ne $linkRoot) { throw "Discovery link is missing or does not point at the installed Skill" }
+    Assert-Path (Join-Path $linkPath "SKILL.md")
+    if ($linkOutput -notmatch "Codex discovery link: created") { throw "Link creation was not reported" }
+    Pass "default install creates the discovery link to the installed Skill"
+
+    # Link: a real directory at the path is reported and left untouched.
+    $dirHome = Use-CaseHome "dir home"
+    $dirLinkPath = Join-Path $dirHome ".agents\skills\dev"
+    New-Item -ItemType Directory -Force -Path $dirLinkPath | Out-Null
+    Set-Content -Path (Join-Path $dirLinkPath "sentinel.txt") -Value "keep"
+    $dirOutput = Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "dir config") }
+    if (Get-LinkTarget $dirLinkPath) { throw "A real directory was replaced by a link" }
+    Assert-Path (Join-Path $dirLinkPath "sentinel.txt")
+    if ($dirOutput -notmatch "already exists and is not a link") { throw "Real directory at the link path was not reported" }
+    Assert-Path (Join-Path $testRoot "dir config\skills\dev\SKILL.md")
+    Pass "a real directory at the link path is reported and left untouched"
+
+    # Link: a regular file at the path is also left untouched.
+    $fileHome = Use-CaseHome "file home"
+    $fileLinkPath = Join-Path $fileHome ".agents\skills\dev"
+    New-Item -ItemType Directory -Force -Path (Split-Path $fileLinkPath -Parent) | Out-Null
+    Set-Content -Path $fileLinkPath -Value "keep"
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "file config") } | Out-Null
+    if ((Get-LinkTarget $fileLinkPath) -or -not (Test-Path -LiteralPath $fileLinkPath -PathType Leaf)) { throw "A file at the link path was replaced" }
+    Pass "a file at the link path is left untouched"
+
+    # Link: a link to a different, existing directory is reported and left.
+    $foreignHome = Use-CaseHome "foreign home"
+    $foreignDir = Join-Path $testRoot "foreign skill"
+    New-Item -ItemType Directory -Force -Path $foreignDir | Out-Null
+    $foreignLinkPath = Join-Path $foreignHome ".agents\skills\dev"
+    New-TestLink $foreignLinkPath $foreignDir
+    $foreignOutput = Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "foreign config") }
+    if ((Get-LinkTarget $foreignLinkPath) -ne $foreignDir) { throw "A link to another existing directory was overwritten" }
+    if ($foreignOutput -notmatch "Codex discovery link not changed") { throw "Foreign link was not reported" }
+    Pass "a link to another existing directory is reported and left untouched"
+
+    # Link: a dangling link holds no data and is replaced, with a report.
+    $danglingHome = Use-CaseHome "dangling home"
+    $danglingGone = Join-Path $testRoot "deleted scratch install"
+    New-Item -ItemType Directory -Force -Path $danglingGone | Out-Null
+    $danglingLinkPath = Join-Path $danglingHome ".agents\skills\dev"
+    New-TestLink $danglingLinkPath $danglingGone
+    Remove-Item -LiteralPath $danglingGone -Force
+    $danglingConfig = Join-Path $testRoot "dangling link config"
+    $danglingOutput = Invoke-InstallerText @{ ConfigDir = $danglingConfig }
+    if ((Get-LinkTarget $danglingLinkPath) -ne (Get-StampedRoot (Join-Path $danglingConfig "skills"))) { throw "Dangling link was not replaced" }
+    if ($danglingOutput -notmatch "replaced dangling link \(was -> ") { throw "Dangling link replacement was not reported" }
+    Pass "a dangling link is replaced and reported"
+
+    # Link: opt-out creates nothing and leaves an existing link alone.
+    $optoutHome = Use-CaseHome "optout home"
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "optout config"); NoAgentsLink = $true } | Out-Null
+    Assert-Absent (Join-Path $optoutHome ".agents")
+    $optoutKeptHome = Use-CaseHome "optout kept home"
+    $optoutOther = Join-Path $testRoot "optout other"
+    New-Item -ItemType Directory -Force -Path $optoutOther | Out-Null
+    $optoutKeptLink = Join-Path $optoutKeptHome ".agents\skills\dev"
+    New-TestLink $optoutKeptLink $optoutOther
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "optout kept config"); NoAgentsLink = $true } | Out-Null
+    if ((Get-LinkTarget $optoutKeptLink) -ne $optoutOther) { throw "-NoAgentsLink touched an existing link" }
+    Pass "-NoAgentsLink creates and touches nothing"
+
+    # Link: an explicit -Target is an isolated install; a dry run never links.
+    $isoHome = Use-CaseHome "iso home"
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "iso config"); Target = (Join-Path $testRoot "iso target\dev") } | Out-Null
+    Assert-Absent (Join-Path $isoHome ".agents")
+    Assert-Stamped (Get-StampedRoot (Join-Path $testRoot "iso target"))
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "iso dry config"); DryRun = $true } | Out-Null
+    Assert-Absent (Join-Path $isoHome ".agents")
+    Pass "explicit -Target and -DryRun do not create the link"
+
+    # A link that cannot be created (parent path is a file) is reported and
+    # never fails the install.
+    $blockedHome = Use-CaseHome "blocked home"
+    Set-Content -Path (Join-Path $blockedHome ".agents") -Value "not a directory"
+    $blockedOutput = Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "blocked config") }
+    Assert-Path (Join-Path $testRoot "blocked config\skills\dev\SKILL.md")
+    if ($blockedOutput -notmatch "Codex discovery link skipped") { throw "An uncreatable link was not reported as skipped" }
+    Pass "an uncreatable link is reported as skipped and the install succeeds"
+
+    # Failure after stamping leaves the previous install untouched and no residue.
+    $stampFailHome = Use-CaseHome "stampfail home"
+    $stampFailConfig = Join-Path $testRoot "stampfail config"
+    New-Item -ItemType Directory -Force -Path (Join-Path $stampFailConfig "skills\dev") | Out-Null
+    Set-Content -Path (Join-Path $stampFailConfig "skills\dev\old.txt") -Value "old skill"
+    $env:DEV_INSTALL_FAIL_AT = "after-stamp"
+    $stampFailed = $false
+    try { & $installer -ConfigDir $stampFailConfig | Out-Null } catch { $stampFailed = $true }
+    Remove-Item Env:DEV_INSTALL_FAIL_AT -ErrorAction SilentlyContinue
+    if (-not $stampFailed) { throw "Injected after-stamp failure unexpectedly succeeded" }
+    Assert-Path (Join-Path $stampFailConfig "skills\dev\old.txt")
+    if (Get-ChildItem -LiteralPath $stampFailConfig -Recurse -Force -Filter ".dev-stage-*" -ErrorAction SilentlyContinue) {
+        throw "Stage directory left behind after after-stamp failure"
+    }
+    Assert-Absent (Join-Path $stampFailHome ".agents")
+    Assert-Absent (Join-Path $stampFailConfig "backups")
+    Pass "failure after stamping keeps the previous install and leaves no residue"
+
+    # A path with a newline or carriage return cannot be stamped faithfully:
+    # refuse it before any change instead of exiting 0 with references to a
+    # path that does not exist. Strings alone reach the refusal, so this runs
+    # on Windows too; only the working-directory case needs a real directory.
+    function Assert-Refused([string]$Label, [hashtable]$InstallerArguments, [string[]]$MustStayAbsent) {
+        $refusal = $null
+        try { & $installer @InstallerArguments | Out-Null } catch { $refusal = $_.Exception.Message }
+        if (-not $refusal) { throw "$Label unexpectedly succeeded" }
+        if ($refusal -notmatch "must not contain a newline or carriage return") { throw "$Label was refused for the wrong reason: $refusal" }
+        foreach ($absentPath in $MustStayAbsent) { Assert-Absent $absentPath }
+    }
+    $nlHome = Use-CaseHome "nl home"
+    foreach ($nlConfig in @(
+        ((Join-Path $testRoot "nl") + "`n" + "config"),
+        ((Join-Path $testRoot "nl trailing") + "`n"),
+        ((Join-Path $testRoot "nl cr") + "`r" + "config"))) {
+        Assert-Refused "Install into a path with a line break" @{ ConfigDir = $nlConfig } @($nlConfig)
+    }
+    Assert-Refused "-Target with a line break" @{ ConfigDir = (Join-Path $testRoot "nl target config"); Target = ((Join-Path $testRoot "nl target") + "`n" + "x\dev") } @((Join-Path $testRoot "nl target config"))
+    if (-not $onWindowsHost) {
+        $nlRelativeBase = (Join-Path $testRoot "nl relative") + "`n" + "base"
+        New-Item -ItemType Directory -Force -Path $nlRelativeBase | Out-Null
+        Push-Location -LiteralPath $nlRelativeBase
+        try { Assert-Refused "Relative -Target under a working directory with a line break" @{ ConfigDir = (Join-Path $testRoot "nl relative config"); Target = "rel\dev" } @((Join-Path $testRoot "nl relative config")) }
+        finally { Pop-Location }
+        Assert-Absent (Join-Path $nlRelativeBase "rel")
+    }
+    $env:USERPROFILE = (Join-Path $testRoot "nl link") + "`n" + "home"
+    Assert-Refused "Install with a line break in the link path" @{ ConfigDir = (Join-Path $testRoot "nl link config") } @((Join-Path $testRoot "nl link config"))
+    Invoke-InstallerText @{ ConfigDir = (Join-Path $testRoot "nl link opt-out config"); NoAgentsLink = $true } | Out-Null
+    Assert-Path (Join-Path $testRoot "nl link opt-out config\skills\dev\SKILL.md")
+    Pass "a path containing a newline or carriage return is refused before any change"
+
+    # Help documents the flag.
+    $helpText = Get-Help $installer -Full | Out-String
+    if ($helpText -notmatch "NoAgentsLink") { throw "Get-Help does not document -NoAgentsLink" }
+    Pass "help documents -NoAgentsLink"
+
     Write-Host "All $passCount PowerShell installer tests passed."
 }
 finally {
     Remove-Item Env:DEV_INSTALL_FAIL_AT -ErrorAction SilentlyContinue
+    if ($null -ne $originalUserProfile) { $env:USERPROFILE = $originalUserProfile } else { Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue }
     if (Test-Path $testRoot) { Remove-Item $testRoot -Recurse -Force }
 }
