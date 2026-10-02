@@ -131,7 +131,7 @@ stale override the moment the guide changes. That is why this section stays
 empty.
 
 One constraint does belong here, because it is a property of this project rather
-than a routing preference: **the lead runs on the `claude` harness, because the
-lead is what invokes `/dev`.** Worker, QA, and reviewer assignments are
-provider-neutral and may run on whichever harness and model the selection guide
-selects for them.
+than a routing preference: **the lead runs on the harness that invokes `/dev`:
+Claude Code on either backend, or Codex or OpenCode under the Traycer backend
+only (ADR-013).** Worker, QA, and reviewer assignments are provider-neutral and
+may run on whichever harness and model the selection guide selects for them.
