@@ -25,16 +25,22 @@ If you prefer Homebrew, install via the [KHAEntertainment tap](https://github.co
 
 ```bash
 brew tap KHAEntertainment/tap
-brew install khaentertainment/tap/dev-skill
-dev-skill-install --dry-run   # verify the install
-brew test dev-skill            # run the formula's test block
+brew install khaentertainment/tap/dev-skill   # places the payload; installs nothing yet
+dev-skill-install --dry-run                   # preview: changes nothing
+dev-skill-install                             # installs into ~/.claude/skills/dev
 ```
+
+`brew install` only places the files; `dev-skill-install` runs the bundled
+`install.sh`, which does the actual install (see [Live installation](#live-installation))
+and gives you the bare `/dev` command rather than `/dev-skill:dev`.
 
 The Homebrew formula and the plugin marketplace install the same payload but
 follow independent release cadences. The formula may lag by one release while
 `url`/`sha256` are bumped — see [`docs/RELEASING.md`](docs/RELEASING.md#homebrew-formula).
+Check `brew info dev-skill` for the version it carries. `brew test dev-skill`
+currently fails on the v2.1.1 formula (#70).
 
-That is the whole install. To update later:
+That is the whole plugin install. To update the plugin later:
 
 ```bash
 claude plugin marketplace update khaentertainment-dev-skill   # refresh the catalog
