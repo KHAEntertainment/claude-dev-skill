@@ -28,8 +28,10 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 
 - Installer extraction no longer passes `-C` to `tar`, which GNU tar parses
   for backslash escapes; a path containing a backslash extracted to the wrong
-  directory on Linux (#88). Paths containing a line break are refused before
-  any change.
+  directory on Linux (#88). Installer path inputs (config dir, target, home)
+  containing a line break are refused before staging, and the resolved
+  target is checked again before an existing install is touched; the target's
+  parent directory may already have been created by then.
 
 ## v2.1.1 — 2026-09-14
 
