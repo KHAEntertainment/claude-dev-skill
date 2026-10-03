@@ -214,7 +214,7 @@ class SuppliedIdentityPinTests(unittest.TestCase):
         ("backends/traycer.md", "a partial environment cannot be recovered by the file"),
         ("backends/traycer.md", "reports the partial environment to the user as a host defect"),
         ("backends/traycer.md", "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply."),
-        ("backends/traycer.md", "unverified for Codex and OpenCode leads"),
+        ("backends/traycer.md", "verified live for Codex and OpenCode leads"),
         ("backends/traycer.md", "Never invoke `traycer` directly"),
         ("backends/contract.md", "`claude-native` is never available to it"),
         ("backends/contract.md", "`lead.harness` is recorded from the Traycer agent list, never inferred."),

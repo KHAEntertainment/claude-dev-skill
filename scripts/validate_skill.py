@@ -703,7 +703,7 @@ def main() -> int:
             "a partial environment cannot be recovered by the file",
             "reports the partial environment to the user as a host defect",
             "It never sets or unsets `TRAYCER_AGENT_ID` or `TRAYCER_EPIC_ID` itself to make the file apply.",
-            "unverified for Codex and OpenCode leads",
+            "verified live for Codex and OpenCode leads",
             "report_back: incomplete",
             "Quality-gate self-assessment",
             "Bound that read.",

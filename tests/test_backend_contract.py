@@ -1828,7 +1828,7 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             "git rev-parse --git-path info/exclude",
             "Re-run",
             "backend_source: supplied",
-            "unverified for Codex and OpenCode leads",
+            "verified live for Codex and OpenCode leads",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, section)
