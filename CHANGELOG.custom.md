@@ -8,6 +8,32 @@ build metadata in `skills/dev/SKILL.md` (`2.0.0+upstream.3e87db0`). Entries belo
 `v2.0.0` predate that scheme: they use `custom-vX.Y.Z-upstream.SHA` headings and
 record upstream SHAs as plain text in their `### Upstream` blocks.
 
+## Unreleased (v2.1.2)
+
+### Added
+
+- The `/dev` lead can run on Codex or OpenCode under the Traycer backend
+  (#76, ADR-013). `install.sh` and `install.ps1` write the absolute installed
+  Skill path over `${CLAUDE_SKILL_DIR}` in the installed copy and link
+  `~/.agents/skills/dev` for Codex (opt out with `--no-agents-link` /
+  `-NoAgentsLink`) (#88, PR #93). Detection accepts a supplied
+  `.agent/traycer.env` identity (`backend_source: supplied`), every Traycer
+  CLI call goes through the new `scripts/traycer_cli.py` wrapper, preflight
+  checks a supplied identity against the session's self-identity source and
+  the agent-list row, and the ledger records `identity_verification` (#89,
+  PR #92). Live acceptance of the Codex and OpenCode surfaces is pending
+  (#91).
+
+### Fixed
+
+- Installer extraction no longer passes `-C` to `tar`, which GNU tar parses
+  for backslash escapes; a path containing a backslash extracted to the wrong
+  directory on Linux (#88). The paths an install uses (config dir, target,
+  and the Codex link path when a link is made) are refused before staging if
+  they contain a line break, and the resolved target is checked again before
+  an existing install is touched; the target's parent directory may already
+  have been created by then.
+
 ## v2.1.1 — 2026-09-14
 
 ### Added

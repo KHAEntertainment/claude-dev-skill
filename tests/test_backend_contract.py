@@ -1248,8 +1248,14 @@ class BackendContractTests(unittest.TestCase):
         self.assertIn("The agent selection guide governs role routing.", policy)
         self.assertIn("outranks the guide in the adapter's resolution order", policy)
         self.assertIn(
-            "the lead runs on the `claude` harness, "
-            "because the lead is what invokes `/dev`",
+            "the lead runs on the harness that invokes `/dev`: Claude Code on "
+            "either backend, or Codex or OpenCode under the Traycer backend "
+            "only (ADR-013).",
+            policy,
+        )
+        # The retired Claude-only wording must not come back (Issue #90).
+        self.assertNotIn(
+            "the lead runs on the `claude` harness, because the lead is what invokes",
             policy,
         )
         self.assertIn("provider-neutral", policy)
@@ -2008,6 +2014,19 @@ class MultiHarnessContractTests(unittest.TestCase):
         self.assertIn("## ADR-012 — Child harnesses receive handoff context, never /dev variants", architecture)
         self.assertIn(
             "Child harnesses receive handoff context, never /dev variants",
+            architecture,
+        )
+
+    def test_adr_013_pinned_heading_and_decision_in_architecture(self) -> None:
+        """Issue #90: ADR-013 must keep its heading and its scope sentence."""
+        architecture = self.read("docs/architecture.md")
+        self.assertIn(
+            "## ADR-013 — Non-Claude leads run the same payload under the Traycer backend",
+            architecture,
+        )
+        self.assertIn(
+            "Codex and OpenCode run the **same payload** as the lead "
+            "**under the Traycer backend only**",
             architecture,
         )
 

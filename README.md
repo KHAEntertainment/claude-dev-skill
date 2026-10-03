@@ -2,7 +2,7 @@
 
 KHA Entertainment's maintained English fork of [`hnaymyh123-henry/claude-dev-skill`](https://github.com/hnaymyh123-henry/claude-dev-skill).
 
-`/dev` turns the active Claude Code session into a Tech Lead that coordinates requirements, GitHub Issues, pre-created worktrees, delegated coding workers, QA, review, merge order, recovery state, and retrospectives. It runs in two execution modes: **Claude-native** (default, no Traycer required) or **Traycer** (optional multi-harness execution).
+`/dev` turns the active session into a Tech Lead that coordinates requirements, GitHub Issues, pre-created worktrees, delegated coding workers, QA, review, merge order, recovery state, and retrospectives. It runs in two execution modes: **Claude-native** (default, no Traycer required) or **Traycer** (optional multi-harness execution). The lead is normally a Claude Code session; under the Traycer backend it can also be a Codex or OpenCode session (see [Running the lead from Codex or OpenCode](#running-the-lead-from-codex-or-opencode)).
 
 The canonical artifact is a user-invoked Skill at `skills/dev/`. The upstream `en/` and `zh/` command trees remain historical references and are not installed.
 
@@ -25,16 +25,22 @@ If you prefer Homebrew, install via the [KHAEntertainment tap](https://github.co
 
 ```bash
 brew tap KHAEntertainment/tap
-brew install khaentertainment/tap/dev-skill
-dev-skill-install --dry-run   # verify the install
-brew test dev-skill            # run the formula's test block
+brew install khaentertainment/tap/dev-skill   # places the payload; installs nothing yet
+dev-skill-install --dry-run                   # preview: changes nothing
+dev-skill-install                             # installs into ~/.claude/skills/dev
 ```
+
+`brew install` only places the files; `dev-skill-install` runs the bundled
+`install.sh`, which does the actual install (see [Live installation](#live-installation))
+and gives you the bare `/dev` command rather than `/dev-skill:dev`.
 
 The Homebrew formula and the plugin marketplace install the same payload but
 follow independent release cadences. The formula may lag by one release while
 `url`/`sha256` are bumped — see [`docs/RELEASING.md`](docs/RELEASING.md#homebrew-formula).
+Check `brew info dev-skill` for the version it carries. `brew test dev-skill`
+currently fails on the v2.1.1 formula (#70).
 
-That is the whole install. To update later:
+That is the whole plugin install. To update the plugin later:
 
 ```bash
 claude plugin marketplace update khaentertainment-dev-skill   # refresh the catalog
@@ -89,11 +95,43 @@ When no Traycer session is present, the lead resolves the `claude-native` backen
 
 ### Traycer — optional multi-harness
 
-When both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, detection returns `traycer`/`ready` (`backend_source: detected`) and the lead loads the Traycer adapter. Traycer owns CLI worktree/session mechanics and launches receive-capable Chat/GUI child lanes on any supported harness (Claude Code, Codex, OpenCode, Cursor, …) through `rtk proxy traycer`, enabling cross-harness A2A coordination and managed transcript capture.
+When both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present, detection returns `traycer`/`ready` (`backend_source: detected`) and the lead loads the Traycer adapter. Traycer owns CLI worktree/session mechanics and launches receive-capable Chat/GUI child lanes on any supported harness (Claude Code, Codex, OpenCode, Cursor, …). Every Traycer CLI call goes through the `skills/dev/scripts/traycer_cli.py` wrapper (run as `rtk proxy python3 …/traycer_cli.py`), enabling cross-harness A2A coordination and managed transcript capture.
 
 ### Detection and fail-closed behavior
 
-`skills/dev/scripts/detect_execution_backend.py` decides the backend from the environment only — it never probes binaries. Both identifiers present → `traycer`; otherwise it fails closed to `incomplete` (exit 2) and pauses rather than guessing. Because the absence of Traycer identifiers cannot distinguish a native Claude session from a Traycer child whose environment was not injected, `claude-native` is a **lead-resolved** choice backed by positive evidence, never an automatic fallback. The chosen backend is recorded in `.agent/dev-state.md` as `backend_source: detected | lead_resolved`.
+`skills/dev/scripts/detect_execution_backend.py` decides the backend from the environment, or from a supplied identity file, and never probes binaries. Both identifiers in the environment → `traycer` (`backend_source: detected`). Neither in the environment but a valid `.agent/traycer.env` at the worktree root → `traycer` (`backend_source: supplied`; see [Running the lead from Codex or OpenCode](#running-the-lead-from-codex-or-opencode)). Anything else, including exactly one identifier in the environment, fails closed to `incomplete` (exit 2) and pauses rather than guessing. Because the absence of Traycer identifiers cannot distinguish a native Claude session from a Traycer child whose environment was not injected, `claude-native` is a **lead-resolved** choice backed by positive evidence, never an automatic fallback. The chosen backend is recorded in `.agent/dev-state.md` as `backend_source: detected | supplied | lead_resolved`.
+
+## Running the lead from Codex or OpenCode
+
+The `/dev` lead can run on Codex or OpenCode as well as Claude Code, so you can swap the lead to whichever harness is not rate-limited. This works **under the Traycer backend only**. Without Traycer, a Codex or OpenCode lead records `incomplete` and stops; `claude-native` stays Claude-only. The decision is recorded as [ADR-013](docs/architecture.md#adr-013--non-claude-leads-run-the-same-payload-under-the-traycer-backend).
+
+**1. Install with the installer, not the plugin.** The marketplace plugin relies on Claude Code to expand `${CLAUDE_SKILL_DIR}` in the Skill's prompts, and no other harness does. `install.sh` and `install.ps1` write the absolute installed path into the installed copy instead, so the same files work for every harness. Use [Manual installation](#manual-installation) (`./install.sh`, or `.\install.ps1` on Windows), or Homebrew: `brew install khaentertainment/tap/dev-skill`, then `dev-skill-install`, which runs the bundled `install.sh` (`brew install` alone only places the files). The Homebrew formula follows its own release cadence; until it carries v2.1.2, it installs a release that predates path stamping and the Codex link, so check `brew info dev-skill` before relying on it.
+
+**2. Let each harness find the Skill.** One installed copy at `~/.claude/skills/dev` serves all three harnesses:
+
+| Harness | How it finds the Skill | How you invoke it |
+| --- | --- | --- |
+| Claude Code | `~/.claude/skills/dev` | `/dev` |
+| Codex | the link `~/.agents/skills/dev`, which a default install creates or refreshes (`--no-agents-link` / `-NoAgentsLink` skips it; an install with `--target` / `-Target` never creates it) | `$dev` |
+| OpenCode | reads `~/.claude/skills` directly | through its skill tool |
+
+**3. The lead supplies its Traycer identity.** Traycer gives `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` to Claude Code agents only; Codex and OpenCode leads on Traycer's chat surface do not receive them (observed 2026-09-21). When detection returns `incomplete` with **neither** identifier present, the lead takes its agent id from the session's own self-identity source and its epic id from the Traycer session context, falls back to ids in your invocation message, and asks you once if one is still missing. It writes them to `.agent/traycer.env` (two `export` lines, identifiers only, never secrets), confirms the file is git-ignored or excluded, and re-runs detection, which now records `backend_source: supplied`. Exactly one identifier in the environment is a host defect: the lead reports it and stops.
+
+**4. Preflight checks the supplied identity.** The Traycer CLI derives its caller and "self" marker from the supplied identifiers, so neither is evidence. Instead the lead compares the agent id with its session's self-identity source when one exists, and checks that the agent-list row for that id names the lead's own worktree and harness. The second check is weaker: it cannot tell apart two agents sharing one worktree and one harness (for example a QA lane sharing the lead's checkout). The ledger records which check verified the identity (`identity_verification`), and a lead verified by the weaker check alone says so in its first status reply.
+
+**5. Swapping leads mid-run is a recovery.** The new lead reads `.agent/dev-state.md` and runs the Traycer adapter's recovery procedure before sending anything: it reconciles the lanes the previous lead dispatched and must observe them rather than create duplicates. The live swap test that verifies this on Codex and OpenCode is still pending (#91).
+
+### Surface status
+
+| Surface | Detection result | Status |
+| --- | --- | --- |
+| Claude Code, Traycer chat | `traycer`, `backend_source: detected` | Supported (the original path) |
+| Codex, Traycer chat | Identifiers absent from the environment; a lead given its identity by hand ran a full `/dev` round on 2026-09-21. A Codex session exposes a self-identity source (observed 2026-09-30) | Supplied-identity path shipped; live swap test not yet run (#91) |
+| OpenCode, Traycer chat | Identifiers absent from the environment (2026-09-21) | Supplied-identity path shipped; not yet probed with it (#91) |
+| Codex, Traycer terminal | Not yet probed (#91) | Unverified |
+| OpenCode, Traycer terminal | Not yet probed (#91) | Unverified |
+
+A surface that fails closed is documented here, not worked around.
 
 ## Customized Guarantees
 
@@ -189,10 +227,11 @@ When ready to swap the global `/dev` implementation:
 The default installation:
 
 1. Validates every required Skill file and reference before mutation.
-2. Stages the new Skill beside the destination.
+2. Stages the new Skill beside the destination and writes the absolute installed path over every `${CLAUDE_SKILL_DIR}` in the staged copy (the repository keeps the variable form).
 3. Moves an existing `~/.claude/skills/dev` and legacy command paths into `~/.claude/backups/dev/<timestamp>/`.
 4. Atomically renames the staged Skill into `~/.claude/skills/dev`.
 5. Restores the previous Skill and command paths if installation fails.
+6. Creates or refreshes the Codex link `~/.agents/skills/dev` (skip it with `--no-agents-link`). An existing directory, a file, or a link to another existing directory at that path is reported and left alone; a link whose target no longer exists is replaced.
 
 Restart Claude Code after the swap, then invoke:
 
@@ -262,7 +301,7 @@ skills/dev/
 These are the third-party systems `/dev` invokes or composes with at runtime. RTK, Traycer, Graft, and CodeRabbit are wired into the Skill payload (`skills/dev/`) and gated by the verification harness. i-have-adhd is a documented composition only: the payload deliberately names no brevity skill (see [`docs/dogfooding.md`](docs/dogfooding.md#i-have-adhd)).
 
 - **[RTK](https://github.com/rtk-ai/rtk)** — command transport for every shell, Git, GitHub, test, and lint invocation the Skill runs. Hard prerequisite at install time ([`install.sh`](install.sh) line 160); ambient thereafter and never version-checked at runtime.
-- **[Traycer](https://github.com/traycerai/traycer)** — optional multi-harness execution backend. The lead loads the Traycer adapter at [`skills/dev/backends/traycer.md`](skills/dev/backends/traycer.md) only when both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` are present in the environment; otherwise it resolves `claude-native`. Capability-verified: any gap in a child harness surfaces as `incomplete`, not as a silent fallback.
+- **[Traycer](https://github.com/traycerai/traycer)** — optional multi-harness execution backend. The lead loads the Traycer adapter at [`skills/dev/backends/traycer.md`](skills/dev/backends/traycer.md) only when detection returns `traycer`: both `TRAYCER_AGENT_ID` and `TRAYCER_EPIC_ID` in the environment, or, with neither present, a valid supplied `.agent/traycer.env`. Anything else is `incomplete`; `claude-native` is never a fallback, only a lead-resolved choice for a known native Claude Code session (see [Detection and fail-closed behavior](#detection-and-fail-closed-behavior)). Capability-verified: any gap in a child harness surfaces as `incomplete`, not as a silent fallback.
 - **[i-have-adhd](https://github.com/ayghri/i-have-adhd)** — *composes with*, **not depends on**. A session brevity skill that `/dev` aligns with at the end-of-turn reply layer ([`skills/dev/reply-contract.md`](skills/dev/reply-contract.md) §6): `/dev` never claims a task-requirements override to justify verbosity. Per-session activation is required to enable i-have-adhd; `/dev` does not install, invoke, or require it.
 - **[Graft](https://github.com/trailhq/Graft) (`@nanonets/graft@0.18.0`)** — pinned optional code-graph evidence CLI used at gates via `rtk proxy graft`. Never an execution backend; `/dev` never runs `graft init` in a managed project. See [`skills/dev/graft.md`](skills/dev/graft.md).
 - **[CodeRabbit](https://github.com/coderabbitai)** — trusted external reviewer for Phase 4 oversight ([`skills/dev/phases/external-review.md`](skills/dev/phases/external-review.md)). Substituted after the rate-limit breakpoint (#48) with a family-distinct reviewer from the review fallback chain; the substitute reviewer must post a real verdict — a clear status field is not a review.
