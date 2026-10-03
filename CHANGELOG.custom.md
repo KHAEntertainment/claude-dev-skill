@@ -22,10 +22,12 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   checks a supplied identity against the session's self-identity source and
   the agent-list row, and the ledger records `identity_verification` (#89,
   PR #92). Live acceptance on 2026-10-03 verified Codex and OpenCode chat
-  leads on the supplied-identity path; Codex and OpenCode terminal agents
-  detect `traycer` from injected identifiers; swap recovery reconciled the
-  lane and created no duplicate agent. Follow-ups: #97 (swap-time
-  report-back rule), #98 (adapter clarifications) (#91).
+  leads on the supplied-identity path, and swap recovery by those chat leads
+  reconciled the outstanding lane without creating a duplicate agent. Codex
+  and OpenCode terminal agents passed detection only (`traycer` from
+  injected identifiers); dispatching lanes from a terminal lead remains
+  unverified. Follow-ups: #97 (swap-time report-back rule), #98 (adapter
+  clarifications) (#91).
 
 ### Fixed
 
