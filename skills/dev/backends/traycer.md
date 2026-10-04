@@ -8,7 +8,7 @@ Every Traycer CLI step — whoami, host status, agent list/create/send/inbox/tra
 
 The wrapper applies the detector's own lookup and rules. With both identifiers in the environment it runs `traycer <args>` unchanged and passes stdout, stderr, and the exit code through. With neither in the environment and a valid `.agent/traycer.env`, it exports both identifiers from the file first. When it cannot run `traycer` it writes nothing to stdout and one line of JSON to stderr, `{"traycer_cli":"error","code":...,"reason":...}`, then exits 78 for `no_usable_identity` or 69 for `traycer_not_found` or `traycer_exec_failed`. Any such failure makes the operation `incomplete`: the exit codes are chosen not to collide with `traycer`'s own, and the `traycer_cli` key on stderr is the definitive discriminator.
 
-A Codex lead's default sandbox has no network, and the CLI needs it: `traycer_cli.py` calls returned `E_AUTH_NETWORK` or `E_HOST_UNREACHABLE` until the user approved escalation (Issue #91 live probes). A Codex lead asks the user for network access for the CLI, by approval or by sandbox setting. Until it is granted those errors make the operation `incomplete`, as any other CLI failure does.
+A Codex terminal lead's default sandbox blocked the CLI's network access: `traycer_cli.py` calls returned `E_AUTH_NETWORK` or `E_HOST_UNREACHABLE` until the user approved escalation (Issue #91 live probes); a Codex chat lead ran the same calls without it. A Codex lead that hits those errors asks the user for network access for the CLI, by approval or by sandbox setting. Until it is granted those errors make the operation `incomplete`, as any other CLI failure does.
 
 ## Supplied identity
 

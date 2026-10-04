@@ -48,8 +48,9 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 - `skills/dev/backends/traycer.md` names the epic-id source (the
   `Agents in task '<epic>'` header; the CLI's `agent list --json` has no epic
   field), gives `agent list-harness-models` and `agent list-profiles` their
-  positional harness, notes that a Codex lead needs network access for the
-  CLI, and says to filter `agent list --json` to the rows needed (#98).
+  positional harness, notes that a Codex terminal lead's sandbox blocked the
+  CLI's network access until the user approved it (a Codex chat lead did not
+  need that), and says to filter `agent list --json` to the rows needed (#98).
 
 ## v2.1.1 — 2026-09-14
 

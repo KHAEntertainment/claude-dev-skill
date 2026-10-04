@@ -1930,10 +1930,11 @@ class SuppliedIdentityContractTests(unittest.TestCase):
         wrapper = _markdown_section(adapter, "## Wrapper route")
         self.assertIsNotNone(wrapper)
         for token in (
-            "A Codex lead's default sandbox has no network",
+            "A Codex terminal lead's default sandbox blocked the CLI's network access",
+            "a Codex chat lead ran the same calls without it",
             "`E_AUTH_NETWORK`",
             "`E_HOST_UNREACHABLE`",
-            "asks the user for network access for the CLI",
+            "A Codex lead that hits those errors asks the user for network access for the CLI",
         ):
             with self.subTest(section="wrapper", token=token):
                 self.assertIn(token, wrapper)
