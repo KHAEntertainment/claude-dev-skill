@@ -172,7 +172,7 @@ facts after release (recorded 2026-09-29, #72):
   (source: PR #1 re-review, recorded 2026-08-30)
 - `README.zh.md` is stale and contradicts the current installer: it still
   documents the upstream bilingual *command* install and advertises
-  `install.sh --lang zh`, which `install.sh:60` now rejects. Its prerequisites
+  `install.sh --lang zh`, which `install.sh` now rejects. Its prerequisites
   table also omits RTK and Python. **Mitigated** as of PR #7 with a bilingual
   outdated/unsupported banner directing readers to the English README; the body
   itself is still wrong and either needs retranslation or deletion.
