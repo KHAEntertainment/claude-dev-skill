@@ -148,6 +148,40 @@ rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir
   `notes` in the JSON output are informational only: an unrelated `gh repo
   set-default` disagreeing with the target does **not** block.
 
+### Before a release tag push
+
+A release tag is cut from the remote default branch's tip, often from a clean
+detached checkout or a linked worktree on another branch, so the branch guard
+above does not apply. Use tag mode instead — `--tag-target` replaces
+`--assigned-branch`, and the two together are rejected:
+
+```bash
+remote="$(rtk proxy python3 "${CLAUDE_SKILL_DIR}/scripts/resolve_repository.py" --repo-dir <worktree> --operation push \
+  --dest-ref refs/tags/<tag> --tag-target <commit> --print-push-remote)" || exit 1
+```
+
+Run it **before** `git tag` (a tag that already exists locally is refused),
+tag the same `<commit>` explicitly, then push `refs/tags/<tag>` to `"$remote"`.
+
+- Runs the same remote-identity and transport-account checks as a branch push,
+  and additionally verifies the `gh` CLI login against `github.account`.
+- Requires no checked-out branch. `--dest-ref` must be `refs/tags/<name>`;
+  `--tag-target` must resolve to a commit in this checkout.
+- Reads the default branch live from each push URL with
+  `git ls-remote --symref <push-url> HEAD` — never from a local `origin/HEAD` or
+  `refs/remotes/*` ref, so a stale clone cannot pass and no fetch is needed.
+  The target must equal that tip at **every** push URL.
+- Refuses a tag that already exists locally or on any push URL, then runs
+  `git push --dry-run <remote> <commit>:refs/tags/<tag>`.
+- Fails closed with a reason (`remote_unreachable`, `default_branch_unresolved`,
+  `target_mismatch`, `tag_exists_local`, `tag_exists_remote`,
+  `invalid_tag_target`, `invalid_tag_destination`, `conflicting_arguments`);
+  exit 2 prints nothing under `--print-push-remote`.
+- Known refusal: a `branch.<current>.pushRemote` that names a different remote
+  than `github.pushRemote` fails closed in a linked worktree, as it does for a
+  branch push. Remedy: run from a detached checkout, where no branch setting
+  applies.
+
 ### Before a PR or Issue operation
 
 ```bash

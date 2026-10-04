@@ -53,10 +53,25 @@ version. Ignore the tag name it proposes; do not let it create the tag.
 3. **Tag and push.**
 
    ```bash
-   git checkout main && git pull --ff-only
-   git tag -a v2.0.0 -m "dev-skill 2.0.0"
-   git push origin refs/tags/v2.0.0
+   git checkout main && git pull --ff-only    # or a clean detached checkout of the merge commit
+   sha="$(git rev-parse HEAD)"
+   remote="$(python3 skills/dev/scripts/resolve_repository.py --repo-dir . --operation push \
+     --dest-ref refs/tags/v2.0.0 --tag-target "$sha" --print-push-remote)" || exit 1
+   git tag -a v2.0.0 -m "dev-skill 2.0.0" "$sha"
+   test "$(git rev-parse 'v2.0.0^{commit}')" = "$sha" || exit 1
+   git push "$remote" refs/tags/v2.0.0
    ```
+
+   The check is the canonical pre-write verification for a tag push. It
+   verifies the remote identity and both accounts, that `$sha` is the live tip
+   of the remote's default branch, and that the tag exists neither locally nor
+   on the remote; it needs no particular branch checked out. It prints the
+   remote to push to (`origin` here) and exits 2, printing nothing, on anything
+   it cannot verify. It runs **before** `git tag` because it refuses a tag that
+   already exists locally. Tagging the verified `$sha` explicitly, not `HEAD`,
+   and re-reading the tag's peeled commit keep the pushed tag on exactly the
+   commit the check approved. The checkout needs its `.dev.json`; see
+   `skills/dev/phases/repository-context.md`.
 
    Cut the tag from `main` only. `master` mirrors upstream and carries
    upstream's `v1.x` tags; releasing from it would be wrong.
