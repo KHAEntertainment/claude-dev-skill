@@ -112,6 +112,9 @@ class TagPushFixture(unittest.TestCase):
         bare = self.root / name
         _git("init", "--bare", "-q", str(bare), cwd=self.root)
         _git("symbolic-ref", "HEAD", "refs/heads/main", cwd=bare)
+        # `git tag -a` run in a bare repo needs a tagger identity; never rely on a global one.
+        _git("config", "user.email", "test@example.com", cwd=bare)
+        _git("config", "user.name", "Test", cwd=bare)
         return bare
 
     def commit(self, repo: Path, filename: str) -> str:
@@ -249,13 +252,61 @@ class TagPushRefusalTests(TagPushFixture):
                 self.assertNotReady(code, verdict, "invalid_tag_destination")
 
     def test_assigned_branch_cannot_be_combined_with_tag_mode(self) -> None:
-        code, _, verdict = _tag_verdict(self.clone, tag_target=self.main_sha, assigned_branch="main")
-        self.assertNotReady(code, verdict, "conflicting_arguments")
+        # An empty value is still "given": it must not slip through as if absent.
+        for branch in ("main", ""):
+            with self.subTest(assigned_branch=branch):
+                code, _, verdict = _tag_verdict(self.clone, tag_target=self.main_sha, assigned_branch=branch)
+                self.assertNotReady(code, verdict, "conflicting_arguments")
 
-    def test_not_ready_prints_nothing_for_print_push_remote(self) -> None:
+    def test_verification_refusal_prints_nothing_under_print_push_remote(self) -> None:
         _git("tag", "v9.9.9", self.main_sha, cwd=self.clone)
         code, text, _ = _tag_verdict(self.clone, tag_target=self.main_sha, print_remote=True)
         self.assertEqual((2, ""), (code, text))
+
+    def test_argument_validation_failures_print_the_json_verdict_under_print_push_remote(self) -> None:
+        cases = (
+            ({"tag_target": "not-a-revision"}, "invalid_tag_target"),
+            ({"tag_target": self.main_sha, "dest_ref": "refs/heads/main"}, "invalid_tag_destination"),
+            ({"tag_target": self.main_sha, "assigned_branch": "main"}, "conflicting_arguments"),
+        )
+        for kwargs, reason_code in cases:
+            with self.subTest(reason_code=reason_code):
+                code, text, verdict = _tag_verdict(self.clone, print_remote=True, **kwargs)
+                self.assertEqual(2, code)
+                self.assertEqual(reason_code, verdict["reason_code"])
+                self.assertEqual("incomplete", verdict["status"])
+
+    def test_dry_run_failure_through_the_runner_seam_is_refused(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], cwd: Path) -> tuple[int, str]:
+            calls.append(command)
+            if command[:3] == ["git", "push", "--dry-run"]:
+                return 1, ""
+            return MODULE.read_command(command, cwd=cwd, merge_stderr=False)
+
+        result = MODULE.verify_tag_push(
+            self.clone, remote="origin", tag_name="v9.9.9", target=self.main_sha, runner=runner)
+        self.assertEqual(("incomplete", "dry_run_failed"), (result["status"], result["reason_code"]))
+        self.assertEqual(
+            ["git", "push", "--dry-run", "origin", f"{self.main_sha}:refs/tags/v9.9.9"], calls[-1])
+        self.assertTrue(any(call[:3] == ["git", "ls-remote", "--symref"] for call in calls))
+
+    def test_unreadable_local_tag_state_fails_closed(self) -> None:
+        real = MODULE.read_command
+
+        def failing_show_ref(command, **kwargs):
+            if command[:2] == ["git", "show-ref"]:
+                return 128, ""
+            return real(command, **kwargs)
+
+        with patch.object(MODULE, "read_command", side_effect=failing_show_ref):
+            result = MODULE.verify_tag_push(self.clone, remote="origin", tag_name="v9.9.9", target=self.main_sha)
+        self.assertEqual(("incomplete", "local_tag_check_failed"), (result["status"], result["reason_code"]))
+
+    def test_unknown_remote_has_no_push_url_and_fails_closed(self) -> None:
+        result = MODULE.verify_tag_push(self.clone, remote="no-such-remote", tag_name="v9.9.9", target=self.main_sha)
+        self.assertEqual(("incomplete", "push_url_unavailable"), (result["status"], result["reason_code"]))
 
 
 class TagPushKeepsIdentityChecksTests(TagPushFixture):
@@ -354,14 +405,27 @@ class ReleaseDocPinTests(unittest.TestCase):
 
     def test_step_3_tags_the_verified_commit_and_confirms_the_peeled_commit(self) -> None:
         step = self._step3()
-        self.assertRegex(step, r'git tag -a v\d+\.\d+\.\d+ -m "[^"]+" "\$sha"')
+        self.assertIn('git tag -a vX.Y.Z -m "dev-skill X.Y.Z" "$sha"', step)
         self.assertIn("^{commit}", step)
+        self.assertNotIn("v2.0.0", step, "step 3 must use vX.Y.Z placeholders, not a literal release")
 
     def test_repository_context_documents_tag_mode(self) -> None:
         text = (ROOT / "skills" / "dev" / "phases" / "repository-context.md").read_text(encoding="utf-8")
         self.assertIn("### Before a release tag push", text)
         for token in ("--tag-target", "--dest-ref refs/tags/", "ls-remote --symref", "detached"):
             self.assertIn(token, text)
+        section = text[text.index("### Before a release tag push"):text.index("### Before a PR or Issue operation")]
+        for code in ("invalid_tag_target", "invalid_tag_destination", "conflicting_arguments", "tag_exists_local",
+                     "local_tag_check_failed", "push_url_unavailable", "remote_unreachable",
+                     "default_branch_unresolved", "target_mismatch", "tag_exists_remote", "dry_run_failed"):
+            self.assertIn(f"`{code}`", section)
+
+    def test_step_4_uses_a_placeholder_tag(self) -> None:
+        text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+        match = re.search(r"4\. \*\*Verify the tag resolves\.\*\*(.*?)\n5\. \*\*", text, re.DOTALL)
+        self.assertIsNotNone(match)
+        self.assertIn("grep vX.Y.Z", match.group(1))
+        self.assertNotIn("v2.0.0", match.group(1))
 
 
 if __name__ == "__main__":
