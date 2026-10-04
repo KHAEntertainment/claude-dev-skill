@@ -49,7 +49,9 @@ Allowed `identity_verification` values, additive under `schema_version: 2`: `nul
 
 ## Worker record schema
 
-Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `report_back`, `report_back_termination`, `report_back_cause`, `created_at`, and `updated_at`.
+Each `workers` entry records: `role`, `issue`, `agent_id`, `harness`, `model`, `profile`, `profile_source`, `reasoning_effort`, `permission_mode`, `route_source`, `branch`, `base_oid`, `source_workspace`, `worktree`, `ownership`, `status`, `pr`, `communication_response_id`, `dispatched_by`, `dispatched_at`, `report_back`, `report_back_termination`, `report_back_cause`, `created_at`, and `updated_at`.
+
+`dispatched_by` and `dispatched_at` are additive under `schema_version: 2` and are written in the same ledger write as `communication_response_id`. `dispatched_by` is the dispatching lead's agent id, taken from that lead's own verified `execution.traycer_agent_id` at the moment the assignment was sent, and `dispatched_at` is the UTC time `agent send` returned the response id. They are the only source of the previous lead's session id after a lead change, and the lead never fills them from a path guess, a directory name, or another agent's record. A worker entry written before these fields existed has neither; the swap-time evidence rule in `${CLAUDE_SKILL_DIR}/backends/traycer.md` then does not apply to that lane and its empty read stays `absent`.
 
 Allowed status values: `planned`, `worktree_ready`, `active`, `blocked`, `pr_created`, `qa`, `review`, `complete`, `stopped`.
 
@@ -77,6 +79,8 @@ Allowed `report_back_cause` values: `null` when `report_back` is `pending` or `c
 | observed | `completed` | all seven | `complete` | `null` |
 
 The mapping is total, so every observation has exactly one row, and any pairing not in this table is an invalid record — `absent` beside a cut read, `malformed` beside a stall, or any non-null cause beside `report_back: complete`.
+
+**The swap-time evidence rule adds no row.** After a lead change, `${CLAUDE_SKILL_DIR}/backends/traycer.md` may let a message in the previous lead's transcript count as the correlated reply; that only decides the first column's "observed" or "not observed", and the table above applies to the result unchanged. The rule never upgrades a cut read: a read that ended `stalled`, `page_cap`, or `time_bound` is `truncated` here as everywhere.
 
 **`absent` requires a `completed` read.** A read cut short by a stall, the page cap, or the time bound that found no correlated reply has not established absence; the reply may lie past the cut. That record is `truncated`, and the remedy is to re-read before concluding anything about the lane. Reading "no reply seen so far" as "no reply exists" would be this contract's own defect — a partial absence of signal taken as a positive finding — committed by the ledger that exists to prevent it.
 

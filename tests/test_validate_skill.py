@@ -227,6 +227,32 @@ class SuppliedIdentityPinTests(unittest.TestCase):
         ("SKILL.md", "never available to a lead whose harness is not Claude Code"),
     )
 
+    # Issue #97: swap-time report-back evidence. Listed literally rather than
+    # imported from the validator, so a pin dropped from the validator fails here.
+    SWAP_PINS = (
+        ("backends/traycer.md", "**Swap-time evidence (after a lead change only).**"),
+        ("backends/traycer.md", "It adds no row, termination value, or cause to the mapping"),
+        ("backends/traycer.md", "A worker entry with no `dispatched_by` fails this condition"),
+        ("backends/traycer.md", "the swap rule never upgrades a truncated read"),
+        ("backends/traycer.md", "never the title and never an id mentioned in the body"),
+        ("backends/traycer.md", "was sent after the recorded `dispatched_at`"),
+        ("backends/traycer.md", "verbatim and in full; a prefix, a different id, or a paraphrase does not match"),
+        ("backends/traycer.md", "because a cut read cannot establish absence"),
+        ("backends/traycer.md", "Different means a **lead swap**, not an identity failure"),
+        ("backends/traycer.md", "a swap never relaxes any Preflight step 3 check"),
+        ("backends/contract.md", "**Swap-time evidence is adapter-defined, narrow, and fails closed.**"),
+        ("backends/contract.md", "It never upgrades a read that ended `stalled`, `page_cap`, or `time_bound`"),
+        ("backends/contract.md", "and anything less stays `absent`"),
+        ("backends/contract.md", "It adds no row, termination value, or cause to the mapping"),
+        ("agents/report-back.md", "on the **first line**"),
+        ("agents/report-back.md", "(for example `Response ID: <id>`), above the seven sections."),
+        ("agents/report-back.md", "A missing or mismatched correlation ID fails the lane closed."),
+        ("agents/report-back.md", "and a missing or mismatched ID still fails the lane closed"),
+        ("templates/DEV_STATE_TEMPLATE.md", "`communication_response_id`, `dispatched_by`, `dispatched_at`, `report_back`"),
+        ("templates/DEV_STATE_TEMPLATE.md", "`dispatched_by` and `dispatched_at` are additive under `schema_version: 2`"),
+        ("templates/DEV_STATE_TEMPLATE.md", "**The swap-time evidence rule adds no row.**"),
+    )
+
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -256,7 +282,7 @@ class SuppliedIdentityPinTests(unittest.TestCase):
         self.assertIn("missing required file: scripts/traycer_cli.py", completed.stderr)
 
     def test_removing_each_pinned_sentence_fails(self) -> None:
-        for relative, token in self.PINS:
+        for relative, token in self.PINS + self.SWAP_PINS:
             with self.subTest(file=relative, token=token):
                 target = self.skill_dir / relative
                 original = target.read_text(encoding="utf-8")
