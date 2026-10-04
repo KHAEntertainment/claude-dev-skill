@@ -15,8 +15,10 @@ a link whose target no longer exists is replaced. That guarantee assumes nothing
 else writes to that path during the install. If the link cannot be created the
 install still succeeds and the skip is reported.
 
-Paths (config dir, target, home) containing a newline or carriage return are
-refused before anything is changed.
+A newline or carriage return in the config dir, the install target, or the Codex
+discovery link path (checked only when a link is made) is refused before anything
+is changed; a relative -Target also checks the working directory. The home
+directory is not checked on its own.
 
 A custom -Target installs in isolation: it does not migrate legacy commands by
 default and does not create the Codex discovery link.

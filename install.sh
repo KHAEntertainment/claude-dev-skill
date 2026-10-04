@@ -106,7 +106,9 @@ usage() {
     'other harnesses discover the same copy. An existing real directory, file, or link to another' \
     'existing directory at that path is reported and left untouched; a link whose target no longer' \
     'exists is replaced. That guarantee assumes nothing else writes to that path during the install.' \
-    'Paths (config dir, target, home) containing a newline or carriage return are refused.' \
+    'A newline or carriage return in the config dir, the install target, or the Codex discovery link' \
+    'path (checked only when a link is made) is refused; a relative --target also checks the working' \
+    'directory. HOME is not checked on its own.' \
     '--no-agents-link  do not create or touch that link.'
 }
 
