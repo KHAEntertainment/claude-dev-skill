@@ -419,6 +419,13 @@ class ReleaseDocPinTests(unittest.TestCase):
                      "local_tag_check_failed", "push_url_unavailable", "remote_unreachable",
                      "default_branch_unresolved", "target_mismatch", "tag_exists_remote", "dry_run_failed"):
             self.assertIn(f"`{code}`", section)
+        # The wording must not claim the list is exhaustive or enumerate per-check stdout behavior.
+        flat = " ".join(section.split())
+        self.assertIn("add these 11 reason codes", flat)
+        self.assertIn("keep their existing codes", flat)
+        self.assertIn("gate on the exit status, never on stdout", flat)
+        self.assertNotIn("one of 11 reason codes", flat)
+        self.assertNotIn("print nothing on stdout", flat)
 
     def test_step_4_uses_a_placeholder_tag(self) -> None:
         text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")

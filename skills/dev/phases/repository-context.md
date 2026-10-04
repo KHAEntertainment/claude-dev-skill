@@ -173,15 +173,15 @@ tag the same `<commit>` explicitly, then push `refs/tags/<tag>` to `"$remote"`.
   The target must equal that tip at **every** push URL.
 - Refuses a tag that already exists locally or on any push URL, then runs
   `git push --dry-run <remote> <commit>:refs/tags/<tag>`.
-- Fails closed (exit 2) with one of 11 reason codes: `invalid_tag_target`,
+- The tag-specific checks add these 11 reason codes: `invalid_tag_target`,
   `invalid_tag_destination`, `conflicting_arguments`, `tag_exists_local`,
   `local_tag_check_failed`, `push_url_unavailable`, `remote_unreachable`,
   `default_branch_unresolved`, `target_mismatch`, `tag_exists_remote`,
-  `dry_run_failed`. Under `--print-push-remote`, argument-validation failures
-  (`invalid_tag_target`, `invalid_tag_destination`, `conflicting_arguments`)
-  print the JSON verdict on stdout; the verification refusals that follow print
-  nothing on stdout and the reason on stderr. Gate on the exit status, never on
-  stdout.
+  `dry_run_failed`. Identity, transport-account and `gh` login refusals keep
+  their existing codes. Under `--print-push-remote`, stdout carries the remote
+  only on `ready`. A refusal exits 2, and stdout may carry the JSON verdict or
+  nothing depending on which check refused, so gate on the exit status, never
+  on stdout.
 - Known refusal: a `branch.<current>.pushRemote` that names a different remote
   than `github.pushRemote` fails closed in a linked worktree, as it does for a
   branch push. Remedy: run from a detached checkout, where no branch setting
