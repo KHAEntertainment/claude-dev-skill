@@ -15,7 +15,10 @@ Three independent things are validated, and a caller must not conflate them:
   destination — every one of its push URLs, and the named remote itself —
   match `.dev.json`'s `pushRepository`? Fetch URLs are context, never a
   destination. This also runs the branch/refspec check and a `--dry-run`
-  push using the exact validated remote and refspec.
+  push using the exact validated remote and refspec. With `--tag-target` the
+  branch check is replaced by a release-tag check (target equals the live
+  remote default-branch tip, tag absent locally and remotely, `gh` login
+  verified) that works from a detached checkout.
 - **Operation-target identity** (`--operation pr` / `--operation issue`): does
   the *explicit* `--repo`/`--target` argument the caller is about to pass to
   `gh` match the confirmed value for this operation — `pullRequestRepository`
@@ -704,6 +707,143 @@ def verify_branch_and_dry_run(
     }
 
 
+# --- Release tag push verification -------------------------------------------
+#
+# A release tag is cut from the remote default branch's tip, usually from a
+# detached or linked-worktree checkout, so the branch-state guard above cannot
+# apply. This mode replaces it with checks that do not depend on which branch
+# (if any) is checked out: the tag target must be the *live* tip of the remote
+# default branch, and the tag must not already exist locally or on the remote.
+# The default branch is read with `git ls-remote --symref <push-url> HEAD`
+# rather than from a local `refs/remotes/*` ref, so a stale or un-fetched local
+# ref cannot make a wrong target look right and no fetch is needed.
+
+TAG_REF_PREFIX = "refs/tags/"
+FULL_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+
+def _incomplete(reason_code: str, reason: str) -> dict[str, object]:
+    return {"status": "incomplete", "reason_code": reason_code, "reason": reason}
+
+
+def validate_tag_arguments(
+    repo_dir: Path,
+    *,
+    tag_target: str,
+    dest_ref: str | None,
+    assigned_branch: str | None,
+) -> dict[str, object]:
+    """Offline validation of the tag-mode arguments; fails closed.
+
+    Returns `ready` with the tag name and the full commit sha `tag_target`
+    resolves to in this checkout, or an `incomplete` verdict.
+    """
+    if assigned_branch:
+        return _incomplete(
+            "conflicting_arguments",
+            "--tag-target and --assigned-branch cannot be combined: a tag push has no branch guard",
+        )
+    if not dest_ref or not dest_ref.startswith(TAG_REF_PREFIX):
+        return _incomplete("invalid_tag_destination", "--tag-target requires --dest-ref refs/tags/<name>")
+    name = dest_ref[len(TAG_REF_PREFIX):]
+    if not name or name.startswith("-"):
+        return _incomplete("invalid_tag_destination", "tag name is empty or starts with `-`")
+    valid_ref, _ = read_command(["git", "check-ref-format", dest_ref], cwd=repo_dir)
+    if valid_ref != 0:
+        return _incomplete("invalid_tag_destination", "destination is not a valid tag ref name")
+
+    if not tag_target or tag_target.startswith("-"):
+        return _incomplete("invalid_tag_target", "--tag-target is empty or starts with `-`")
+    status, output = read_command(
+        ["git", "rev-parse", "--verify", "--quiet", f"{tag_target}^{{commit}}"], cwd=repo_dir)
+    if status == -1:
+        raise RepositoryError("git_cli_missing", "git CLI is not installed or not in PATH")
+    sha = output.strip().lower()
+    if status != 0 or not FULL_SHA.match(sha):
+        return _incomplete("invalid_tag_target", "--tag-target does not resolve to a commit in this checkout")
+    return {"status": "ready", "name": name, "target": sha}
+
+
+def _parse_remote_head(output: str) -> tuple[str | None, str | None]:
+    """Return (default branch name, tip sha) from `git ls-remote --symref <url> HEAD`."""
+    branch = sha = None
+    for line in output.splitlines():
+        if line.startswith("ref: "):
+            ref, _, name = line[len("ref: "):].partition("\t")
+            if name == "HEAD" and ref.startswith("refs/heads/") and len(ref) > len("refs/heads/"):
+                branch = ref[len("refs/heads/"):]
+        else:
+            value, _, name = line.partition("\t")
+            if name == "HEAD" and FULL_SHA.match(value):
+                sha = value
+    return branch, sha
+
+
+def verify_tag_push(
+    repo_dir: Path,
+    *,
+    remote: str,
+    tag_name: str,
+    target: str,
+    runner: Callable[[list[str], Path], tuple[int, str]] | None = None,
+) -> dict[str, object]:
+    """Verify that pushing `refs/tags/<tag_name>` at `target` to `remote` is safe.
+
+    Every check is against live state and none requires a checked-out branch.
+    Any unreadable, unparseable, or unreachable answer is `incomplete`.
+    """
+    ref = f"{TAG_REF_PREFIX}{tag_name}"
+    run = runner or (lambda cmd, cwd: read_command(cmd, cwd=cwd, merge_stderr=False))
+
+    local_status, _ = read_command(["git", "show-ref", "--verify", "--quiet", ref], cwd=repo_dir)
+    if local_status == 0:
+        return _incomplete("tag_exists_local", f"tag `{tag_name}` already exists locally")
+    if local_status != 1:
+        return _incomplete("local_tag_check_failed", f"could not determine whether tag `{tag_name}` exists locally")
+
+    url_status, url_output = read_command(["git", "remote", "get-url", "--push", "--all", remote], cwd=repo_dir)
+    urls = [line.strip() for line in url_output.splitlines() if line.strip()] if url_status == 0 else []
+    if not urls:
+        return _incomplete("push_url_unavailable", f"could not read the push URL of remote `{remote}`")
+
+    default_branch: str | None = None
+    for index, url in enumerate(urls, 1):
+        where = f"push URL {index} of {len(urls)} of remote `{remote}`"
+        status, output = run(["git", "ls-remote", "--symref", "--", url, "HEAD"], repo_dir)
+        if status != 0:
+            return _incomplete("remote_unreachable", f"could not read the default branch from {where} (exit {status})")
+        branch, tip = _parse_remote_head(output)
+        if branch is None or tip is None:
+            return _incomplete("default_branch_unresolved", f"{where} did not report a default branch and tip")
+        if tip != target:
+            return _incomplete(
+                "target_mismatch",
+                f"tag target {target} is not the tip of the remote default branch `{branch}` ({tip}) at {where}",
+            )
+        default_branch = branch
+
+        status, output = run(["git", "ls-remote", "--tags", "--", url, ref], repo_dir)
+        if status != 0:
+            return _incomplete("remote_unreachable", f"could not list tags on {where} (exit {status})")
+        for line in output.splitlines():
+            _, _, listed = line.partition("\t")
+            if listed in (ref, f"{ref}^{{}}"):
+                return _incomplete("tag_exists_remote", f"tag `{tag_name}` already exists on {where}")
+
+    refspec = f"{target}:{ref}"
+    status, _ = run(["git", "push", "--dry-run", remote, refspec], repo_dir)
+    if status != 0:
+        return _incomplete("dry_run_failed", f"`git push --dry-run {remote} {refspec}` did not succeed (exit {status})")
+    return {
+        "status": "ready",
+        "reason_code": "tag_push_verified",
+        "reason": f"tag `{tag_name}` at {target} is the tip of `{default_branch}` and does not exist yet",
+        "remote": remote,
+        "refspec": refspec,
+        "tag": {"name": tag_name, "target": target, "default_branch": default_branch},
+    }
+
+
 # --- Transport account verification -----------------------------------------
 #
 # Bounded to the two supported transports named in the plan: an ordinary HTTPS
@@ -1075,6 +1215,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--assigned-branch", help="the ledger-assigned branch for a push operation")
     parser.add_argument("--dest-ref", help="destination ref for the dry run; defaults to refs/heads/<assigned-branch>")
     parser.add_argument(
+        "--tag-target",
+        help=(
+            "release-tag push mode: the commit the tag will point at. Requires --dest-ref refs/tags/<name> and "
+            "replaces --assigned-branch; verifies the commit is the live remote default-branch tip and the tag "
+            "does not exist yet, without requiring any branch to be checked out"
+        ),
+    )
+    parser.add_argument(
         "--fixture",
         type=Path,
         help="pure decision-logic testing only: read deterministic remote/default state instead of loading .dev.json",
@@ -1183,7 +1331,18 @@ def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> in
     if args.no_verify_access:
         return _emit({"status": "incomplete", "reason_code": "verification_required",
                       "reason": "push readiness cannot skip repository verification"})
-    if not args.assigned_branch:
+    tag_mode = args.tag_target is not None
+    tag_args: dict[str, object] = {}
+    if tag_mode:
+        try:
+            tag_args = validate_tag_arguments(
+                args.repo_dir.resolve(), tag_target=args.tag_target,
+                dest_ref=args.dest_ref, assigned_branch=args.assigned_branch)
+        except RepositoryError as exc:
+            tag_args = _incomplete(exc.code, str(exc))
+        if tag_args["status"] != "ready":
+            return _emit(tag_args)
+    elif not args.assigned_branch:
         return _emit({
             "status": "incomplete",
             "reason_code": "missing_argument",
@@ -1236,12 +1395,25 @@ def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> in
                 return _emit({"status": "incomplete", "repository": None,
                               "remote": None, "effective_push_remote": None,
                               "reason_code": account["reason_code"], "reason": account["reason"]})
-        dry_run = verify_branch_and_dry_run(
-            repo_dir,
-            remote=str(decision["effective_push_remote"]),
-            assigned_branch=args.assigned_branch,
-            dest_ref=args.dest_ref,
-        )
+        if tag_mode:
+            login = verify_gh_cli_login(repo_dir, github["account"])
+            if login["status"] != "verified":
+                return _emit({"status": "incomplete", "repository": None,
+                              "remote": None, "effective_push_remote": None,
+                              "reason_code": login["reason_code"], "reason": login["reason"]})
+            dry_run = verify_tag_push(
+                repo_dir,
+                remote=str(decision["effective_push_remote"]),
+                tag_name=str(tag_args["name"]),
+                target=str(tag_args["target"]),
+            )
+        else:
+            dry_run = verify_branch_and_dry_run(
+                repo_dir,
+                remote=str(decision["effective_push_remote"]),
+                assigned_branch=args.assigned_branch,
+                dest_ref=args.dest_ref,
+            )
         if dry_run["status"] != "ready":
             decision["status"] = "incomplete"
             decision["reason_code"] = dry_run["reason_code"]
@@ -1251,6 +1423,8 @@ def _run_resolve_push(args: argparse.Namespace, config: dict[str, object]) -> in
             decision["repository"] = None
         else:
             decision["dry_run"] = {"remote": dry_run["remote"], "refspec": dry_run["refspec"]}
+            if tag_mode:
+                decision["tag"] = dry_run["tag"]
 
     if args.print_push_remote:
         if decision.get("status") == "ready":
