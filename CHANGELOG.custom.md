@@ -52,6 +52,20 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   positional harness, notes that a Codex terminal lead's sandbox blocked the
   CLI's network access until the user approved it (a Codex chat lead did not
   need that), and says to filter `agent list --json` to the rows needed (#98).
+- The Traycer adapter now says which evidence satisfies report-back
+  correlation after a lead swap (#97). Traycer acknowledges replies it pushes
+  to a GUI lead, so the inbox drains; the old lead's transcript is then the
+  only evidence. A message in that transcript counts as the correlated reply
+  only when both leads' inbox reads ended `completed` with no reply and the
+  message comes from the recorded lane agent, after the recorded dispatch,
+  and names the recorded response ID in full. Anything less stays `absent`,
+  and a read that ended `stalled`, `page_cap`, or `time_bound` stays
+  `truncated`. The mapping table is unchanged. Worker ledger entries gain
+  `dispatched_by` and `dispatched_at` (additive under `schema_version: 2`; a
+  lane without `dispatched_by` stays `absent`), and the recovery step says a
+  recorded lead id different from the verified one is a swap, not an identity
+  failure. `agents/report-back.md` requires the response ID on the report's
+  first line. `validate_skill.py` and the doc-assertion tests pin the rule.
 
 ## v2.1.1 — 2026-09-14
 
