@@ -738,7 +738,7 @@ def validate_tag_arguments(
     Returns `ready` with the tag name and the full commit sha `tag_target`
     resolves to in this checkout, or an `incomplete` verdict.
     """
-    if assigned_branch:
+    if assigned_branch is not None:
         return _incomplete(
             "conflicting_arguments",
             "--tag-target and --assigned-branch cannot be combined: a tag push has no branch guard",
