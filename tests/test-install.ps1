@@ -723,6 +723,19 @@ try {
     if ($helpText -notmatch "NoAgentsLink") { throw "Get-Help does not document -NoAgentsLink" }
     Pass "help documents -NoAgentsLink"
 
+    # The help must name exactly the paths the line-break guard checks (config
+    # dir, install target, the Codex link path whenever link creation is enabled
+    # -- a default install, dry runs included, not with -NoAgentsLink or an
+    # explicit -Target -- and the working directory for a relative target) and
+    # must not claim the home directory is checked on its own.
+    $helpFlat = ($helpText -replace '\s+', ' ')
+    foreach ($guarded in @("config dir", "install target", "Codex discovery link path", "checked whenever link creation is enabled", "dry runs included", "not with -NoAgentsLink or an explicit -Target", "relative -Target also checks the working directory", "home directory is not checked on its own")) {
+        if (-not $helpFlat.Contains($guarded)) { throw "Get-Help line-break wording does not mention: $guarded" }
+    }
+    if ($helpFlat.Contains("(config dir, target, home)")) { throw "Get-Help still claims home is refused" }
+    if ($helpFlat.Contains("only when a link is made")) { throw "Get-Help still limits the link-path check to when a link is made" }
+    Pass "help names exactly the paths the line-break guard checks"
+
     Write-Host "All $passCount PowerShell installer tests passed."
 }
 finally {

@@ -612,4 +612,17 @@ usage_text="$(bash "$INSTALLER" --help)"
 grep -q -- '--no-agents-link' <<<"$usage_text" || fail "--help does not document --no-agents-link"
 pass "--help documents --no-agents-link"
 
+# The help must name exactly the paths the line-break guard checks (config dir,
+# install target, the Codex link path whenever link creation is enabled -- a
+# default install, dry runs included, not with --no-agents-link or an explicit
+# --target -- and the working directory for a relative target) and must not
+# claim HOME is checked on its own.
+usage_flat="$(tr '\n' ' ' <<<"$usage_text" | tr -s ' ')"
+for guarded in 'config dir' 'install target' 'Codex discovery link path' 'checked whenever link creation is enabled' 'dry runs included' 'not with --no-agents-link or an explicit --target' 'relative --target also checks the working directory' 'HOME is not checked on its own'; do
+  grep -qF -- "$guarded" <<<"$usage_flat" || fail "--help line-break wording does not mention: $guarded"
+done
+if grep -qF -- '(config dir, target, home)' <<<"$usage_flat"; then fail "--help still claims home is refused"; fi
+if grep -qF -- 'only when a link is made' <<<"$usage_flat"; then fail "--help still limits the link-path check to when a link is made"; fi
+pass "--help names exactly the paths the line-break guard checks"
+
 printf 'All %d installer tests passed.\n' "$pass_count"
