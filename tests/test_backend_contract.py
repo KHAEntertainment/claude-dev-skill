@@ -1900,6 +1900,44 @@ class SuppliedIdentityContractTests(unittest.TestCase):
             with self.subTest(retired=retired):
                 self.assertNotIn(retired.lower(), adapter.lower())
 
+    def test_adapter_names_the_epic_id_source_and_cli_usage_gaps_found_by_the_91_probes(self) -> None:
+        """Issue #98: the epic-id source, positional harness, Codex network, and
+        agent-list size clarifications. Each token is a statement the live probes
+        showed a lead needed spelled out."""
+        adapter = self.read("backends/traycer.md")
+        supplied = _markdown_section(adapter, "## Supplied identity")
+        preflight = _markdown_section(adapter, "## Preflight")
+        self.assertIsNotNone(supplied)
+        self.assertIsNotNone(preflight)
+        for token in (
+            "`Agents in task '<epic>' (relative to you):` header",
+            "`agent list --json` carries no epic or task field",
+            "so the CLI cannot supply it",
+            "A working directory that happens to sit under `~/.traycer/epics/<epic>/` is a path guess, not a source.",
+        ):
+            with self.subTest(section="supplied", token=token):
+                self.assertIn(token, supplied)
+        for token in (
+            "`agent list-harness-models <harness> --json`",
+            "`agent list-profiles <harness> --json`",
+            "take the harness as a positional argument",
+            "`E_INVALID_ARGUMENT`",
+            "filter it to the rows needed",
+            "never print it whole",
+        ):
+            with self.subTest(section="preflight", token=token):
+                self.assertIn(token, preflight)
+        wrapper = _markdown_section(adapter, "## Wrapper route")
+        self.assertIsNotNone(wrapper)
+        for token in (
+            "A Codex lead's default sandbox has no network",
+            "`E_AUTH_NETWORK`",
+            "`E_HOST_UNREACHABLE`",
+            "asks the user for network access for the CLI",
+        ):
+            with self.subTest(section="wrapper", token=token):
+                self.assertIn(token, wrapper)
+
     def test_a_partial_environment_is_a_host_defect_the_file_cannot_repair(self) -> None:
         supplied = _markdown_section(self.read("backends/traycer.md"), "## Supplied identity")
         self.assertIsNotNone(supplied)
