@@ -16,9 +16,10 @@ else writes to that path during the install. If the link cannot be created the
 install still succeeds and the skip is reported.
 
 A newline or carriage return in the config dir, the install target, or the Codex
-discovery link path (checked only when a link is made) is refused before anything
-is changed; a relative -Target also checks the working directory. The home
-directory is not checked on its own.
+discovery link path is refused before anything is changed. The link path is
+checked whenever link creation is enabled: a default install, dry runs included,
+but not with -NoAgentsLink or an explicit -Target. A relative -Target also checks
+the working directory. The home directory is not checked on its own.
 
 A custom -Target installs in isolation: it does not migrate legacy commands by
 default and does not create the Codex discovery link.

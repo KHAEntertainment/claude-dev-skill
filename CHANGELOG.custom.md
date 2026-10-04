@@ -34,14 +34,15 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
 - Installer extraction no longer passes `-C` to `tar`, which GNU tar parses
   for backslash escapes; a path containing a backslash extracted to the wrong
   directory on Linux (#88). The paths an install uses (config dir, target,
-  and the Codex link path when a link is made) are refused before staging if
-  they contain a line break, and the resolved target is checked again before
-  an existing install is touched; the target's parent directory may already
-  have been created by then.
+  and the Codex link path when link creation is enabled) are refused before
+  staging if they contain a line break, and the resolved target is checked
+  again before an existing install is touched; the target's parent directory
+  may already have been created by then.
 - Installer help now names the paths the line-break guard actually checks: the
-  config dir, the target, and the Codex link path when a link is made (plus
-  the working directory for a relative target). It no longer claims HOME is
-  refused on its own; both installer suites assert the wording (#95).
+  config dir, the target, and the Codex link path whenever link creation is
+  enabled, dry runs included (plus the working directory for a relative
+  target). It no longer claims HOME is refused on its own; both installer
+  suites assert the wording (#95).
 - README and `docs/feature-log.md` no longer cite `install.sh` line numbers,
   which had gone stale; the RTK prerequisite points at the `command -v rtk`
   preflight by name (#96).

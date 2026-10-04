@@ -107,8 +107,9 @@ usage() {
     'existing directory at that path is reported and left untouched; a link whose target no longer' \
     'exists is replaced. That guarantee assumes nothing else writes to that path during the install.' \
     'A newline or carriage return in the config dir, the install target, or the Codex discovery link' \
-    'path (checked only when a link is made) is refused; a relative --target also checks the working' \
-    'directory. HOME is not checked on its own.' \
+    'path is refused. The link path is checked whenever link creation is enabled: a default install,' \
+    'dry runs included, but not with --no-agents-link or an explicit --target. A relative --target' \
+    'also checks the working directory. HOME is not checked on its own.' \
     '--no-agents-link  do not create or touch that link.'
 }
 
