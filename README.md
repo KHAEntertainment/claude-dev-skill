@@ -128,6 +128,7 @@ Details on each are in [Execution backends](docs/backends.md).
 - **Document-first planning** for new projects that start from a design doc ([#74](https://github.com/KHAEntertainment/claude-dev-skill/issues/74)).
 - **A Showrunner planning mode** with a gap pass before breakdown, so a plan from Claude Code's plan mode or Traycer feeds straight into Issues (v2.2.0).
 - **Built-in goal and loop modes** for unattended runs, with no separate goal plugin needed: a closed list of hard stops, with everything else decided and recorded ([plan](docs/plans/2026-09-28-goal-mode-and-stop-guard.md)).
+- **Linear intake and status sync** as an optional adapter: start a run from a Linear issue and update it once the merge is verified, with GitHub still the working record ([#104](https://github.com/KHAEntertainment/claude-dev-skill/issues/104)).
 - **Optional pre-planning research** through [advise-project-approach](https://github.com/AaravKashyap12/advise-project-approach), if it beats planning without it in A/B runs (v2.2.0).
 - **Local CodeRabbit CLI review** as an optional extra lane ([#84](https://github.com/KHAEntertainment/claude-dev-skill/issues/84)).
 

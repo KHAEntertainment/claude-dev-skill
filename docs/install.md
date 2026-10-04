@@ -100,6 +100,8 @@ against an isolated target, on a machine that cannot reach the marketplace, or
 when the lead will run from Codex or OpenCode (see
 [Running the lead from Codex or OpenCode](backends.md#running-the-lead-from-codex-or-opencode)).
 
+Run every command in this section from the root of a clone of this repository.
+
 ### Running both at once
 
 The plugin and a manual install can coexist — they appear as `/dev-skill:dev`
