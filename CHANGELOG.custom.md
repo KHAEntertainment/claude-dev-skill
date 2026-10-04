@@ -53,6 +53,21 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   CLI's network access until the user approved it (a Codex chat lead did not
   need that), and says to filter `agent list --json` to the rows needed (#98).
 
+### Documentation
+
+- README rewritten for new readers under the working name Showrunner: what a
+  run does for you, the tools it works alongside (RTK, CodeRabbit, Kilo Code,
+  GitHub Copilot, Graft, Traycer, and Linear through the harness's Linear
+  connection), per-role model routing, goal-mode pairing, dogfooding stories,
+  a quick start, and a roadmap. The command stays `/dev`, and install
+  commands are unchanged until the plugin is renamed. Reference material
+  moved out of the README: `docs/install.md` (every install path, updating,
+  invocation, requirements), `docs/backends.md` (execution backends,
+  detection, running the lead from Codex or OpenCode, surface status), and
+  `docs/guarantees.md` (standing guarantees, integration boundaries, borrowed
+  concepts). The v2.1.1 "What's new" list is covered by the v2.1.1 entry
+  below, and the `skills/dev/` structure tree is dropped.
+
 ## v2.1.1 — 2026-09-14
 
 ### Added
