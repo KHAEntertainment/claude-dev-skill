@@ -80,8 +80,15 @@ version. Ignore the tag name it proposes; do not let it create the tag.
 4. **Verify the tag resolves.**
 
    ```bash
-   git ls-remote --tags origin | grep vX.Y.Z
+   git ls-remote --exit-code "$remote" refs/tags/vX.Y.Z 'refs/tags/vX.Y.Z^{}'
+   test "$(git ls-remote "$remote" 'refs/tags/vX.Y.Z^{}' | cut -f1)" = "$sha" || exit 1
    ```
+
+   This queries the exact ref on the remote step 3 pushed to (`--exit-code`
+   exits 2 when it is absent), so `vX.Y.Z` cannot match `vX.Y.Z0`, and the
+   peeled commit must equal `$sha`. Run it in the same shell as step 3, or
+   first re-resolve `remote` with the same `resolve_repository.py ...
+   --print-push-remote` command.
 
 5. **Verify the advertised install actually works**, in a scratch config so the
    real one is untouched.

@@ -427,12 +427,16 @@ class ReleaseDocPinTests(unittest.TestCase):
         self.assertNotIn("one of 11 reason codes", flat)
         self.assertNotIn("print nothing on stdout", flat)
 
-    def test_step_4_uses_a_placeholder_tag(self) -> None:
+    def test_step_4_queries_the_exact_ref_on_the_pushed_remote(self) -> None:
         text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
         match = re.search(r"4\. \*\*Verify the tag resolves\.\*\*(.*?)\n5\. \*\*", text, re.DOTALL)
         self.assertIsNotNone(match)
-        self.assertIn("grep vX.Y.Z", match.group(1))
-        self.assertNotIn("v2.0.0", match.group(1))
+        step = match.group(1)
+        self.assertIn('--exit-code "$remote" refs/tags/vX.Y.Z', step)
+        self.assertIn('= "$sha"', step)
+        self.assertNotIn("| grep", step, "grep treats the dots as wildcards: v2.1.2 would match v2.1.20")
+        self.assertNotIn("origin", step, "step 4 must query the remote step 3 pushed to, not a hardcoded one")
+        self.assertNotIn("v2.0.0", step)
 
 
 if __name__ == "__main__":
