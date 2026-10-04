@@ -724,9 +724,10 @@ try {
     Pass "help documents -NoAgentsLink"
 
     # The help must name exactly the paths the line-break guard checks (config
-    # dir, install target, the Codex link path when a link is made, and the
-    # working directory for a relative target) and must not claim the home
-    # directory is checked on its own.
+    # dir, install target, the Codex link path whenever link creation is enabled
+    # -- a default install, dry runs included, not with -NoAgentsLink or an
+    # explicit -Target -- and the working directory for a relative target) and
+    # must not claim the home directory is checked on its own.
     $helpFlat = ($helpText -replace '\s+', ' ')
     foreach ($guarded in @("config dir", "install target", "Codex discovery link path", "checked whenever link creation is enabled", "dry runs included", "not with -NoAgentsLink or an explicit -Target", "relative -Target also checks the working directory", "home directory is not checked on its own")) {
         if (-not $helpFlat.Contains($guarded)) { throw "Get-Help line-break wording does not mention: $guarded" }

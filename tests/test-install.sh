@@ -613,8 +613,10 @@ grep -q -- '--no-agents-link' <<<"$usage_text" || fail "--help does not document
 pass "--help documents --no-agents-link"
 
 # The help must name exactly the paths the line-break guard checks (config dir,
-# install target, the Codex link path when a link is made, and the working
-# directory for a relative target) and must not claim HOME is checked on its own.
+# install target, the Codex link path whenever link creation is enabled -- a
+# default install, dry runs included, not with --no-agents-link or an explicit
+# --target -- and the working directory for a relative target) and must not
+# claim HOME is checked on its own.
 usage_flat="$(tr '\n' ' ' <<<"$usage_text" | tr -s ' ')"
 for guarded in 'config dir' 'install target' 'Codex discovery link path' 'checked whenever link creation is enabled' 'dry runs included' 'not with --no-agents-link or an explicit --target' 'relative --target also checks the working directory' 'HOME is not checked on its own'; do
   grep -qF -- "$guarded" <<<"$usage_flat" || fail "--help line-break wording does not mention: $guarded"
