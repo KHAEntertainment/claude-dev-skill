@@ -83,8 +83,9 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   run does for you, the tools it works alongside (RTK, CodeRabbit, Kilo Code,
   GitHub Copilot, Graft, Traycer, and Linear through the harness's Linear
   connection), per-role model routing, goal-mode pairing, dogfooding stories,
-  a quick start, and a roadmap. The command stays `/dev`, and install
-  commands are unchanged until the plugin is renamed. Reference material
+  a quick start, and a roadmap. The command, plugin name, and install
+  commands are unchanged; the update command now uses the fully qualified
+  plugin ID `dev-skill@khaentertainment-dev-skill`. Reference material
   moved out of the README: `docs/install.md` (every install path, updating,
   invocation, requirements), `docs/backends.md` (execution backends,
   detection, running the lead from Codex or OpenCode, surface status), and

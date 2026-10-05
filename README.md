@@ -46,8 +46,8 @@ Showrunner already works with the goal modes you have, such as Claude Code's `/g
 ### Quality gates on every pull request
 
 - Each coding agent gets its own branch, its own worktree, and an explicit list of files it owns.
-- QA scores the change, flags scope drift, and audits which code paths the tests cover. It runs when a change crosses a size or risk threshold, such as 50 or more changed lines or an auth change; otherwise the skip and its reason are recorded. Emergency hotfixes always skip QA.
-- Review runs in two passes, plus specialist reviewers when the change calls for them.
+- QA checks the change against its Issue's acceptance criteria, runs the project's verification gate, and scores the result; a pass needs 80 or more and no critical or high findings. It runs when a change crosses a size or risk threshold, such as 50 or more changed lines or an auth change; otherwise the skip and its reason are recorded. Emergency hotfixes always skip QA.
+- Review runs on every pull request: a scope-drift check, static analysis, two review passes, an audit of which code paths the tests cover, and specialist reviewers when the change calls for them.
 - A green status check or a bot's "acknowledged" comment doesn't count as a review. If your external reviewer is rate-limited three times in a row, Showrunner brings in a reviewer from a different model family instead of merging unreviewed.
 - After each merge, Showrunner verifies the merged commit, re-checks the Issue's acceptance criteria, and reopens the Issue if something didn't ship.
 - Run state lives in `.agent/dev-state.md`, so an interrupted run picks up where it stopped.
