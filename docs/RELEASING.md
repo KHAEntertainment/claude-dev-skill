@@ -53,10 +53,26 @@ version. Ignore the tag name it proposes; do not let it create the tag.
 3. **Tag and push.**
 
    ```bash
-   git checkout main && git pull --ff-only
-   git tag -a v2.0.0 -m "dev-skill 2.0.0"
-   git push origin refs/tags/v2.0.0
+   git checkout main && git pull --ff-only    # or a clean detached checkout of the merge commit
+   sha="$(git rev-parse HEAD)"
+   remote="$(python3 skills/dev/scripts/resolve_repository.py --repo-dir . --operation push \
+     --dest-ref refs/tags/vX.Y.Z --tag-target "$sha" --print-push-remote)" || exit 1
+   git tag -a vX.Y.Z -m "dev-skill X.Y.Z" "$sha"
+   test "$(git rev-parse 'vX.Y.Z^{commit}')" = "$sha" || exit 1
+   git push "$remote" refs/tags/vX.Y.Z
    ```
+
+   The check is the canonical pre-write verification for a tag push. It
+   verifies the remote identity and both accounts, that `$sha` is the live tip
+   of the remote's default branch, and that the tag exists neither locally nor
+   on the remote; it needs no particular branch checked out. It prints the
+   remote to push to (`origin` here) when ready and exits 2 on anything it cannot
+   verify, so `|| exit 1` stops the release. Gate on the exit status, never on
+   stdout. It runs **before** `git tag` because it refuses a tag that
+   already exists locally. Tagging the verified `$sha` explicitly, not `HEAD`,
+   and re-reading the tag's peeled commit keep the pushed tag on exactly the
+   commit the check approved. The checkout needs its `.dev.json`; see
+   `skills/dev/phases/repository-context.md`.
 
    Cut the tag from `main` only. `master` mirrors upstream and carries
    upstream's `v1.x` tags; releasing from it would be wrong.
@@ -64,8 +80,15 @@ version. Ignore the tag name it proposes; do not let it create the tag.
 4. **Verify the tag resolves.**
 
    ```bash
-   git ls-remote --tags origin | grep v2.0.0
+   git ls-remote --exit-code "$remote" refs/tags/vX.Y.Z 'refs/tags/vX.Y.Z^{}'
+   test "$(git ls-remote "$remote" 'refs/tags/vX.Y.Z^{}' | cut -f1)" = "$sha" || exit 1
    ```
+
+   This queries the exact ref on the remote step 3 pushed to (`--exit-code`
+   exits 2 when it is absent), so `vX.Y.Z` cannot match `vX.Y.Z0`, and the
+   peeled commit must equal `$sha`. Run it in the same shell as step 3, or
+   first re-resolve `remote` with the same `resolve_repository.py ...
+   --print-push-remote` command.
 
 5. **Verify the advertised install actually works**, in a scratch config so the
    real one is untouched.
