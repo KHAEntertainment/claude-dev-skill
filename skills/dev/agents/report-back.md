@@ -10,6 +10,15 @@ silence.
 - Send the report-back through the same backend surface the assignment arrived on.
 - Include the backend correlation/response ID recorded by the adapter when one
   was provided. A missing or mismatched correlation ID fails the lane closed.
+- Put that correlation/response ID, verbatim and in full, on the **first line**
+  of the report (for example `Response ID: <id>`), above the seven sections. A
+  line above the first heading is not a section, so it never counts toward or
+  against the seven. The first-line ID does not replace the correlation rule
+  above, and a missing or mismatched ID still fails the lane closed. It exists
+  so the report names its own thread: after a lead change the pushed reply may
+  survive only in the previous lead's transcript, where the lead can recover
+  the correlation from the message body alone (swap-time evidence in
+  `${CLAUDE_SKILL_DIR}/backends/traycer.md`).
 - Read-only lanes (QA, reviewer) must also confirm they left zero tracked changes.
 - This contract is enforced by the adapter, not only by this prompt. The
   assignment envelope carries it, and `observe` marks the operation `incomplete`

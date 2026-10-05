@@ -28,6 +28,16 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   injected identifiers); dispatching lanes from a terminal lead remains
   unverified. Follow-ups: #97 (swap-time report-back rule), #98 (adapter
   clarifications) (#91).
+- `resolve_repository.py --operation push` can pre-write-verify a release tag
+  push from a detached or other-branch checkout: pass `--dest-ref
+  refs/tags/vX.Y.Z --tag-target <commit>` instead of `--assigned-branch`. It
+  keeps the remote-identity and transport-account checks, adds a `gh` login
+  check, and requires the commit to equal the live default-branch tip read
+  with `git ls-remote --symref` from every push URL (not a local
+  `origin/HEAD`), the tag to be absent locally and on the remote, and a tag
+  dry run to succeed. Any unreachable, unresolvable or unparseable input is
+  not ready. Branch pushes are unchanged. `docs/RELEASING.md` step 3 runs the
+  check before `git tag`, then tags and pushes the verified commit (#71).
 
 ### Fixed
 
@@ -52,6 +62,20 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   positional harness, notes that a Codex terminal lead's sandbox blocked the
   CLI's network access until the user approved it (a Codex chat lead did not
   need that), and says to filter `agent list --json` to the rows needed (#98).
+- The Traycer adapter now says which evidence satisfies report-back
+  correlation after a lead swap (#97). Traycer acknowledges replies it pushes
+  to a GUI lead, so the inbox drains; the old lead's transcript is then the
+  only evidence. A message in that transcript counts as the correlated reply
+  only when both leads' inbox reads ended `completed` with no reply and the
+  message comes from the recorded lane agent, after the recorded dispatch,
+  and names the recorded response ID in full. Anything less stays `absent`,
+  and a read that ended `stalled`, `page_cap`, or `time_bound` stays
+  `truncated`. The mapping table is unchanged. Worker ledger entries gain
+  `dispatched_by` and `dispatched_at` (additive under `schema_version: 2`; a
+  lane without `dispatched_by` stays `absent`), and the recovery step says a
+  recorded lead id different from the verified one is a swap, not an identity
+  failure. `agents/report-back.md` requires the response ID on the report's
+  first line. `validate_skill.py` and the doc-assertion tests pin the rule.
 
 ### Documentation
 
