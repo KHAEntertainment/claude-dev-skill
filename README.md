@@ -81,11 +81,11 @@ Showrunner picks a path based on what you ask for, tells you which one and why, 
 | --- | --- |
 | A new project | Align → break down → build → QA → review and merge → retro |
 | A feature or large change | Break down → build → QA → review and merge → retro |
-| A small fix | Light breakdown → build → review and merge → retro |
+| A small fix | Light breakdown → build → QA when a threshold is crossed → review and merge → retro |
 | An emergency hotfix | Express breakdown, branched from `main` → build → review and merge → retro |
 | A refactor or architecture change | Breakdown with an impact check or refactor rules → build → QA → review and merge → retro |
 
-On the paths that include it, QA runs only when the change crosses a size or risk threshold. Emergency hotfixes skip QA.
+QA runs when a change crosses a size or risk threshold, such as 50 or more changed lines or an auth change. Emergency hotfixes always skip it.
 
 ## Quick start
 
