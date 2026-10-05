@@ -42,6 +42,47 @@ REQUIRED = {
 }
 
 
+# Issue #97: swap-time report-back evidence. Pinned per file, as the rest of the
+# report-back enforcement is: `contract.md` states the backend-neutral
+# constraints, `traycer.md` the rule itself, `report-back.md` the first-line
+# response ID the rule depends on, and the ledger template the fields that let
+# a new lead detect a swap. Each token is one the rule loses its fail-closed
+# shape without: dropping "never upgrades a truncated read" would let a cut
+# read become a verdict, and dropping the sender or dispatch-time condition
+# would let any message that quotes the id satisfy correlation.
+SWAP_EVIDENCE_PINS = {
+    "backends/traycer.md": (
+        "**Swap-time evidence (after a lead change only).**",
+        "It adds no row, termination value, or cause to the mapping",
+        "A worker entry with no `dispatched_by` fails this condition",
+        "the swap rule never upgrades a truncated read",
+        "never the title and never an id mentioned in the body",
+        "was sent after the recorded `dispatched_at`",
+        "verbatim and in full; a prefix, a different id, or a paraphrase does not match",
+        "because a cut read cannot establish absence",
+        "Different means a **lead swap**, not an identity failure",
+        "a swap never relaxes any Preflight step 3 check",
+    ),
+    "backends/contract.md": (
+        "**Swap-time evidence is adapter-defined, narrow, and fails closed.**",
+        "It never upgrades a read that ended `stalled`, `page_cap`, or `time_bound`",
+        "and anything less stays `absent`",
+        "It adds no row, termination value, or cause to the mapping",
+    ),
+    "agents/report-back.md": (
+        "on the **first line**",
+        "(for example `Response ID: <id>`), above the seven sections.",
+        "A missing or mismatched correlation ID fails the lane closed.",
+        "and a missing or mismatched ID still fails the lane closed",
+    ),
+    "templates/DEV_STATE_TEMPLATE.md": (
+        "`communication_response_id`, `dispatched_by`, `dispatched_at`, `report_back`",
+        "`dispatched_by` and `dispatched_at` are additive under `schema_version: 2`",
+        "**The swap-time evidence rule adds no row.**",
+    ),
+}
+
+
 # The Execution Routing Policy section defers to the agent selection guide and
 # exists to stay empty of routes. It is pinned structurally: the section must
 # contain its approved content and nothing else, so any added line fails
@@ -733,6 +774,8 @@ def main() -> int:
             "graph_evidence: unavailable",
         ),
     }
+    for relative, tokens in SWAP_EVIDENCE_PINS.items():
+        per_file_policy[relative] = per_file_policy.get(relative, ()) + tokens
     for relative, tokens in sorted(per_file_policy.items()):
         target = skill_dir / relative
         if target.is_file():

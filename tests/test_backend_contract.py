@@ -2117,5 +2117,277 @@ class MultiHarnessContractTests(unittest.TestCase):
         self.assertNotIn("scoped credential", contract)
 
 
+class SwapTimeEvidenceTests(unittest.TestCase):
+    """Issue #97: which evidence satisfies report-back correlation after a swap.
+
+    The adapter is prose that a lead executes, so two things are pinned: the
+    prose, and an executable reference model of the rule as the prose states
+    it. The model is built on the same derivation table the ledger carries,
+    so the table cannot change under the rule without a failure here as well
+    as in `test_the_mapping_table_states_the_exact_pairings`.
+    """
+
+    LANE = "lane-agent-1"
+    OLD_LEAD = "old-lead-1"
+    NEW_LEAD = "new-lead-2"
+    RESPONSE_ID = "637a6bab-ca78-4b93-85cd-cac46f64a67d"
+    DISPATCHED_AT = 100
+
+    def read(self, relative: str) -> str:
+        return (SKILL / relative).read_text(encoding="utf-8")
+
+    def traycer_bullet(self, lead_in: str) -> str:
+        for line in self.read("backends/traycer.md").splitlines():
+            if line.startswith(lead_in):
+                return line
+        self.fail(f"traycer.md has no bullet starting {lead_in!r}")
+
+    def ledger_rows(self) -> list[tuple[str, tuple[str, ...], str, str, str]]:
+        section = _markdown_section(
+            self.read("templates/DEV_STATE_TEMPLATE.md"), "## Report-back record schema"
+        )
+        self.assertIsNotNone(section)
+        return _mapping_rows(section)
+
+    # -- the reference model ------------------------------------------------
+
+    @staticmethod
+    def derive(observed: bool, termination: str, all_sections: bool, rows) -> tuple[str, str]:
+        correlation = "observed" if observed else "not observed"
+        for corr, terminations, sections, verdict, cause in rows:
+            if corr != correlation or termination not in terminations:
+                continue
+            if sections in ("not examined", "not judged"):
+                return verdict, cause
+            if (sections == "all seven") == all_sections:
+                return verdict, cause
+        raise AssertionError(f"no mapping row for {correlation}/{termination}/{all_sections}")
+
+    def recover(
+        self,
+        *,
+        inbox,
+        transcript=(),
+        transcript_termination="completed",
+        dispatched_by="old-lead-1",
+        current_lead="new-lead-2",
+        all_sections=True,
+    ):
+        """Classify a lane on recovery, as `traycer.md` states the rule.
+
+        `inbox` is a list of (termination, correlated) reads; `transcript` is a
+        list of (sender, sent_at, body) messages from the previous lead's
+        session.
+        """
+        rows = self.ledger_rows()
+        for termination, correlated in inbox:
+            if correlated:
+                return self.derive(True, termination, all_sections, rows)
+        cut = [t for t, _ in inbox if t != "completed"]
+        if cut:
+            return self.derive(False, cut[0], all_sections, rows)
+        absent = self.derive(False, "completed", all_sections, rows)
+        if not dispatched_by or dispatched_by == current_lead:
+            return absent
+        qualifying = [
+            m
+            for m in transcript
+            if m[0] == self.LANE and m[1] > self.DISPATCHED_AT and self.RESPONSE_ID in m[2]
+        ]
+        if transcript_termination != "completed":
+            return self.derive(bool(qualifying), transcript_termination, all_sections, rows)
+        if not qualifying:
+            return absent
+        return self.derive(True, "completed", all_sections, rows)
+
+    def report(self, body_extra: str = "") -> tuple[str, int, str]:
+        return (self.LANE, self.DISPATCHED_AT + 5, f"Response ID: {self.RESPONSE_ID}\n{body_extra}")
+
+    ABSENT = ("incomplete", "absent")
+    TRUNCATED = ("incomplete", "truncated")
+    COMPLETE = ("complete", "null")
+    MALFORMED = ("incomplete", "malformed")
+
+    # -- behaviour of the rule ----------------------------------------------
+
+    def test_the_rule_accepts_only_the_narrow_swap_evidence(self) -> None:
+        both_empty = [("completed", False), ("completed", False)]
+        self.assertEqual(self.COMPLETE, self.recover(inbox=both_empty, transcript=[self.report()]))
+        # all sections absent from the transcript message: the unchanged shape rule applies
+        self.assertEqual(
+            self.MALFORMED,
+            self.recover(inbox=both_empty, transcript=[self.report()], all_sections=False),
+        )
+
+    def test_every_missing_condition_stays_absent(self) -> None:
+        both_empty = [("completed", False), ("completed", False)]
+        good = self.report()
+        cases = {
+            "no transcript message": dict(transcript=[]),
+            "wrong sender (previous lead quotes the id)": dict(
+                transcript=[(self.OLD_LEAD, 105, good[2])]
+            ),
+            "sent before the recorded dispatch": dict(
+                transcript=[(self.LANE, self.DISPATCHED_AT, good[2])]
+            ),
+            "response id prefix only": dict(
+                transcript=[(self.LANE, 105, f"Response ID: {self.RESPONSE_ID[:8]}")]
+            ),
+            "different response id": dict(
+                transcript=[(self.LANE, 105, "Response ID: 00000000-0000-0000-0000-000000000000")]
+            ),
+            "no swap: same lead resuming": dict(
+                transcript=[good], current_lead=self.OLD_LEAD
+            ),
+            "ledger has no dispatched_by": dict(transcript=[good], dispatched_by=None),
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.ABSENT, self.recover(inbox=both_empty, **kwargs))
+
+    def test_a_cut_read_stays_truncated_and_is_never_upgraded(self) -> None:
+        good = self.report()
+        for termination in ("stalled", "page_cap", "time_bound"):
+            for inbox in (
+                [(termination, False), ("completed", False)],
+                [("completed", False), (termination, False)],
+            ):
+                with self.subTest(termination=termination, inbox=inbox):
+                    self.assertEqual(
+                        self.TRUNCATED, self.recover(inbox=inbox, transcript=[good])
+                    )
+        # a transcript read that did not end `completed` cannot establish absence
+        for termination in ("stalled", "time_bound"):
+            for transcript in ([], [good]):
+                with self.subTest(transcript_termination=termination, found=bool(transcript)):
+                    self.assertEqual(
+                        self.TRUNCATED,
+                        self.recover(
+                            inbox=[("completed", False), ("completed", False)],
+                            transcript=transcript,
+                            transcript_termination=termination,
+                        ),
+                    )
+
+    def test_the_non_swap_path_is_the_unchanged_mapping(self) -> None:
+        # With no lead change the rule is never consulted, whatever the
+        # previous lead's transcript holds. Every inbox outcome maps exactly as
+        # the ledger's table says; a drifted table fails here and in the
+        # exact-pairings test.
+        rows = self.ledger_rows()
+        self.assertEqual(list(REPORT_BACK_DERIVATION), rows)
+        planted = [self.report()]
+        for termination in REPORT_BACK_TERMINATIONS:
+            for correlated in (False, True):
+                for all_sections in (False, True):
+                    with self.subTest(termination=termination, correlated=correlated, all=all_sections):
+                        got = self.recover(
+                            inbox=[(termination, correlated)],
+                            transcript=planted,
+                            current_lead=self.OLD_LEAD,
+                            all_sections=all_sections,
+                        )
+                        self.assertEqual(self.derive(correlated, termination, all_sections, rows), got)
+        self.assertEqual(self.ABSENT, self.recover(inbox=[("completed", False)], transcript=planted, current_lead=self.OLD_LEAD))
+
+    # -- the prose says what the model says ----------------------------------
+
+    def test_the_swap_bullet_states_every_condition_and_changes_no_vocabulary(self) -> None:
+        swap = " ".join(self.read("backends/traycer.md").split())
+        for token in (
+            "**Swap-time evidence (after a lead change only).**",
+            "A worker entry with no `dispatched_by` fails this condition",
+            "Both inbox reads ended `completed` with no correlated reply",
+            "A read that ended `stalled`, `page_cap`, or `time_bound` stays `truncated`",
+            "the swap rule never upgrades a truncated read",
+            "comes from the lane's recorded `agent_id`",
+            "was sent after the recorded `dispatched_at`",
+            "contains the recorded `communication_response_id` verbatim and in full",
+            "A message from any other agent that quotes the id",
+            "never qualifies",
+            "No qualifying message with a `completed` stream stays `absent`",
+            "because a cut read cannot establish absence",
+            "It adds no row, termination value, or cause to the mapping",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, swap)
+        # No fifth termination and no fourth cause was introduced anywhere.
+        template = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn(
+            "otherwise exactly one of `absent`, `malformed`, or `truncated`", template
+        )
+        self.assertIn(
+            "`null` (no bounded read has been performed yet), `completed` (the transport declared the reply complete), `stalled` (a page returned no new content, or a cursor that did not advance), `page_cap` (the adapter's page or re-read cap was reached), and `time_bound` (the adapter's time bound elapsed)",
+            template,
+        )
+
+    def test_the_swap_bullet_comes_after_the_absent_classification(self) -> None:
+        # The swap rule refines an `absent` result; it must not precede, and so
+        # appear to pre-empt, the absent-first classification.
+        document = self.read("backends/traycer.md")
+        absent = document.index("Classify `absent` before anything else.")
+        swap = document.index("**Swap-time evidence (after a lead change only).**")
+        self.assertLess(absent, swap)
+        self.assertIn(
+            "an inbox read that ended `completed` with no correlated reply, and would therefore record `absent`, consults the swap-time evidence rule below",
+            document,
+        )
+        self.assertIn(
+            "every other read is classified exactly as stated here", document
+        )
+
+    def test_the_previous_leads_session_comes_only_from_the_ledger(self) -> None:
+        template = self.read("templates/DEV_STATE_TEMPLATE.md")
+        self.assertIn("`dispatched_by` and `dispatched_at`", template)
+        self.assertIn("the lead never fills them from a path guess", template)
+        traycer = self.read("backends/traycer.md")
+        self.assertIn(
+            "The previous lead's session id comes only from `dispatched_by`, never from a path guess, a directory name, or another agent's record.",
+            traycer,
+        )
+        self.assertIn("communication_response_id`, `dispatched_by`, `dispatched_at`", template)
+
+    def test_recovery_distinguishes_a_swap_without_weakening_identity_checks(self) -> None:
+        traycer = self.read("backends/traycer.md")
+        for token in (
+            "Different means a **lead swap**, not an identity failure",
+            "Only a failed Preflight step 3 check is an identity failure",
+            "is never a swap and makes the operation `incomplete`",
+            "a swap never relaxes any Preflight step 3 check",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, traycer)
+
+    def test_the_contract_binds_any_swap_rule(self) -> None:
+        contract = " ".join(self.read("backends/contract.md").split())
+        for token in (
+            "**Swap-time evidence is adapter-defined, narrow, and fails closed.**",
+            "only after a lead change recorded in the ledger",
+            "ended `completed` with no correlated reply",
+            "recorded lane agent, after the recorded dispatch",
+            "names the recorded response ID in full",
+            "anything less stays `absent`",
+            "It never upgrades a read that ended `stalled`, `page_cap`, or `time_bound`",
+            "a cut transcript read cannot establish absence",
+            "adds no row, termination value, or cause to the mapping",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, contract)
+
+    def test_the_report_names_its_thread_on_the_first_line_and_keeps_the_fail_closed_rule(self) -> None:
+        report_back = " ".join(self.read("agents/report-back.md").split())
+        self.assertIn("on the **first line** of the report", report_back)
+        self.assertIn("(for example `Response ID: <id>`), above the seven sections", report_back)
+        self.assertIn("A line above the first heading is not a section", report_back)
+        # The existing rule is unchanged and the new line cross-references it.
+        self.assertIn(
+            "A missing or mismatched correlation ID fails the lane closed.", report_back
+        )
+        self.assertIn(
+            "a missing or mismatched ID still fails the lane closed", report_back
+        )
+        self.assertIn("does not replace the correlation rule", report_back)
+
+
 if __name__ == "__main__":
     unittest.main()
