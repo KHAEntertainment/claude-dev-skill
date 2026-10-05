@@ -1,6 +1,6 @@
 # Execution backends
 
-`/dev` selects its execution substrate automatically and degrades gracefully when Traycer is absent. It runs in two execution modes: **Claude-native** (default, no Traycer required) or **Traycer** (optional multi-harness execution). The lead is normally a Claude Code session; under the Traycer backend it can also be a Codex or OpenCode session (see [Running the lead from Codex or OpenCode](#running-the-lead-from-codex-or-opencode)).
+`/dev` selects its execution substrate from the environment. Without Traycer identifiers, it resolves `claude-native` only when the lead positively identifies itself as a Claude Code session; missing or partial Traycer identity otherwise resolves to `incomplete` and pauses (see [Detection and fail-closed behavior](#detection-and-fail-closed-behavior)). It runs in two execution modes: **Claude-native** (default, no Traycer required) or **Traycer** (optional multi-harness execution). The lead is normally a Claude Code session; under the Traycer backend it can also be a Codex or OpenCode session (see [Running the lead from Codex or OpenCode](#running-the-lead-from-codex-or-opencode)).
 
 ## Claude-native — works without Traycer
 

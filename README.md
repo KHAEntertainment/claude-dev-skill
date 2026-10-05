@@ -2,7 +2,7 @@
 
 **Your coding agents write the code. Showrunner runs the room: it plans the work, hands it out, checks every pull request, and merges what passes.**
 
-You describe what you want built. Showrunner splits it into GitHub Issues, gives each Issue to a coding agent in its own worktree, runs QA and code review on every pull request, waits for your external reviewers, merges in dependency order, and writes down what it learned. The lead never edits implementation or test code itself. Its job is to plan, delegate, check the work, and keep you posted.
+You describe what you want built. Showrunner splits it into GitHub Issues, gives each Issue to a coding agent in its own worktree, reviews every pull request (with QA when the change is big or risky enough), waits for your external reviewers, merges in dependency order, and writes down what it learned. The lead never edits implementation or test code itself. Its job is to plan, delegate, check the work, and keep you posted.
 
 It runs inside Claude Code as the `/dev` command, with no extra services. Add [Traycer](https://github.com/traycerai/traycer) and the same workflow can send work to Codex, OpenCode, Cursor, and other harnesses.
 
@@ -24,7 +24,7 @@ Showrunner plugs into your stack instead of replacing it:
 - **CodeRabbit, Kilo Code, and GitHub Copilot** reviews are detected, waited for on the latest commit, and triaged before merge. They sit alongside Showrunner's own QA and review.
 - **[Graft](https://github.com/trailhq/Graft)**, if you use it, gives QA and review a code graph: who calls what, and every place a string appears. Without it, Showrunner traces by hand and records that it did.
 - **[Traycer](https://github.com/traycerai/traycer)** adds multi-harness execution (see below).
-- **[Linear](https://linear.app)**, if that's where you plan: start a run from a Linear issue, and the agent updates that issue when the work ships. This works through your harness's Linear connection, such as Linear's MCP server.
+- **[Linear](https://linear.app)**, if that's where you plan: point the agent at a Linear issue to start a run, and ask it to update the issue when the work ships. Your harness's Linear connection, such as Linear's MCP server, handles the Linear side today; a built-in Linear adapter is planned ([#104](https://github.com/KHAEntertainment/claude-dev-skill/issues/104)).
 - **GitHub Issues and pull requests** stay the working record that Showrunner plans, checks, and merges against, whether the work started in Linear or not.
 
 ### One lead, many agents, any harness
@@ -43,10 +43,10 @@ Showrunner already works with the goal modes you have, such as Claude Code's `/g
 
 > **Coming next:** goal and loop modes built into Showrunner, so you don't have to pair it with a separate plugin. It will stop only for a short, fixed list of reasons; every other decision gets made, recorded, and the run keeps going.
 
-### Every pull request passes the same gates
+### Quality gates on every pull request
 
 - Each coding agent gets its own branch, its own worktree, and an explicit list of files it owns.
-- QA scores the change, flags scope drift, and audits which code paths the tests cover.
+- QA scores the change, flags scope drift, and audits which code paths the tests cover. It runs when a change crosses a size or risk threshold, such as 50 or more changed lines or an auth change; otherwise the skip and its reason are recorded. Emergency hotfixes always skip QA.
 - Review runs in two passes, plus specialist reviewers when the change calls for them.
 - A green status check or a bot's "acknowledged" comment doesn't count as a review. If your external reviewer is rate-limited three times in a row, Showrunner brings in a reviewer from a different model family instead of merging unreviewed.
 - After each merge, Showrunner verifies the merged commit, re-checks the Issue's acceptance criteria, and reopens the Issue if something didn't ship.
@@ -85,6 +85,8 @@ Showrunner picks a path based on what you ask for, tells you which one and why, 
 | An emergency hotfix | Express breakdown, branched from `main` → build → review and merge → retro |
 | A refactor or architecture change | Breakdown with an impact check or refactor rules → build → QA → review and merge → retro |
 
+On the paths that include it, QA runs only when the change crosses a size or risk threshold. Emergency hotfixes skip QA.
+
 ## Quick start
 
 You need Claude Code, Git, a signed-in GitHub CLI (`gh`), Python 3, and [RTK](https://github.com/rtk-ai/rtk) (`brew install rtk`).
@@ -106,7 +108,7 @@ To update later, run both commands, then restart Claude Code:
 
 ```bash
 claude plugin marketplace update khaentertainment-dev-skill
-claude plugin update dev-skill
+claude plugin update dev-skill@khaentertainment-dev-skill
 ```
 
 Prefer Homebrew, the bare `/dev` command, or Windows? See [Installation](docs/install.md).
@@ -119,7 +121,7 @@ Prefer Homebrew, the bare `/dev` command, or Windows? See [Installation](docs/in
 | Claude Code + Traycer | [Traycer](https://github.com/traycerai/traycer) | Workers on Codex, OpenCode, Cursor, and other harnesses; a model per role; long runs spread across providers |
 | Codex or OpenCode as the lead | Traycer and the [manual installer](docs/install.md) | Moving the lead to another provider when one is rate-limited |
 | Any of the above + Graft | [Graft](https://github.com/trailhq/Graft) | Code-graph evidence in QA and review |
-| Any of the above + Linear | Your harness's Linear connection | Starting runs from Linear issues and updating them when the work ships |
+| Any of the above + Linear | Your harness's Linear connection | Pointing runs at Linear issues and updating them when the work ships (built-in adapter planned, [#104](https://github.com/KHAEntertainment/claude-dev-skill/issues/104)) |
 
 Details on each are in [Execution backends](docs/backends.md).
 

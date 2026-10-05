@@ -30,7 +30,7 @@ That is the whole plugin install. To update the plugin later:
 
 ```bash
 claude plugin marketplace update khaentertainment-dev-skill   # refresh the catalog
-claude plugin update dev-skill                                # update the installed plugin
+claude plugin update dev-skill@khaentertainment-dev-skill     # update the installed plugin
 ```
 
 Both steps are needed — refreshing the catalog does not update an installed
