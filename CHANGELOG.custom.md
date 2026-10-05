@@ -39,6 +39,14 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   not ready. Branch pushes are unchanged. `docs/RELEASING.md` step 3 runs the
   check before `git tag`, then tags and pushes the verified commit (#71).
 
+### Changed
+
+- Removed the PR-Agent fallback workflow (`.github/workflows/ai-review.yml`).
+  It fired on CodeRabbit's rate-limit notice, and CodeRabbit then reviewed the
+  same head anyway, so each head got two external reviews plus no-finding
+  comments; the `/dev` external-review gate never counted PR-Agent as a
+  trusted reviewer (#106).
+
 ### Fixed
 
 - Installer extraction no longer passes `-C` to `tar`, which GNU tar parses
