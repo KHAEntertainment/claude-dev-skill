@@ -28,6 +28,16 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   injected identifiers); dispatching lanes from a terminal lead remains
   unverified. Follow-ups: #97 (swap-time report-back rule), #98 (adapter
   clarifications) (#91).
+- `resolve_repository.py --operation push` can pre-write-verify a release tag
+  push from a detached or other-branch checkout: pass `--dest-ref
+  refs/tags/vX.Y.Z --tag-target <commit>` instead of `--assigned-branch`. It
+  keeps the remote-identity and transport-account checks, adds a `gh` login
+  check, and requires the commit to equal the live default-branch tip read
+  with `git ls-remote --symref` from every push URL (not a local
+  `origin/HEAD`), the tag to be absent locally and on the remote, and a tag
+  dry run to succeed. Any unreachable, unresolvable or unparseable input is
+  not ready. Branch pushes are unchanged. `docs/RELEASING.md` step 3 runs the
+  check before `git tag`, then tags and pushes the verified commit (#71).
 
 ### Fixed
 
