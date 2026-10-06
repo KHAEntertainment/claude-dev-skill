@@ -88,7 +88,7 @@ Runtime prerequisites for the Skill (not for installing it): `rtk`, `gh`, `git`,
 The exact commands worker, QA, and reviewer must all run. Replaces the language
 defaults in `${CLAUDE_SKILL_DIR}/phases/phase4.md`.
 
-- **Lint**: `shellcheck install.sh tests/test-install.sh scripts/check_plugin_root.sh`
+- **Lint**: `shellcheck install.sh tests/test-install.sh tests/migration-scratch.sh scripts/check_plugin_root.sh`
 - **Type check**: `n/a` — no typed surface
 - **Static analysis**: `bash -n install.sh` and `python3 scripts/validate_skill.py`
 - **Dependency scan**: `n/a` — the project declares no third-party dependencies and ships no dependency manifest, so there is nothing to scan. Reinstate `pip-audit` when PyPI packaging lands and a manifest exists. Recorded as `n/a` deliberately rather than listing a command that exits 127, which would train everyone to ignore a failing gate.
