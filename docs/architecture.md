@@ -13,7 +13,7 @@ here are packaging and release decisions, recorded below.
 - **Decision**: Publish `skills/dev/` as a Claude Code plugin via a marketplace manifest in this repository, while keeping `install.sh` / `install.ps1` working and supported.
 - **Decision time**: 2026-08-30
 - **Background**: Installing today requires cloning the repo, running a six-command validation gauntlet, and executing a Bash script. Open Issue #1 reports user drop-off during exactly this flow.
-- **Consequence**: Plugin skills are always namespaced `<plugin>:<skill>`, so the plugin is invoked as `/dev-skill:dev`. Bare `/dev` remains available only through manual installation — `install.sh` on macOS/Linux or `install.ps1` on Windows. Both may be installed at once, which yields two copies that can drift; this is documented rather than prevented.
+- **Consequence**: Plugin skills are always namespaced `<plugin>:<skill>`, so the plugin is invoked as `/dev-skill:dev`. Bare `/dev` remains available only through manual installation — `install.sh` on macOS/Linux or `install.ps1` on Windows. Both may be installed at once, which yields two copies that can drift; this is documented rather than prevented. **Update (2026-10-05):** current Claude Code also runs a plugin skill by its bare name unless another command already uses that name, so a plugin install answers to `/dev`. `/dev-skill:dev` remains the fully qualified form, and the one to use when a manual install also provides `/dev`.
 
 ## ADR-002 — Repo root is the plugin root
 

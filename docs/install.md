@@ -23,8 +23,12 @@ claude plugin install dev-skill@khaentertainment-dev-skill
 Restart Claude Code, then invoke:
 
 ```text
-/dev-skill:dev [optional project or feature description]
+/dev [optional project or feature description]
 ```
+
+A plugin skill also answers to its full name, `/dev-skill:dev`. Use that form when
+another `/dev` command is installed, for example a manual install (see
+[Running both at once](#running-both-at-once)).
 
 That is the whole plugin install. To update the plugin later:
 
@@ -43,15 +47,15 @@ All of these commands are also available inside a session as `/plugin …`.
 
 No SSH key is required — the marketplace entry fetches over HTTPS.
 
-Prefer a bare `/dev` invocation, an air-gapped machine, or an isolated
-evaluation target? See [Manual installation](#manual-installation).
+Need an air-gapped machine, an isolated evaluation target, or a lead on Codex
+or OpenCode? See [Manual installation](#manual-installation).
 
 ## Invocation
 
 Type it yourself at any time:
 
 ```text
-/dev-skill:dev [optional project or feature description]
+/dev [optional project or feature description]
 ```
 
 The Skill is also model-invocable, so an explicit request survives the
@@ -84,7 +88,7 @@ dev-skill-install                             # installs into ~/.claude/skills/d
 
 `brew install` only places the files; `dev-skill-install` runs the bundled
 `install.sh`, which does the actual install (see [Live installation](#live-installation))
-and gives you the bare `/dev` command rather than `/dev-skill:dev`.
+into `~/.claude/skills/dev`.
 
 The Homebrew formula and the plugin marketplace install the same payload but
 follow independent release cadences. The formula may lag by one release while
@@ -94,8 +98,7 @@ currently fails on the v2.1.1 formula (#70).
 
 ## Manual installation
 
-The plugin above is the recommended path. Install manually when you want the
-bare `/dev` invocation instead of `/dev-skill:dev`, when evaluating a change
+The plugin above is the recommended path. Install manually when evaluating a change
 against an isolated target, on a machine that cannot reach the marketplace, or
 when the lead will run from Codex or OpenCode (see
 [Running the lead from Codex or OpenCode](backends.md#running-the-lead-from-codex-or-opencode)).
@@ -104,8 +107,9 @@ Run every command in this section from the root of a clone of this repository.
 
 ### Running both at once
 
-The plugin and a manual install can coexist — they appear as `/dev-skill:dev`
-and `/dev` respectively. They are two independent copies and will drift apart as
+The plugin and a manual install can coexist. Bare `/dev` then runs the manual
+install, because a local skill takes the short name, and the plugin stays
+reachable as `/dev-skill:dev`. They are two independent copies and will drift apart as
 one is updated and the other is not. Pick one as your working path; if you
 switch to the plugin, move the old Skill aside into the same backup location the
 installer uses:
