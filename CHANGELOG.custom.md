@@ -101,10 +101,11 @@ record upstream SHAs as plain text in their `### Upstream` blocks.
   concepts). The v2.1.1 "What's new" list is covered by the v2.1.1 entry
   below, and the `skills/dev/` structure tree is dropped.
 - README gains the Showrunner banner (`docs/assets/showrunner-banner.webp`).
-  The plugin quick start and `docs/install.md` now invoke `/dev`: current
-  Claude Code runs a plugin skill by its bare name unless another command
-  already uses it, so `/dev-skill:dev` is documented as the fallback for when
-  a manual install also provides `/dev`. ADR-001 carries a dated update.
+  The plugin quick start and `docs/install.md` now invoke `/dev`: Claude Code
+  2.1.265 and later run a plugin skill by its bare name unless another command
+  already uses it. `/dev-skill:dev` is documented as the fallback on older
+  versions and when a manual install also provides `/dev`. ADR-001 carries a
+  dated update that supersedes its original invocation consequence.
 
 ## v2.1.1 — 2026-09-14
 

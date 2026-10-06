@@ -104,7 +104,7 @@ Restart Claude Code, then start a run:
 /dev add CSV export to the reports page
 ```
 
-If another `/dev` command is already installed, such as a manual install, use the plugin's full name instead: `/dev-skill:dev`.
+Plain `/dev` needs Claude Code 2.1.265 or later. On older versions, or if another `/dev` command is already installed (such as a manual install), use the plugin's full name: `/dev-skill:dev`.
 
 Showrunner only starts when you ask for it. Ordinary coding questions and edits stay ordinary. You can also say during planning that you want the dev workflow once implementation starts, and the agent will invoke it for you after you accept the plan.
 

@@ -26,7 +26,8 @@ Restart Claude Code, then invoke:
 /dev [optional project or feature description]
 ```
 
-A plugin skill also answers to its full name, `/dev-skill:dev`. Use that form when
+Plain `/dev` needs Claude Code 2.1.265 or later. The plugin also answers to its
+full name, `/dev-skill:dev`: use that on older Claude Code versions, or when
 another `/dev` command is installed, for example a manual install (see
 [Running both at once](#running-both-at-once)).
 
@@ -57,6 +58,9 @@ Type it yourself at any time:
 ```text
 /dev [optional project or feature description]
 ```
+
+On Claude Code older than 2.1.265, a plugin install needs the full name,
+`/dev-skill:dev`.
 
 The Skill is also model-invocable, so an explicit request survives the
 plan-to-implementation transition. If you say during planning that you want the
