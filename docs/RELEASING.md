@@ -161,7 +161,7 @@ tag name it proposes; do not let it create the tag.
 
 Publication spans two repositories in a fixed order: tag (steps 3 and 4), then
 central pin (step 5), then verification (steps 6 and 7). From the tag push until
-step 6 passes, marketplace distribution of the release is **incomplete**: do not
+step 7 passes, marketplace distribution of the release is **incomplete**: do not
 announce the release, and do not bump the Homebrew formula. An incomplete
 release is safe for users, because the central entry pins an immutable tag and
 keeps serving the previous release until the pin moves.
