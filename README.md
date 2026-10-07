@@ -1,6 +1,8 @@
-# Showrunner
+<h1 align="center">
+  <img src="docs/assets/showrunner-banner.webp" alt="Showrunner. Your coding agents write the code. Showrunner runs the room." width="100%">
+</h1>
 
-**Your coding agents write the code. Showrunner runs the room: it plans the work, hands it out, checks every pull request, and merges what passes.**
+**Showrunner plans the work, hands it out to your coding agents, checks every pull request, and merges what passes.**
 
 You describe what you want built. Showrunner splits it into GitHub Issues, gives each Issue to a coding agent in its own worktree, reviews every pull request (with QA when the change is big or risky enough), waits for your external reviewers, merges in dependency order, and writes down what it learned. The lead never edits implementation or test code itself. Its job is to plan, delegate, check the work, and keep you posted.
 
@@ -99,8 +101,10 @@ claude plugin install dev-skill@kha-marketplace
 Restart Claude Code, then start a run:
 
 ```text
-/dev-skill:dev add CSV export to the reports page
+/dev add CSV export to the reports page
 ```
+
+Plain `/dev` needs Claude Code 2.1.265 or later. On older versions, or if another `/dev` command is already installed (such as a manual install), use the plugin's full name: `/dev-skill:dev`.
 
 Showrunner only starts when you ask for it. Ordinary coding questions and edits stay ordinary. You can also say during planning that you want the dev workflow once implementation starts, and the agent will invoke it for you after you accept the plan.
 
@@ -113,7 +117,7 @@ claude plugin update dev-skill@kha-marketplace
 
 Installed it from the old `khaentertainment-dev-skill` marketplace? See [migrating](docs/install.md#migrating-from-dev-skillkhaentertainment-dev-skill).
 
-Prefer Homebrew, the bare `/dev` command, or Windows? See [Installation](docs/install.md).
+Prefer Homebrew, a manual install, or Windows? See [Installation](docs/install.md).
 
 ## Pick your setup
 
