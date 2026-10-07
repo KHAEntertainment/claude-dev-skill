@@ -193,7 +193,8 @@ assert_single_active B true
 
 printf '\n== Scenario C: old copy disabled; the migration keeps it disabled ==\n'
 fresh_cfg c
-seed_old_install && cc plugin disable "$OLD_ID" >/dev/null
+check C "seeded the old install ($OLD_ID) from a local clone of $OLD_TAG" seed_old_install
+check C "disabled the old copy" cc plugin disable "$OLD_ID"
 recorded=$(old_enabled_state)
 check C "old copy is disabled before migration" test "$recorded" = false
 check C "migration step: install $NEW_ID from the central catalog" migrate_install
